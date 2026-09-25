@@ -1,0 +1,266 @@
+/* Course 506 Week 5 Skeleton — minimal custom styles.
+   Bootstrap handles the bulk of layout and components. Add team-specific
+   styling here as your project grows. */
+
+@font-face {
+    font-family: "JBlack";
+    src: url("/site/JBLACK.TTF") format("truetype");
+    font-weight: normal;
+    font-style: normal;
+}
+
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background:
+    radial-gradient(circle at top left, rgba(13, 110, 253, 0.14), transparent 24rem),
+    radial-gradient(circle at bottom right, rgba(0, 0, 0, 0.06), transparent 22rem),
+    #f5f7fb;
+}
+
+main {
+    flex: 1;
+}
+
+.account-security {
+    font-family: "Times New Roman", Georgia, serif;
+    max-width: 48rem;
+}
+
+.account-security pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.site-header {
+    background: #000;
+}
+
+.site-header .nav-link,
+.site-header .navbar-brand {
+    color: #fff !important;
+}
+
+.site-brand {
+    font-family: "JBlack", "Impact", "Haettenschweiler", "Arial Black", sans-serif;
+    font-size: 1.8rem;
+    letter-spacing: 0.04em;
+}
+
+.nav-action-link {
+    letter-spacing: 0.02em;
+}
+
+.card {
+    border: 0;
+    box-shadow: 0 0.75rem 1.5rem rgba(15, 23, 42, 0.08);
+}
+
+.oauth-button {
+    border-width: 2px;
+    font-weight: 600;
+}
+
+.auth-panel {
+    position: relative;
+    overflow: hidden;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.9)),
+        rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 1.2rem;
+    box-shadow: 0 1rem 2rem rgba(15, 23, 42, 0.1);
+}
+
+.footer-copy {
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.hero-shell,
+.auth-shell {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.hero-shell {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+}
+
+.hero-copy,
+.auth-intro,
+.feature-card {
+    border-radius: 1.25rem;
+    border: 0;
+    box-shadow: 0 1rem 2rem rgba(15, 23, 42, 0.08);
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-copy {
+    padding: 2rem;
+    background:
+        linear-gradient(135deg, rgba(0, 0, 0, 0.92), rgba(24, 24, 24, 0.82)),
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.16), transparent 30rem);
+    color: #fff;
+}
+
+.hero-title {
+    display: inline-block;
+    font-size: clamp(2.8rem, 5vw, 4.9rem);
+    letter-spacing: 0.04em;
+    text-transform: none;
+    line-height: 0.95;
+    margin-bottom: 0.75rem;
+}
+
+.eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.75rem;
+    font-weight: 700;
+    opacity: 0.72;
+    margin-bottom: 0.75rem;
+}
+
+.hero-status,
+.auth-copy,
+.auth-notes {
+    max-width: 38rem;
+}
+
+.hero-status {
+    margin-top: 1.5rem;
+    padding: 1rem 1.1rem;
+    border-radius: 0.9rem;
+    backdrop-filter: blur(8px);
+}
+
+.hero-status-success {
+    background: rgba(40, 167, 69, 0.14);
+    border: 1px solid rgba(40, 167, 69, 0.35);
+}
+
+.hero-status-muted {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.hero-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.feature-card .card-body {
+    padding: 1.5rem;
+}
+
+.auth-shell {
+    grid-template-columns: 0.9fr 1.1fr;
+    align-items: start;
+}
+
+.auth-shell-compact {
+    grid-template-columns: 0.9fr 1fr;
+}
+
+.auth-intro {
+    background:
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.1), transparent 42%),
+        linear-gradient(160deg, #0b1020, #1c2336);
+    color: #fff;
+}
+
+.auth-intro .card-body {
+    padding: 2rem;
+}
+
+.auth-copy {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.auth-notes {
+    margin: 1.25rem 0 0;
+    padding-left: 1.1rem;
+    color: rgba(255, 255, 255, 0.88);
+}
+
+.auth-notes li + li {
+    margin-top: 0.55rem;
+}
+
+.remember-switch .form-check-input {
+    width: 2.5rem;
+    height: 1.4rem;
+}
+
+.oauth-button {
+    border-width: 2px;
+    font-weight: 700;
+}
+
+.auth-secondary-links a {
+    color: #0d6efd;
+    text-decoration: none;
+}
+
+.auth-secondary-links a:hover {
+    text-decoration: underline;
+}
+
+.auth-panel .form-control {
+    border-color: rgba(148, 163, 184, 0.35);
+    background-color: rgba(255, 255, 255, 0.96);
+}
+
+.auth-panel .form-control:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.14);
+}
+
+.auth-panel .btn-primary {
+    box-shadow: 0 0.75rem 1.25rem rgba(13, 110, 253, 0.18);
+}
+
+.auth-panel .btn-outline-dark {
+    border-width: 2px;
+}
+
+@media (max-width: 991.98px) {
+    .hero-shell,
+    .auth-shell,
+    .auth-shell-compact,
+    .hero-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .hero-copy,
+    .auth-intro {
+        order: 0;
+    }
+}
+
+@media (min-width: 992px) {
+    .hero-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 575.98px) {
+    .hero-copy,
+    .auth-intro .card-body {
+        padding: 1.25rem;
+    }
+
+    .site-brand {
+        font-size: 1.45rem;
+    }
+
+    .hero-copy h1 {
+        letter-spacing: 0.05em;
+    }
+}

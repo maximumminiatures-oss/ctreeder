@@ -1,0 +1,304 @@
+[
+    {
+        "Monster Name": "Bear, Polar",
+        "**AC**": "13",
+        "**HP**": "34",
+        "**ATK**": "2 claw +6 (2d6)",
+        "**MV**": "near (climb)",
+        "**S**": "+4",
+        "**D**": "+1",
+        "**C**": "+3",
+        "**I**": "-2",
+        "**W**": "+1",
+        "**CH**": "-2",
+        "**AL**": "N",
+        "**LV**": "7",
+        "tags": [
+            "animal"
+        ],
+        "abilities": {
+            "**Crush**": "Deals an extra die of damage if it hits the same target with both claws.",
+            "**Thick Fur**": "Cold immune."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Devil, Horned",
+        "**AC**": "16",
+        "**HP**": "35",
+        "**ATK**": "2 burning trident (near) +7 (2d6) or 1 fire blast (far) +4 (2d8)",
+        "**MV**": "double near (fly)",
+        "**S**": "+5",
+        "**D**": "+2",
+        "**C**": "+4",
+        "**I**": "+2",
+        "**W**": "+1",
+        "**CH**": "+2",
+        "**AL**": "C",
+        "**LV**": "7",
+        "tags": [
+            "devil",
+            "horror"
+        ],
+        "abilities": {
+            "**Iron Hide**": "Half damage from non-magical weapons."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Druid",
+        "**AC**": "11",
+        "**HP**": "31",
+        "**ATK**": "1 staff +0 (1d4) or 2 spell +5",
+        "**MV**": "near",
+        "**S**": "+0",
+        "**D**": "+1",
+        "**C**": "+0",
+        "**I**": "+4",
+        "**W**": "+3",
+        "**CH**": "+0",
+        "**AL**": "N",
+        "**LV**": "7",
+        "tags": [
+            "humanoid"
+        ],
+        "abilities": {
+            "**Barkskin (INT Spell)**": "Self. DC 13. AC becomes 15 for 5 rounds.",
+            "**Conjure Flames (INT Spell)**": "DC 12. One target in far takes 2d6 damage.",
+            "**Imbue (INT Spell)**": "Self. DC 13. Staff becomes a +3 magic weapon for 10 rounds.",
+            "**Summon Bear (INT Spell)**": "DC 14. Summon a loyal brown bear that appears within near. It stays for 5 rounds.",
+            "**Thunderclap (INT Spell)**": "DC 13. Fills a near-sized cube extending from druid. Creatures within are thrown 2d20 feet in a random direction."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Elephant",
+        "**AC**": "14",
+        "**HP**": "34",
+        "**ATK**": "2 tusks +6 (1d8)",
+        "**MV**": "near",
+        "**S**": "+5",
+        "**D**": "+0",
+        "**C**": "+3",
+        "**I**": "-2",
+        "**W**": "+1",
+        "**CH**": "+0",
+        "**AL**": "N",
+        "**LV**": "7",
+        "tags": [
+            "animal"
+        ],
+        "abilities": {
+            "**Charge**": "Move up to double near in straight line and make 1 tusks attack. If hit, x3 damage."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Giant, Hill",
+        "**AC**": "11 (leather)",
+        "**HP**": "34",
+        "**ATK**": "2 greatclub +6 (2d8) or 1 boulder (far) +6 (2d10)",
+        "**MV**": "double near",
+        "**S**": "+4",
+        "**D**": "+0",
+        "**C**": "+3",
+        "**I**": "-2",
+        "**W**": "-2",
+        "**CH**": "-2",
+        "**AL**": "C",
+        "**LV**": "7",
+        "tags": [
+            "giant"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Golem, Flesh",
+        "**AC**": "9",
+        "**HP**": "35",
+        "**ATK**": "3 slam +6 (1d8)",
+        "**MV**": "near",
+        "**S**": "+4",
+        "**D**": "-1",
+        "**C**": "+4",
+        "**I**": "-1",
+        "**W**": "+1",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "7",
+        "tags": [
+            "golem",
+            "horror"
+        ],
+        "abilities": {
+            "**Golem**": "Immune to damage from fire, cold, or non-magical sources. Healed by electricity.",
+            "**Berserk**": "When at or below 20 HP, +1 slam attack and slams deal double damage."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Gorgon",
+        "**AC**": "18",
+        "**HP**": "33",
+        "**ATK**": "2 gore +6 (2d8) or 1 charge or 1 petrifying breath",
+        "**MV**": "double near",
+        "**S**": "+4",
+        "**D**": "+0",
+        "**C**": "+2",
+        "**I**": "-3",
+        "**W**": "+1",
+        "**CH**": "-3",
+        "**AL**": "C",
+        "**LV**": "7",
+        "tags": [
+            "monstrosity"
+        ],
+        "abilities": {
+            "**Charge**": "Move up to double near in straight line and make 1 gore attack. If hit, x3 damage.",
+            "**Petrifying Breath**": "Fills a near- sized cube extending from gorgon. DC 15 CON or petrified (gorgons immune)."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Minotaur",
+        "**AC**": "14 (chainmail)",
+        "**HP**": "34",
+        "**ATK**": "2 greataxe +6 (1d10) and 1 horns +6 (1d12)",
+        "**MV**": "near",
+        "**S**": "+4",
+        "**D**": "+1",
+        "**C**": "+3",
+        "**I**": "+1",
+        "**W**": "+2",
+        "**CH**": "+1",
+        "**AL**": "C",
+        "**LV**": "7",
+        "tags": [
+            "animal"
+        ],
+        "abilities": {
+            "**Charge**": "In place of attacks, move up to double near in a straight line and make 1 horn attack. If hit, x2 damage."
+        },
+        "diplomacy": "Y"
+    },
+    {
+        "Monster Name": "Oni",
+        "**AC**": "11",
+        "**HP**": "33",
+        "**ATK**": "1 glaive (near) +6 (1d10) or 1 spell +5",
+        "**MV**": "near",
+        "**S**": "+5",
+        "**D**": "+1",
+        "**C**": "+2",
+        "**I**": "+2",
+        "**W**": "+1",
+        "**CH**": "+3",
+        "**AL**": "C",
+        "**LV**": "7",
+        "tags": [
+            "giant",
+            "horror"
+        ],
+        "abilities": {
+            "**Shapeshift**": "In place of attacks, turn into any humanoid or back into original form.",
+            "**Fade (CHA Spell)**": "DC 13. Self. Become invisible for 1d4 rounds.",
+            "**Hellfrost (CHA Spell)**": "DC 13. All within near-sized cube extending from oni 3d6 damage.",
+            "**Mist (CHA Spell)**": "DC 13. Self. Turn into mist that can fly double near. Lasts 2d4 rounds."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Otyugh",
+        "**AC**": "13",
+        "**HP**": "35",
+        "**ATK**": "2 tentacle +5 (1d8) and 1 bite +5 (1d10 + disease)",
+        "**MV**": "near",
+        "**S**": "+4",
+        "**D**": "-1",
+        "**C**": "+4",
+        "**I**": "-2",
+        "**W**": "+0",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "7",
+        "tags": [
+            "aberration"
+        ],
+        "abilities": {
+            "**Disease**": "DC 15 CON or infected. DC 15 CON each day or lose 1d6",
+            "**HP (can't heal)**": "Ends on success."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Triceratops",
+        "**AC**": "17",
+        "**HP**": "35",
+        "**ATK**": "2 horns +6 (1d10) or 1 charge",
+        "**MV**": "near",
+        "**S**": "+4",
+        "**D**": "-1",
+        "**C**": "+4",
+        "**I**": "-3",
+        "**W**": "+1",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "7",
+        "tags": [
+            "animal",
+            "dinosaur"
+        ],
+        "abilities": {
+            "**Charge**": "Move up to double near in straight line and make 1 horn attack. If hit, x3 damage."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Troll, Frost",
+        "**AC**": "13",
+        "**HP**": "34",
+        "**ATK**": "2 claw +5 (1d8) and 1 bite +5 (1d12)",
+        "**MV**": "near",
+        "**S**": "+3",
+        "**D**": "+2",
+        "**C**": "+3",
+        "**I**": "-1",
+        "**W**": "+0",
+        "**CH**": "-1",
+        "**AL**": "C",
+        "**LV**": "7",
+        "tags": [
+            "troll"
+        ],
+        "abilities": {
+            "**Impervious**": "Cold and fire immune.",
+            "**Regenerate**": "Regains 2d6 HP on its turn unless its wounds are cauterized with acid."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Void Spawn",
+        "**AC**": "13",
+        "**HP**": "34",
+        "**ATK**": "2 scythe +6 (1d10) and 1 tentacles +6 (1d12 + toxin)",
+        "**MV**": "near (fly)",
+        "**S**": "+4",
+        "**D**": "+1",
+        "**C**": "+3",
+        "**I**": "+0",
+        "**W**": "+1",
+        "**CH**": "-1",
+        "**AL**": "C",
+        "**LV**": "7",
+        "tags": [
+            "horror",
+            "outsider"
+        ],
+        "abilities": {
+            "**Impervious**": "Immune to cold.",
+            "**Toxin**": "DC 12 CON or paralyzed for 1d4 rounds."
+        },
+        "diplomacy": "N"
+    }
+]

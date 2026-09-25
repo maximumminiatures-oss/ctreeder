@@ -1,0 +1,90 @@
+services:
+  migrate:
+    build: .
+    command: ["python", "scripts/migrate.py"]
+    environment:
+      DATABASE_URL: postgresql://sd_owner:${DB_OWNER_PASSWORD:?Set DB_OWNER_PASSWORD}@db:5432/app
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+      OAUTH_CLIENT_ID: disabled-for-migration
+      OAUTH_CLIENT_SECRET: disabled-for-migration
+      SD_SKIP_DB_BOOTSTRAP: "1"
+      RATELIMIT_STORAGE_URI: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: .
+    command: ["gunicorn", "-c", "gunicorn.conf.py", "--bind", "0.0.0.0:8000", "app:app"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    mem_limit: 448m
+    memswap_limit: 768m
+    pids_limit: 128
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to the sd_app role}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID:?Set OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:?Set OAUTH_CLIENT_SECRET}
+      PUBLIC_BASE_URL: https://ctreeder.com
+      FLASK_ENV: production
+      RATELIMIT_STORAGE_URI: redis://redis:6379/0
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+      SHADOWDARKLINGS_IMPORT_ENABLED: ${SHADOWDARKLINGS_IMPORT_ENABLED:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://127.0.0.1:8000/healthz', timeout=5).raise_for_status()"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  importer:
+    mem_limit: 448m
+    memswap_limit: 768m
+    pids_limit: 96
+    cpus: 0.75
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sd_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?Set DB_OWNER_PASSWORD}
+      POSTGRES_DB: app
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Set DB_APP_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db-role.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sd_owner -d app"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <div class="text-center p-4 p-md-5 mb-4 rounded-3 bg-light border">
+            <h1 class="display-4 fw-bold">Procedural Shadowdark Dungeon Generator</h1>
+            <p class="lead mb-0">
+                SD Dungeon Generator is a web app for creating and exploring Shadowdark-inspired procedural
+                dungeons. A user selects a dungeon level, generates a gridded dungeon map, begins in an entrance
+                room under fog of war, and reveals rooms, doors, monsters, treasure, and traps as they explore.
+            </p>
+        </div>
+
+        <section class="mb-4">
+            <h2 class="h4">Contributors</h2>
+            <ul>
+                <li><strong>Megan</strong> - Server-side</li>
+                <li><strong><a href="http://charlesreeder-506-hw1.s3-website-us-west-2.amazonaws.com/portfolio/">Charles</a></strong> - Client-side</li>
+                <li><strong>Mario</strong> - Db-and-security</li>
+            </ul>
+        </section>
+
+        <section class="mb-4">
+            <h2 class="h4">Project type</h2>
+            <p>
+                Custom variant: procedural game/tool web app. The project combines game design, procedural
+                generation, data modeling, frontend interaction, backend deployment, and security decisions in one
+                Flask + Postgres walking skeleton.
+            </p>
+        </section>
+
+        <section class="mb-4">
+            <h2 class="h4">Endpoints planned</h2>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle">
+                    <tbody>
+                        <tr><td><code>GET /</code></td><td>Show the Flask home page with navigation to login, register, About, and My Site.</td></tr>
+                        <tr><td><code>GET /site/</code></td><td>Serve the dungeon frontend where users generate and explore the map.</td></tr>
+                        <tr><td><code>GET /site/&lt;path&gt;</code></td><td>Serve dungeon assets such as CSS, JavaScript modules, images, and JSON tables.</td></tr>
+                        <tr><td><code>GET /about</code></td><td>Show the shared project design spec for the team.</td></tr>
+                        <tr><td><code>GET /register</code></td><td>Show the registration form for player accounts.</td></tr>
+                        <tr><td><code>POST /register</code></td><td>Create a user with a hashed password and start a session.</td></tr>
+                        <tr><td><code>GET /login</code></td><td>Show the login form for returning users.</td></tr>
+                        <tr><td><code>POST /login</code></td><td>Verify credentials and restore the user's session.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="mb-4">
+            <h2 class="h4">Web-based data source</h2>
+            <p>
+                <strong>API/platform:</strong> AWS S3 static website hosting for the team's dungeon site, with AWS
+                API Gateway and Lambda as the planned backend path for saved dungeon runs.
+            </p>
+            <p>
+                <strong>Docs:</strong>
+                <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/WebsiteHosting.html">
+                    Amazon S3 static website hosting
+                </a>
+                and
+                <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/welcome.html">
+                    Amazon API Gateway
+                </a>.
+            </p>
+            <p>
+                <strong>Specific endpoint:</strong>
+                <code>/site/</code>
+                for the working dungeon generator served inside the Flask walking skeleton.
+            </p>
+            <p>
+                <strong>Free-tier notes:</strong> AWS offers limited free-tier S3 storage/requests and monthly
+                request allowances for API Gateway and Lambda on eligible accounts. The team will confirm current
+                limits in the AWS console before depending on them for production traffic.
+            </p>
+        </section>
+
+        <section class="mb-4">
+            <h2 class="h4">Schema sketch</h2>
+            <pre class="bg-dark text-light p-3 rounded"><code>Users         (id, username, password_hash, created_at)
+SavedRuns     (id, user_id, seed, level, state_json, created_at, updated_at)
+Tiles         (id, saved_run_id, x, y, type, room_id, hall_id)
+Rooms         (id, saved_run_id, x, y, width, height, discovered, explored)
+Halls         (id, saved_run_id, from_room_id, to_room_id)
+Entities      (id, saved_run_id, kind, name, x, y, defeated, collected, revealed, triggered, value)
+LootEntries   (id, saved_run_id, name, value, origin_tile)</code></pre>
+        </section>
+
+        <section class="mb-4">
+            <h2 class="h4">Link to our team's S3 bucket</h2>
+            <p>
+                <a href="http://charlesreeder-506-hw1.s3-website-us-west-2.amazonaws.com">
+                    http://charlesreeder-506-hw1.s3-website-us-west-2.amazonaws.com
+                </a>
+                (static website endpoint). The same content is also served inside Flask at
+                <a href="/site/">/site/</a>.
+            </p>
+        </section>
+
+        <section class="mb-4">
+            <h2 class="h4">Link to our team's GitHub org</h2>
+            <p>
+                <a href="https://github.com/ShadowDarklings">https://github.com/ShadowDarklings</a>
+            </p>
+        </section>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,743 @@
+[
+    {
+        "Monster Name": "Angel, Seraph",
+        "**AC**": "14 (chainmail)",
+        "**HP**": "14",
+        "**ATK**": "2 longsword +3 (1d8)",
+        "**MV**": "near (fly)",
+        "**S**": "+3",
+        "**D**": "+1",
+        "**C**": "+1",
+        "**I**": "+2",
+        "**W**": "+3",
+        "**CH**": "+3",
+        "**AL**": "L",
+        "**LV**": "3",
+        "tags": [
+            "angel"
+        ],
+        "abilities": {
+            "**Bless**": "3/day, touch one target to give it a luck token."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Ankheg",
+        "**AC**": "14",
+        "**HP**": "14",
+        "**ATK**": "1 bite +4 (1d6) or 1 acid spray (near) +4 (2d6)",
+        "**MV**": "near (burrow)",
+        "**S**": "+2",
+        "**D**": "+2",
+        "**C**": "+1",
+        "**I**": "-2",
+        "**W**": "+1",
+        "**CH**": "-2",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "monstrosity",
+            "underdark"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Azer",
+        "**AC**": "15",
+        "**HP**": "15",
+        "**ATK**": "2 flaming warhammer +3 (1d10 ignites flammables) or 1 crossbow (far) +0 (1d6)",
+        "**MV**": "near",
+        "**S**": "+3",
+        "**D**": "+0",
+        "**C**": "+2",
+        "**I**": "+0",
+        "**W**": "+0",
+        "**CH**": "+0",
+        "**AL**": "L",
+        "**LV**": "3",
+        "tags": [
+            "elemental"
+        ],
+        "abilities": {
+            "**Impervious**": "Fire immune."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Boar",
+        "**AC**": "12",
+        "**HP**": "14",
+        "**ATK**": "2 tusk +3 (1d6)",
+        "**MV**": "near",
+        "**S**": "+3",
+        "**D**": "+0",
+        "**C**": "+1",
+        "**I**": "-2",
+        "**W**": "+1",
+        "**CH**": "-2",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal"
+        ],
+        "abilities": {
+            "**Gore**": "Deals an extra die of damage if it hits the same target with both tusks."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Bugbear",
+        "**AC**": "13 (leather + shield)",
+        "**HP**": "14",
+        "**ATK**": "2 spiked mace +3 (1d6)",
+        "**MV**": "near",
+        "**S**": "+3",
+        "**D**": "+0",
+        "**C**": "+1",
+        "**I**": "-1",
+        "**W**": "+0",
+        "**CH**": "-2",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "monstrosity",
+            "underdark"
+        ],
+        "abilities": {
+            "**Stealthy**": "ADV on checks to sneak and hide."
+        },
+        "diplomacy": "Y"
+    },
+    {
+        "Monster Name": "Centaur",
+        "**AC**": "12 (leather)",
+        "**HP**": "14",
+        "**ATK**": "2 spear (close/near) +2 (1d6) or 1 longbow (far) +1 (1d8)",
+        "**MV**": "double near",
+        "**S**": "+2",
+        "**D**": "+1",
+        "**C**": "+1",
+        "**I**": "+0",
+        "**W**": "+2",
+        "**CH**": "+1",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal",
+            "horror",
+            "underdark"
+        ],
+        "abilities": {},
+        "diplomacy": "Y"
+    },
+    {
+        "Monster Name": "Cockatrice",
+        "**AC**": "11",
+        "**HP**": "14",
+        "**ATK**": "1 bite +1 (1d4 + petrify)",
+        "**MV**": "near (fly)",
+        "**S**": "-2",
+        "**D**": "+1",
+        "**C**": "+1",
+        "**I**": "-3",
+        "**W**": "+1",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "horror",
+            "monstrosity"
+        ],
+        "abilities": {
+            "**Petrify**": "DC 12 CON or petrified."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Devil, Barbed",
+        "**AC**": "13",
+        "**HP**": "14",
+        "**ATK**": "2 spine (near) +3 (1d6 + barb) or 1 fire blast (far) +3 (1d8)",
+        "**MV**": "near",
+        "**S**": "+2",
+        "**D**": "+3",
+        "**C**": "+1",
+        "**I**": "+1",
+        "**W**": "+1",
+        "**CH**": "+1",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "devil"
+        ],
+        "abilities": {
+            "**Barb**": "Each spine sticks, dealing 1d4 damage each round. DC 12 STR check on turn to remove."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Ettercap",
+        "**AC**": "12",
+        "**HP**": "14",
+        "**ATK**": "2 bite +2 (1d6) or 1 poison web (near) +2",
+        "**MV**": "near (climb)",
+        "**S**": "+0",
+        "**D**": "+2",
+        "**C**": "+1",
+        "**I**": "+0",
+        "**W**": "+0",
+        "**CH**": "-1",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "horror",
+            "monstrosity"
+        ],
+        "abilities": {
+            "**Poison Web**": "One target stuck in place and 1d4 damage/round. DC 12 DEX on turn to escape."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Gladiator",
+        "**AC**": "16 (chainmail + shield)",
+        "**HP**": "15",
+        "**ATK**": "2 longsword +3 (1d8) or 1 spear (close/near) +3 (1d6)",
+        "**MV**": "near",
+        "**S**": "+2",
+        "**D**": "+1",
+        "**C**": "+2",
+        "**I**": "+0",
+        "**W**": "+0",
+        "**CH**": "+1",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "golem"
+        ],
+        "abilities": {},
+        "diplomacy": "Y"
+    },
+    {
+        "Monster Name": "Gnome, Deep",
+        "**AC**": "14 (leather + shield)",
+        "**HP**": "14",
+        "**ATK**": "1 pick +3 (1d6) or 1 dart (near) +2 (1d4)",
+        "**MV**": "near",
+        "**S**": "+2",
+        "**D**": "+1",
+        "**C**": "+1",
+        "**I**": "+1",
+        "**W**": "+1",
+        "**CH**": "+1",
+        "**AL**": "L",
+        "**LV**": "3",
+        "tags": [
+            "humanoid"
+        ],
+        "abilities": {
+            "**Stone Meld**": "2/day, underground only. Turn invisible for 3 rounds."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Harpy",
+        "**AC**": "13",
+        "**HP**": "14",
+        "**ATK**": "2 claw +3 (1d6) or 1 song",
+        "**MV**": "near (fly)",
+        "**S**": "+1",
+        "**D**": "+3",
+        "**C**": "+1",
+        "**I**": "+0",
+        "**W**": "+0",
+        "**CH**": "+1",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "horror",
+            "monstrosity"
+        ],
+        "abilities": {
+            "**Song**": "Enemies who can hear within double near DC 12 CHA or dazed and drawn to harpy for 1d4 rounds. Immune for 1 day if passed check."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Hippogriff",
+        "**AC**": "13",
+        "**HP**": "14",
+        "**ATK**": "2 rend +3 (1d8)",
+        "**MV**": "double near (fly)",
+        "**S**": "+3",
+        "**D**": "+3",
+        "**C**": "+1",
+        "**I**": "-3",
+        "**W**": "+1",
+        "**CH**": "-2",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "monstrosity"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Knight",
+        "**AC**": "17 (plate mail + shield)",
+        "**HP**": "14",
+        "**ATK**": "2 bastard sword +3 (1d8)",
+        "**MV**": "near",
+        "**S**": "+3",
+        "**D**": "+0",
+        "**C**": "+1",
+        "**I**": "+0",
+        "**W**": "+0",
+        "**CH**": "+1",
+        "**AL**": "L",
+        "**LV**": "3",
+        "tags": [
+            "animal",
+            "horror",
+            "monstrosity"
+        ],
+        "abilities": {
+            "**Oath**": "3/day, ADV on a roll made in service of knight's order."
+        },
+        "diplomacy": "Y"
+    },
+    {
+        "Monster Name": "Kobold, Sorcerer",
+        "**AC**": "13 (leather)",
+        "**HP**": "13",
+        "**ATK**": "1 club +1 (1d4) or 1 spell +2",
+        "**MV**": "near",
+        "**S**": "-2",
+        "**D**": "+2",
+        "**C**": "+0",
+        "**I**": "-1",
+        "**W**": "+1",
+        "**CH**": "+2",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "humanoid",
+            "kobold"
+        ],
+        "abilities": {
+            "**Dodge**": "1/day, an attack that would hit misses instead.",
+            "**Scorpion Sting (CHA Spell)**": "DC 11. Near range, one target. 1d6 damage and target has DISADV on next attack roll or check. Spider Swarm (CHA Spell). DC 12. A spider swarm appears within near. Stays 1d4 rounds. Follows sorcerer's commands."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Lion",
+        "**AC**": "12",
+        "**HP**": "15",
+        "**ATK**": "2 rend +4 (1d8)",
+        "**MV**": "near",
+        "**S**": "+4",
+        "**D**": "+2",
+        "**C**": "+2",
+        "**I**": "-3",
+        "**W**": "+1",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Mushroomfolk",
+        "**AC**": "13",
+        "**HP**": "15",
+        "**ATK**": "2 slam +2 (1d6)",
+        "**MV**": "near",
+        "**S**": "+2",
+        "**D**": "-1",
+        "**C**": "+2",
+        "**I**": "+0",
+        "**W**": "+1",
+        "**CH**": "+0",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "humanoid",
+            "plant"
+        ],
+        "abilities": {
+            "**Sunblind**": "Blinded in bright light.",
+            "**Telepathic**": "Speak mentally with creatures within double near."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Panther",
+        "**AC**": "14",
+        "**HP**": "14",
+        "**ATK**": "2 rend +3 (1d6)",
+        "**MV**": "near (climb)",
+        "**S**": "+3",
+        "**D**": "+4",
+        "**C**": "+1",
+        "**I**": "-2",
+        "**W**": "+1",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Pegasus",
+        "**AC**": "12",
+        "**HP**": "15",
+        "**ATK**": "2 hooves +3 (1d6)",
+        "**MV**": "double near (fly)",
+        "**S**": "+3",
+        "**D**": "+2",
+        "**C**": "+2",
+        "**I**": "-3",
+        "**W**": "+1",
+        "**CH**": "+0",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "celestial"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Piranha, Swarm",
+        "**AC**": "12",
+        "**HP**": "13",
+        "**ATK**": "2 bite +2 (1d6)",
+        "**MV**": "near (swim)",
+        "**S**": "-2",
+        "**D**": "+2",
+        "**C**": "+0",
+        "**I**": "-3",
+        "**W**": "+0",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal",
+            "horror",
+            "swarm",
+            "underdark"
+        ],
+        "abilities": {
+            "**Savage**": "ADV on attacks against creatures below half their HP."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Scarab, Swarm",
+        "**AC**": "13",
+        "**HP**": "14",
+        "**ATK**": "2 bite +3 (1d6)",
+        "**MV**": "near (fly)",
+        "**S**": "-1",
+        "**D**": "+3",
+        "**C**": "+1",
+        "**I**": "-3",
+        "**W**": "+0",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal",
+            "horror",
+            "swarm",
+            "underdark"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Scarecrow",
+        "**AC**": "12",
+        "**HP**": "15",
+        "**ATK**": "2 claws +2 (1d6) or 1 scream",
+        "**MV**": "near",
+        "**S**": "+2",
+        "**D**": "+2",
+        "**C**": "+2",
+        "**I**": "+0",
+        "**W**": "+0",
+        "**CH**": "+2",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "construct",
+            "horror"
+        ],
+        "abilities": {
+            "**Scream**": "Creatures who hear in double near DC 12 CHA or paralyzed for 1d4 rounds."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Scorpion, Giant",
+        "**AC**": "14",
+        "**HP**": "13",
+        "**ATK**": "1 claw +2 (1d6 + grab) and 1 sting +2 (1d4 + poison)",
+        "**MV**": "near (climb)",
+        "**S**": "+2",
+        "**D**": "+2",
+        "**C**": "+0",
+        "**I**": "-4",
+        "**W**": "+0",
+        "**CH**": "-4",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal",
+            "horror"
+        ],
+        "abilities": {
+            "**Grab**": "DC 12 STR or target held. DC 12 STR on turn to break free.",
+            "**Poison**": "DC 12 CON or go to 0 HP."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Shadow",
+        "**AC**": "12",
+        "**HP**": "15",
+        "**ATK**": "2 touch +2 (1d4 + drain)",
+        "**MV**": "near (fly)",
+        "**S**": "-4",
+        "**D**": "+2",
+        "**C**": "+2",
+        "**I**": "-2",
+        "**W**": "+0",
+        "**CH**": "-1",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "horror",
+            "plant",
+            "underdark"
+        ],
+        "abilities": {
+            "**Drain**": "Target takes 1 STR damage. At 0 STR, target dies and becomes a shadow."
+        },
+        "diplomacy": "Y"
+    },
+    {
+        "Monster Name": "Shark",
+        "**AC**": "11",
+        "**HP**": "15",
+        "**ATK**": "1 bite +3 (1d10)",
+        "**MV**": "near (swim)",
+        "**S**": "+3",
+        "**D**": "+1",
+        "**C**": "+2",
+        "**I**": "-3",
+        "**W**": "+1",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Smilodon",
+        "**AC**": "12",
+        "**HP**": "14",
+        "**ATK**": "2 bite +3 (1d6)",
+        "**MV**": "near",
+        "**S**": "+3",
+        "**D**": "+2",
+        "**C**": "+1",
+        "**I**": "-3",
+        "**W**": "+1",
+        "**CH**": "-3",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Spider, Giant",
+        "**AC**": "13",
+        "**HP**": "13",
+        "**ATK**": "1 bite +3 (1d4 + poison)",
+        "**MV**": "near (climb)",
+        "**S**": "+2",
+        "**D**": "+3",
+        "**C**": "+0",
+        "**I**": "-2",
+        "**W**": "+1",
+        "**CH**": "-2",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "animal",
+            "horror",
+            "underdark"
+        ],
+        "abilities": {
+            "**Poison**": "DC 12 CON or paralyzed 1d4 hours."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Strangler",
+        "**AC**": "12",
+        "**HP**": "14",
+        "**ATK**": "2 claws +2 (1d6)",
+        "**MV**": "near (climb)",
+        "**S**": "-2",
+        "**D**": "+2",
+        "**C**": "+1",
+        "**I**": "-2",
+        "**W**": "+0",
+        "**CH**": "-2",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "horror",
+            "underdark"
+        ],
+        "abilities": {
+            "**Stealthy**": "ADV on DEX checks to sneak and hide.",
+            "**Strangle**": "Deals x2 damage against surprised creatures.",
+            "**A floating mass of rubbery skin crusted with barnacles**": "Its ten eyestalks writhe like snakes, and a deep, circular scar mars its central body, blinding what was once a large eye above a lipless maw. The Ten-Eyed Oracle stalks the Shadowdark, burbling mad prophesies and somehow moving freely between the lightless fathoms of the earth. The keepers of the deep lore suspect The Ten-Eyed Oracle was once a benevolent ally of mankind, but an unknown calamity drove it to insanity and reckless hatred. AC 17, HP 85, ATK 2d4 eyestalk ray, MV near (fly), S +4, D +5, C +4, I +5, W +4, Ch +4, AL C, LV 18",
+            "**Legendary**": "Only damaged by magical sources. Hostile spells targeting The Ten-Eyed Oracle are DC 18 to cast.",
+            "**Eyestalk Ray**": "Each ray can shoot once per round and target one creature or an object up to 1,000 pounds (up to four on same target). 1. Charm. DC 15 CHA or become ally for 1d4 rounds. 2. Hold. DC 15 STR or paralyzed 1d4 rounds. 3. Sleep. DC 15 WIS or asleep 1d4 rounds. 4. Polymorph. DC 15 INT or turned into vermin for 1d4 rounds. 5. Cancel. DC 15 DEX or all magical effects on target end. 6. Confusion. DC 15 WIS or attack a random ally within near. 7. Telekinesis. DC 15 STR or hover target up to double near. 8. Disintegrate. DC 15 DEX or 5d8 damage (object destroyed). 9. Petrify. DC 15 CON or petrified. 10. Death. DC 15 CON or drop to 0 HP with a death timer of 1."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Thief",
+        "**AC**": "13 (leather)",
+        "**HP**": "13",
+        "**ATK**": "1 dagger (close/near) +2 (1d4) or 1 shortsword +0 (1d6)",
+        "**MV**": "near",
+        "**S**": "+0",
+        "**D**": "+2",
+        "**C**": "+0",
+        "**I**": "+0",
+        "**W**": "+0",
+        "**CH**": "+1",
+        "**AL**": "N",
+        "**LV**": "3",
+        "tags": [
+            "humanoid",
+            "thieves"
+        ],
+        "abilities": {
+            "**Stealthy**": "ADV on DEX checks to sneak and hide.",
+            "**Backstab**": "Deal x2 damage against surprised creatures."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Viperian",
+        "**AC**": "13",
+        "**HP**": "13",
+        "**ATK**": "2 scimitar +2 (1d6) or 1 javelin (close/far) +2 (1d4)",
+        "**MV**": "near",
+        "**S**": "+1",
+        "**D**": "+1",
+        "**C**": "+0",
+        "**I**": "+0",
+        "**W**": "+1",
+        "**CH**": "+0",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "horror",
+            "outsider"
+        ],
+        "abilities": {},
+        "diplomacy": "Y"
+    },
+    {
+        "Monster Name": "Wererat",
+        "**AC**": "13 (leather)",
+        "**HP**": "14",
+        "**ATK**": "2 bite +2 (1d6)",
+        "**MV**": "near (climb)",
+        "**S**": "+1",
+        "**D**": "+2",
+        "**C**": "+1",
+        "**I**": "-1",
+        "**W**": "+1",
+        "**CH**": "-1",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "horror",
+            "undead",
+            "underdark"
+        ],
+        "abilities": {
+            "**Impervious**": "Only damaged by silver or magic sources.",
+            "**Lycanthropy**": "If 12 or more damage from the same wererat, contract lycanthropy."
+        },
+        "diplomacy": "Y"
+    },
+    {
+        "Monster Name": "Wight",
+        "**AC**": "14 (chainmail)",
+        "**HP**": "15",
+        "**ATK**": "1 bastard sword +3 (1d10) and 1 life drain +3",
+        "**MV**": "near",
+        "**S**": "+3",
+        "**D**": "+1",
+        "**C**": "+2",
+        "**I**": "+1",
+        "**W**": "+0",
+        "**CH**": "+3",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "horror",
+            "undead"
+        ],
+        "abilities": {
+            "**Greater Undead**": "Immune to morale checks. Only damaged by silver or magical sources.",
+            "**Life Drain**": "1d4 CON damage. Death if reduced to 0 CON."
+        },
+        "diplomacy": "N"
+    },
+    {
+        "Monster Name": "Worg",
+        "**AC**": "11",
+        "**HP**": "14",
+        "**ATK**": "1 bite +3 (1d6)",
+        "**MV**": "double near",
+        "**S**": "+2",
+        "**D**": "+1",
+        "**C**": "+1",
+        "**I**": "-2",
+        "**W**": "+1",
+        "**CH**": "-2",
+        "**AL**": "C",
+        "**LV**": "3",
+        "tags": [
+            "monstrosity"
+        ],
+        "abilities": {},
+        "diplomacy": "N"
+    }
+]

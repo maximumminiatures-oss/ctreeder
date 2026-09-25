@@ -1,0 +1,120 @@
+name: sd-dungeon-generator
+
+services:
+  nginx:
+    image: nginx:stable-alpine
+    ports: ["443:443", "80:80"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - gunicorn-socket:/tmp
+      - ./static:/app/static:ro
+      - ./S3_content:/app/S3_content:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  migrate:
+    build: .
+    command: ["python", "scripts/migrate.py"]
+    environment:
+      DATABASE_URL: postgresql://sd_owner:${DB_OWNER_PASSWORD:?Set DB_OWNER_PASSWORD}@db:5432/app
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+      OAUTH_CLIENT_ID: disabled-for-migration
+      OAUTH_CLIENT_SECRET: disabled-for-migration
+      SD_SKIP_DB_BOOTSTRAP: "1"
+      RATELIMIT_STORAGE_URI: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: .
+    volumes:
+      - gunicorn-socket:/tmp
+    # Keep a failed browser import inside the app container's resource budget
+    # so Postgres, Nginx, and SSH remain available for recovery.
+    mem_limit: ${APP_MEMORY_LIMIT:-640m}
+    pids_limit: ${APP_PIDS_LIMIT:-128}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to the sd_app role}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID:?Set OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:?Set OAUTH_CLIENT_SECRET}
+      PUBLIC_BASE_URL: https://ctreeder.com
+      FLASK_ENV: production
+      RATELIMIT_STORAGE_URI: redis://redis:6379/0
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+      SHADOWDARKLINGS_IMPORT_ENABLED: ${SHADOWDARKLINGS_IMPORT_ENABLED:-0}
+      SHADOWDARKLINGS_IMPORT_URL: http://importer:9000/import
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      importer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://127.0.0.1:8000/healthz', timeout=5).raise_for_status()"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  importer:
+    build: .
+    command: ["gunicorn", "-c", "importer_gunicorn.conf.py", "import_service:app"]
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      FLASK_ENV: production
+    mem_limit: ${IMPORTER_MEMORY_LIMIT:-448m}
+    pids_limit: ${IMPORTER_PIDS_LIMIT:-96}
+    cpus: ${IMPORTER_CPU_LIMIT:-0.75}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://127.0.0.1:9000/healthz', timeout=3).raise_for_status()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sd_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?Set DB_OWNER_PASSWORD}
+      POSTGRES_DB: app
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Set DB_APP_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db-role.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sd_owner -d app"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  gunicorn-socket:
+  pgdata:
+  redisdata:
