@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { blankScene, createPlacement } from '../../tools/tile-debugger/model.mjs';
 
 test('evidence compilation rejects draft paths and respects authoritative shared deletion', async () => {
@@ -13,7 +13,6 @@ test('evidence compilation rejects draft paths and respects authoritative shared
   const server=createServer((request,response)=>{response.setHeader('Content-Type','application/json');response.end(JSON.stringify({assets:[asset]}));});
   await new Promise(done=>server.listen(0,'127.0.0.1',done));
   const directory=await mkdtemp(join(tmpdir(),'sd-shadow-evidence-'));
-  const prefix=resolve(tmpdir())+'\\sd-shadow-evidence-';
   try {
     const artist={id:'artist',source:'artist',points:[[0,0],[.5,.5],[1,1]]};
     const inferred={id:'guess',source:'inferred',points:[[0,1],[1,0]]};
@@ -32,7 +31,8 @@ test('evidence compilation rejects draft paths and respects authoritative shared
     assert.deepEqual(JSON.parse(await readFile(report)).rules[asset.id].paths,[]);
   } finally {
     await new Promise(done=>server.close(done));
-    assert.ok(resolve(directory).startsWith(prefix),'temporary cleanup must remain within its named test directory');
+    assert.ok(dirname(resolve(directory))===resolve(tmpdir()) && basename(directory).startsWith('sd-shadow-evidence-'),
+      'temporary cleanup must remain within its named test directory');
     await rm(directory,{recursive:true});
   }
 });
