@@ -93,6 +93,56 @@ def test_guest_owns_import_and_cannot_invite_or_control_host(clients):
     assert post(guest, f"/api/rooms/{room['id']}/characters/{owned}/save", {}).status_code == 401
 
 
+def test_door_click_cannot_borrow_an_adjacent_character_from_another_player(clients):
+    host, guest, _ = clients
+    room = create(host, players_can_import=True)
+    join(guest, room)
+    imported = command(guest, room, "import", character_json=character("Guest"))
+    owned = imported.json["owned_character_ids"][0]
+    with Session(engine) as db:
+        saved_room = db.get(GameRoom, room["id"])
+        state = deepcopy(saved_room.state_json)
+        for char in state["characters"]:
+            char.update(x=3 if char["id"] == owned else 1, y=2)
+            if char["id"] == "host-char":
+                char.update(lightSource="torch", lightRadius=6, equipmentInitialized=True,
+                    gear=[{"name": "Torch", "lit": True, "equipped": True}])
+        state["entities"].extend([
+            {"id": "door", "type": "feature", "subtype": "door", "x": 4, "y": 2,
+                "wallSide": "east", "orientation": "vertical", "doorState": "closed", "visible": True},
+            {"id": "door-trap", "type": "trap", "targetType": "door", "targetEntityId": "door",
+                "name": "Needle", "trigger": "Open door", "effect": "Damage"},
+        ])
+        saved_room.state_json = state
+        db.add(saved_room)
+        db.commit()
+    refused = command(host, room, "interact", character_id="host-char", x=4, y=2)
+    assert refused.status_code == 400, refused.json
+    assert "next to the door" in refused.json["message"]
+    assert command(host, room, "interact", character_id=owned, x=4, y=2).status_code == 403
+    unchanged = host.get(f"/api/rooms/{room['id']}").json["state_json"]
+    assert next(entity for entity in unchanged["entities"] if entity["id"] == "door")["doorState"] == "closed"
+    assert not next(entity for entity in unchanged["entities"] if entity["id"] == "door-trap").get("triggered")
+    opened = command(guest, room, "interact", character_id=owned, x=4, y=2)
+    assert opened.status_code == 200, opened.json
+    assert opened.json["state_json"]["activity"][-1]["characterId"] == owned
+    assert next(entity for entity in opened.json["state_json"]["entities"] if entity["id"] == "door")["doorState"] == "open"
+
+
+def test_marching_order_cannot_move_another_players_characters(clients):
+    host, guest, _ = clients
+    room = create(host, players_can_import=True)
+    join(guest, room)
+    imported = command(guest, room, "import", character_json=character("Guest"))
+    own = imported.json["owned_character_ids"][0]
+    for action, extra in (("follow_step", {}), ("move_batch", {"moves": [{"dx": 1, "dy": 0}]})):
+        response = command(guest, room, action, character_id=own, marching_order=["host-char", own], following_ids=["host-char"], **extra)
+        assert response.status_code == 403
+        assert response.json["error"] == "character_not_owned"
+    response = command(guest, room, "follow_step", character_id=own, marching_order=[own], following_ids=[own])
+    assert response.status_code == 200, response.json
+
+
 def test_import_allowance_is_separate_for_guests_and_host_on_same_network(clients, monkeypatch):
     from app import limiter
     host, guest, _ = clients

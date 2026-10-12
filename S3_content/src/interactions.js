@@ -1,8 +1,9 @@
 import { DOOR_STATES, ENTITY_TYPES, FEATURE_NAMES, TILE_TYPES } from "./constants.js";
 import { getTile } from "./state-schema.js";
+import { canCrossReviewedGeometry } from "./reviewed-layouts.js";
 import { SeededRng } from "./rng.js";
 import { isTileVisible, recomputeVisibility, revealTrapAtPlayer } from "./visibility.js";
-import { getCharacterCoinBagSlots, getCharacterGearFreeSlots, normalizeCharacterState } from "./characters.js";
+import { getCharacterCoinBagSlots, getCharacterGearFreeSlots, normalizeCharacterState, setActiveCharacter } from "./characters.js";
 import { createTreasureDetails, formatTreasureValue } from "./treasure.js";
 import { canCrossOrganicEdge, isOrganicMovementBlockingTile } from "./organic-tiles.js";
 import { isInnerWallBlockingTile } from "./inner-walls.js";
@@ -331,6 +332,10 @@ function clearLockedDoorAction(state) {
   state.lockedDoorAction = null;
 }
 
+function isDoorLocked(state, door) {
+  return door.doorState === DOOR_STATES.LOCKED && (state.sharedRoom === true || state.characters?.length > 0);
+}
+
 function setLockedDoorAction(state, door) {
   const dcs = ensureDoorLockDcs(door);
   state.lockedDoorAction = {
@@ -341,13 +346,26 @@ function setLockedDoorAction(state, door) {
   return state.lockedDoorAction;
 }
 
-function revealSecretDoor(door) {
+function revealSecretDoor(door, state = null) {
   if (!door || door.secret !== true) {
     return false;
   }
   door.secretFound = true;
   door.revealed = true;
   door.visible = true;
+  if (state && !door.secretFoundSide) {
+    const side = door.hallDirection || door.wallSide;
+    const vertical = side === 'east' || side === 'west';
+    door.secretFoundSide = vertical
+      ? { x: side === 'east' ? -1 : 1, y: 0 }
+      : { x: 0, y: side === 'south' ? -1 : 1 };
+    const room = getTile(state, state.player.x, state.player.y)?.roomId;
+    if (room !== door.roomId) {
+      door.secretFoundSide.x *= -1;
+      door.secretFoundSide.y *= -1;
+    }
+    door.secretFoundRoomId = room;
+  }
   return true;
 }
 
@@ -357,7 +375,7 @@ export function getPendingLockedDoorAction(state) {
     return null;
   }
   const door = state.entities.find((entity) => entity.id === action.doorId && entity.subtype === "door");
-  if (!door || door.doorState !== DOOR_STATES.LOCKED) {
+  if (!door || !isDoorLocked(state, door)) {
     clearLockedDoorAction(state);
     return null;
   }
@@ -498,6 +516,7 @@ function checkOrganicStep(state, fromX, fromY, toX, toY) {
 }
 
 export function canMoveBetweenTiles(state, fromX, fromY, toX, toY, options = {}) {
+  if (!canCrossReviewedGeometry(state,fromX,fromY,toX,toY)) return {ok:false,message:'Blocked by terrain.'};
   const tile = getTile(state, toX, toY);
   const door = getDoorBetween(state, fromX, fromY, toX, toY);
   if (door && !isDoorPassable(door)) {
@@ -595,7 +614,7 @@ export function defeatMonster(state, monster) {
 }
 
 function openClosedDoorFromMovement(state, door) {
-  if (!door || door.doorState !== DOOR_STATES.CLOSED) {
+  if (!door || isDoorLocked(state, door) || ![DOOR_STATES.CLOSED, DOOR_STATES.LOCKED].includes(door.doorState)) {
     return null;
   }
 
@@ -700,7 +719,7 @@ function movePlayerInDarkness(state, dx, dy) {
       return { moved: false, message: "you've run into a door.", darknessMessage: "you've run into a door." };
     }
 
-    if (door.doorState === DOOR_STATES.LOCKED) {
+    if (isDoorLocked(state, door)) {
       return lockedDoorResult(state, door);
     }
 
@@ -726,10 +745,10 @@ function movePlayerInDarkness(state, dx, dy) {
         darknessMessage: "you've run into a trapped door!"
       };
     }
-    if (blockingDoor.doorState === DOOR_STATES.LOCKED) {
+    if (isDoorLocked(state, blockingDoor)) {
       return lockedDoorResult(state, blockingDoor);
     }
-    if (state.darkness.pendingDoorKey === blockingDoor.id && blockingDoor.doorState === DOOR_STATES.CLOSED) {
+    if (state.darkness.pendingDoorKey === blockingDoor.id && !isDoorPassable(blockingDoor)) {
       revealSecretDoor(blockingDoor);
       setDoorState(blockingDoor, DOOR_STATES.OPEN);
       clearLockedDoorAction(state);
@@ -757,7 +776,15 @@ function movePlayerInDarkness(state, dx, dy) {
   return moveToTileInDarkness(state, tile);
 }
 
-export function movePlayer(state, dx, dy) {
+export function movePlayer(state, dx, dy, options = {}) {
+  const hiddenDoor = getDoorBetween(state, state.player.x, state.player.y, state.player.x + dx, state.player.y + dy)
+    || findBlockingDoorAtTile(state, state.player.x + dx, state.player.y + dy);
+  if (hiddenDoor?.secret === true && !hiddenDoor.secretFound && !hiddenDoor.revealed) {
+    return { moved: false, message: 'Blocked by a wall.' };
+  }
+  if (!canCrossReviewedGeometry(state, state.player.x, state.player.y, state.player.x + dx, state.player.y + dy)) {
+    return { moved: false, message: "Blocked by terrain." };
+  }
   if (!state.player.torchLit) {
     return movePlayerInDarkness(state, dx, dy);
   }
@@ -769,10 +796,10 @@ export function movePlayer(state, dx, dy) {
 
   if (door && !isDoorPassable(door)) {
     revealSecretDoor(door);
-    if (door.doorState === DOOR_STATES.LOCKED) {
+    if (isDoorLocked(state, door)) {
       return lockedDoorResult(state, door);
     }
-    if (door.doorState === DOOR_STATES.CLOSED) {
+    if (door.doorState === DOOR_STATES.CLOSED || door.doorState === DOOR_STATES.LOCKED) {
       return openClosedDoorFromMovement(state, door);
     }
     return { moved: false, message: "Blocked by a door." };
@@ -781,10 +808,10 @@ export function movePlayer(state, dx, dy) {
   const blockingDoor = findBlockingDoorAtTile(state, nextX, nextY);
   if (blockingDoor) {
     revealSecretDoor(blockingDoor);
-    if (blockingDoor.doorState === DOOR_STATES.LOCKED) {
+    if (isDoorLocked(state, blockingDoor)) {
       return lockedDoorResult(state, blockingDoor);
     }
-    if (blockingDoor.doorState === DOOR_STATES.CLOSED) {
+    if (blockingDoor.doorState === DOOR_STATES.CLOSED || blockingDoor.doorState === DOOR_STATES.LOCKED) {
       return openClosedDoorFromMovement(state, blockingDoor);
     }
     return { moved: false, message: "Blocked by a door." };
@@ -804,7 +831,7 @@ export function movePlayer(state, dx, dy) {
   state.player.y = nextY;
   state.player.roomId = tile.roomId;
   clearLockedDoorAction(state);
-  recomputeVisibility(state);
+  if (options.deferVisibility !== true) recomputeVisibility(state);
   const trap = revealTrapAtPlayer(state);
   if (trap) {
     const result = revealAndTriggerTrap(trap);
@@ -817,7 +844,7 @@ export function movePlayer(state, dx, dy) {
   return { moved: true, message: walkable.message };
 }
 
-export function clickEntity(state, x, y) {
+function getClickTarget(state, x, y) {
   const clickedDoor = findDoorTouchingTile(state, x, y);
   const doorTiles = clickedDoor ? getDoorTiles(clickedDoor) : null;
   const clickedVisibleDoor = clickedDoor && (
@@ -835,8 +862,45 @@ export function clickEntity(state, x, y) {
   if (!entity) {
     return { message: "No interactive token on that tile." };
   }
+  return { entity };
+}
+
+function resolveDoorClick(state, door, options) {
+  if (door?.subtype !== "door" || (door.secret === true && !door.secretFound && !door.revealed)) return null;
+  if (!state.characters?.length) return { door, character: null };
+  const turn = state.combat?.active ? state.combat.turnOrder?.[state.combat.turnIndex] : null;
+  const candidates = state.characters.filter(character => {
+    if (character.dead || character.slain || Number(character.dyingRounds || 0) > 0 || !(Number(character.hp) > 0)) return false;
+    if (character.x == null || character.y == null ||
+      Math.max(Math.abs(Number(character.x) - door.x), Math.abs(Number(character.y) - door.y)) > 1 ||
+      !Number.isFinite(Number(character.x)) || !Number.isFinite(Number(character.y))) return false;
+    if (state.combat?.active && (turn?.type !== "character" || turn.id !== character.id)) return false;
+    if (options.characterId != null && character.id !== options.characterId) return false;
+    return !options.canUseCharacter || options.canUseCharacter(character);
+  });
+  const character = candidates.find(candidate => candidate.id === state.activeCharacterId) || candidates[0] || null;
+  return { door, character, message: character ? "" : "Move an available character next to the door first." };
+}
+
+export function getDoorClickContext(state, x, y, options = {}) {
+  return resolveDoorClick(state, getClickTarget(state, x, y).entity, options);
+}
+
+export function clickEntity(state, x, y, options = {}) {
+  const target = getClickTarget(state, x, y);
+  if (!target.entity) return target;
+  const entity = target.entity;
 
   if (entity.subtype === "door") {
+    if (entity.secret === true && !entity.secretFound && !entity.revealed) return { message: 'No interactive token on that tile.' };
+    const context = resolveDoorClick(state, entity, options);
+    if (context.message) return { message: context.message };
+    if (context.character) {
+      // Establish the actor before opening, lock handling, or any trap side effects.
+      setActiveCharacter(state, context.character.id);
+      Object.assign(state.player, { x: Number(context.character.x), y: Number(context.character.y),
+        roomId: context.character.roomId ?? getTile(state, Number(context.character.x), Number(context.character.y))?.roomId });
+    }
     revealSecretDoor(entity);
     const trap = findActiveTrapForTarget(state, "door", entity.id);
     if (trap && entity.doorState !== DOOR_STATES.OPEN) {
@@ -845,7 +909,7 @@ export function clickEntity(state, x, y) {
       recomputeVisibility(state);
       return { trapSprung: true, message: `You've run into a trapped door! ${result.message}` };
     }
-    if (entity.doorState === DOOR_STATES.LOCKED) {
+    if (isDoorLocked(state, entity)) {
       return lockedDoorResult(state, entity);
     }
     setDoorState(entity, entity.doorState === DOOR_STATES.OPEN ? DOOR_STATES.CLOSED : DOOR_STATES.OPEN);
@@ -861,10 +925,8 @@ export function clickEntity(state, x, y) {
   }
 
   if (entity.type === ENTITY_TYPES.TREASURE) {
-    if (entity.corpseLoot === true || entity.worthlessLoot === true || entity.subtype === "worthless-loot") {
-      return collectLoot(state, entity.id);
-    }
-    return { message: "Use the room loot buttons to collect treasure." };
+    if (!state.characters?.length) return { message: "import or load a character to pick up treasure." };
+    return collectLoot(state, entity.id);
   }
 
   if (entity.type === ENTITY_TYPES.TRAP) {
@@ -1158,7 +1220,7 @@ export function searchForTraps(state, modifier, options = {}) {
   let foundSecretDoor = false;
   for (const entity of found) {
     if (entity.subtype === "door" && entity.secret === true) {
-      revealSecretDoor(entity);
+      revealSecretDoor(entity, state);
       foundSecretDoor = true;
     } else {
       entity.revealed = true;

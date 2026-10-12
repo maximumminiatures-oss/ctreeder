@@ -30,7 +30,7 @@ CHARACTER_COMMANDS = {
     "move", "move_batch", "attack", "end_turn", "search", "stealth", "get", "leave", "disarm",
     "interact", "pick_lock", "break_door", "spell", "light", "snuff", "guard",
     "drop_gear", "pickup", "collect", "persuade", "edit_character", "dismiss", "bury",
-    "roll", "money", "coin_adjust", "coin_amount", "equip", "buy_gear",
+    "roll", "money", "coin_adjust", "coin_amount", "equip", "buy_gear", "follow_step",
 }
 OPTION_KEYS = ("autonomous_exploration", "players_can_import", "extra_characters_without_host", "bury_others")
 
@@ -427,6 +427,14 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             trusted["online_character_ids"] = [char for char, owner in ownership.items() if owner in online or owner == member.id]
             trusted["motion_id"] = request_id
             trusted["motion_actor_id"] = member.id
+            trusted["follow_group_id"] = member.id
+            for key in ("marching_order", "following_ids"):
+                ids = command.get(key, [])
+                if not isinstance(ids, list) or len(ids) > 16 or any(not isinstance(identifier, str) for identifier in ids):
+                    raise ValueError("Invalid marching order.")
+                if any(identifier not in own_ids for identifier in ids):
+                    return {"error": "character_not_owned", "message": "Marching order can contain only your own characters."}, 403
+                trusted[key] = list(dict.fromkeys(ids))
             if action == "move_batch":
                 moves = command.get("moves")
                 if not isinstance(moves, list) or not 1 <= len(moves) <= 8:

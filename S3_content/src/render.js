@@ -1,50 +1,30 @@
 import { DOOR_STATES, ENTITY_TYPES, TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
-import { collectLightSources, computeLightPolygon } from "./light-geometry.js";
+import { loadLocalJson } from './data-loader.js';
+import { collectLightSources, computeLightPolygon, withLightPolygonCache } from "./light-geometry.js";
 import { tileKey } from "./state-schema.js";
-import { getOrganicTileData, isOrganicMovementBlockingTile } from "./organic-tiles.js";
+import { getOrganicTileData, isOrganicMovementBlockingTile, isOrganicPillarTile } from "./organic-tiles.js";
 import { getInnerWallTileData } from "./inner-walls.js";
 import {
   getAngledWallTileData,
   isAngledWallLightBlockingTile,
   isAngledWallMovementBlockingTile
 } from "./angled-walls.js";
-import { isDoorThresholdTile } from "./visibility.js";
+import { CRYPT_ASSET_KEYS } from "./crypts.js";
+import { REVIEWED_ASSET_KEYS } from "./reviewed-layouts.js";
+import { visualTilePoint } from "./tile-positions.js";
+import { getReviewedTileRule } from "./reviewed-tile-rules.js";
+import { doorRotationAngle, isClosedSecretDoor, secretFoundMarkerRect } from './door-geometry.js';
+import { canMoveBetweenTiles } from './interactions.js';
 
-const USE_HAND_DRAWN_RENDERER = true;
 const USE_WATABOU_INK_OVERLAY = true;
 const INK_WALL_COLOR = "#111111";
 const HATCH_COLOR = "rgba(17, 17, 17, 0.72)";
 const HATCH_SPACING_PX = 11;
 const HATCH_LENGTH_PX = 15;
-const ORGANIC_FLOOR_COLOR = "#b9aa72";
-const ORGANIC_FLOOR_RGB = Object.freeze([185, 170, 114]);
 const ORGANIC_ALPHA_THRESHOLD = 16;
 const ORGANIC_CORNER_ZONE_PX = 6;
 const ASSET_PATHS = Object.freeze({
-  stone: "./assets/map_background_dark.jpg",
-  floor: "./assets/room_grid_backgroung.jpg",
-  north: "./assets/54x810-1x15-n.png",
-  west: "./assets/54x810-1x15-w.png",
-  east: "./assets/54x810-1x15-e.png",
-  south: "./assets/54x810-1x15-s.png"
-});
-const WALL_IMAGE_VARIANTS = Object.freeze({
-  north: Object.freeze(["54x810-1x15-n.png"]),
-  west: Object.freeze(["54x810-1x15-w.png"]),
-  east: Object.freeze(["54x810-1x15-e.png"]),
-  south: Object.freeze(["54x810-1x15-s.png"])
-});
-const TILE_WALL_EDGE_VARIANTS = Object.freeze({
-  north: Object.freeze(["wall-n-1.png", "wall-n-2.png", "wall-n-3.png"]),
-  west: Object.freeze(["wall-n-1.png", "wall-n-2.png", "wall-n-3.png"]),
-  east: Object.freeze(["wall-s-1.png", "wall-s-2.png", "wall-s-3.png"]),
-  south: Object.freeze(["wall-s-1.png", "wall-s-2.png", "wall-s-3.png"])
-});
-const TILE_WALL_EDGE_ROTATION = Object.freeze({
-  north: 0,
-  west: 3,
-  east: 3,
-  south: 0
+  floor: "./assets/room_grid_backgroung.jpg"
 });
 const ROTUNDA_VARIANTS = Object.freeze({
   7: Object.freeze([
@@ -103,12 +83,8 @@ const ANGLED_WALL_VARIANTS = Object.freeze([
   "1x1-wall-angle-sw-pillar1.png",
   "1x1-wall-angle-sw-pillar2.png",
   "1x1-wall-angle-sw-pillar3.png",
-  "1-black.png",
-  "1-nw-corner-fill.png",
-  "1-sw-corner-fill.png"
+  "1-black.png"
 ]);
-const DOOR_SPRITE_COUNT = 4;
-const DOOR_STATE_SUFFIXES = Object.freeze(["", "-o", "-l", "-t"]);
 const NEW_DOOR_KEYS = Object.freeze([
   "door-closed",
   "door-gone",
@@ -121,8 +97,7 @@ const NEW_DOOR_KEYS = Object.freeze([
   "door-secret-2-open",
   "door-secret-3",
   "door-secret-3-open",
-  "door-secret-found",
-  "door-trap"
+  "door-secret-found"
 ]);
 const WATER_FLAT_KEYS = Object.freeze([
   "water-nn-1", "water-nn-2", "water-nn-3", "water-nn-4", "water-nn-5", "water-nn-6",
@@ -175,7 +150,7 @@ const JUNK_KEYS = Object.freeze([
 const WELL_KEYS = Object.freeze(["well-1x1", "well-3x3", "well-3x3-2"]);
 const ROUND_CORNERS_ENABLED = true;
 const EXPLORED_FOG_ALPHA = 0.45;
-const UNEXPLORED_FOG_ALPHA = 0.95;
+const UNEXPLORED_FOG_ALPHA = 1;
 const PILLAR_SHADOW_SIZE_PX = TILE_SIZE_PX / 3;
 const PILLAR_SHADOW_INSET_PX = (TILE_SIZE_PX - PILLAR_SHADOW_SIZE_PX) / 2;
 const STAIR_DOWN_KEYS = Object.freeze(["d-stair-1", "d-stair-2", "d-stair-3", "d-stair-4"]);
@@ -187,18 +162,6 @@ const PILLAR_BLOCK_KEYS = Object.freeze(["plr-b-1", "plr-b-2", "plr-b-3", "plr-b
 const rendererAssets = {
   ready: false,
   images: {},
-  walls: {
-    north: [],
-    west: [],
-    east: [],
-    south: []
-  },
-  wallEdges: {
-    north: [],
-    west: [],
-    east: [],
-    south: []
-  },
   doors: {},
   decor: {
     pillars: [],
@@ -226,6 +189,7 @@ const rendererAssets = {
     canals: {},
     junk: {},
     wells: {},
+    crypts: {},
     stealth: null
   }
 };
@@ -302,11 +266,7 @@ async function loadAssetImageMap(keys) {
 
 async function loadOptionalJson(src, fallback = []) {
   try {
-    const response = await fetch(src);
-    if (!response.ok) {
-      return fallback;
-    }
-    return await response.json();
+    return await loadLocalJson(src);
   } catch (error) {
     return fallback;
   }
@@ -342,13 +302,7 @@ export async function preloadRendererAssets() {
   const images = Promise.all(
     Object.entries(ASSET_PATHS).map(async ([key, src]) => [key, await loadImage(src)])
   ).then(Object.fromEntries);
-  const walls = resolveAssetGroups(Object.fromEntries(Object.entries(WALL_IMAGE_VARIANTS).map(([side, paths]) => [side, loadOptionalImageList(paths)])));
-  const wallEdges = resolveAssetGroups(Object.fromEntries(Object.entries(TILE_WALL_EDGE_VARIANTS).map(([side, paths]) => [side, loadOptionalImageList(paths)])));
-  const doorKeys = [];
-  for (let i = 1; i <= DOOR_SPRITE_COUNT; i += 1) {
-    for (const suffix of DOOR_STATE_SUFFIXES) doorKeys.push(`door${i}${suffix}`);
-  }
-  const doors = loadAssetImageMap([...doorKeys, ...NEW_DOOR_KEYS]);
+  const doors = loadAssetImageMap(NEW_DOOR_KEYS);
   const decor = resolveAssetGroups({
     pillars: Promise.all(PILLAR_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),
     blockPillars: Promise.all(PILLAR_BLOCK_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),
@@ -367,24 +321,14 @@ export async function preloadRendererAssets() {
     canals: loadAssetImageMap(CANAL_KEYS),
     junk: loadAssetImageMap(JUNK_KEYS),
     wells: loadAssetImageMap(WELL_KEYS),
+    crypts: loadAssetImageMap(CRYPT_ASSET_KEYS),
+    reviewed: loadAssetImageMap(REVIEWED_ASSET_KEYS),
     stealth: loadOptionalImage("./assets/stealth.png", { quiet: true })
   });
-  Object.assign(rendererAssets, await resolveAssetGroups({ images, walls, wallEdges, doors, decor }));
+  Object.assign(rendererAssets, await resolveAssetGroups({ images, doors, decor }));
   rendererAssets.ready = true;
 }
 
-function drawBackground(ctx, widthPx, heightPx) {
-  ctx.fillStyle = "#2c2f36";
-  ctx.fillRect(0, 0, widthPx, heightPx);
-  ctx.fillStyle = "#30343d";
-  for (let y = 0; y < heightPx; y += TILE_SIZE_PX) {
-    for (let x = 0; x < widthPx; x += TILE_SIZE_PX) {
-      if (((x + y) / TILE_SIZE_PX) % 2 === 0) {
-        ctx.fillRect(x, y, TILE_SIZE_PX, TILE_SIZE_PX);
-      }
-    }
-  }
-}
 
 function drawTiledImage(ctx, image, widthPx, heightPx) {
   for (let y = 0; y < heightPx; y += image.height) {
@@ -397,7 +341,8 @@ function drawTiledImage(ctx, image, widthPx, heightPx) {
 }
 
 function drawHandDrawnBackground(ctx, widthPx, heightPx) {
-  drawTiledImage(ctx, rendererAssets.images.stone, widthPx, heightPx);
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, widthPx, heightPx);
 }
 
 function getTileAt(state, x, y) {
@@ -429,6 +374,9 @@ function isDoorOnRoomSide(state, room, side, offset) {
 }
 
 function isRoomSideOpening(state, room, side, offset) {
+  const x = side === 'west' ? room.x - 1 : side === 'east' ? room.x + room.width : room.x + offset;
+  const y = side === 'north' ? room.y - 1 : side === 'south' ? room.y + room.height : room.y + offset;
+  if (state.entities.some(door => door.subtype === 'door' && door.x === x && door.y === y && isClosedSecretDoor(door))) return false;
   if (isDoorOnRoomSide(state, room, side, offset)) {
     return true;
   }
@@ -465,7 +413,7 @@ function collectSideRuns(state, room, side) {
 }
 
 function collectWallRuns(state) {
-  return state.rooms.filter((room) => room.rotunda !== true && room.organic !== true && room.renderer !== "organic").flatMap((room) => (
+  return state.rooms.filter((room) => room.rotunda !== true && room.organic !== true && room.renderer !== "organic" && room.crypt !== true && !room.reviewedTemplate).flatMap((room) => (
     ["north", "south", "west", "east"].flatMap((side) => (
       collectSideRuns(state, room, side).map((run) => ({ ...run, room }))
     ))
@@ -477,7 +425,7 @@ function isOrganicHall(state, hallId) {
 }
 
 function isHallFloorTile(state, tile) {
-  return tile?.hallId && tile.type === TILE_TYPES.FLOOR && tile.roomId === null && !isOrganicHall(state, tile.hallId);
+  return tile?.hallId && !tile.meta?.reviewed && tile.type === TILE_TYPES.FLOOR && tile.roomId === null && !isOrganicHall(state, tile.hallId);
 }
 
 function isHallPerimeterSide(state, tile, side) {
@@ -685,23 +633,6 @@ function chooseTransformedVariant(variants, targetLabels, seedValue, parseLabel,
   return ranked[pickSeededIndex(seedValue, ranked.length)];
 }
 
-function chooseWallImage(state, run) {
-  const pool = Array.isArray(rendererAssets.walls?.[run.side]) && rendererAssets.walls[run.side].length
-    ? rendererAssets.walls[run.side].map((entry) => entry.image)
-    : [rendererAssets.images[run.side]];
-  const runId = run.room?.id || run.hallId || "wall";
-  const runStart = run.room ? run.start : `${run.x},${run.y}`;
-  const runLengthPx = Math.max(1, Number(run.length || 1) * TILE_SIZE_PX);
-  const usable = pool.filter((image) => image && Math.max(image.width || 0, image.height || 0) >= runLengthPx);
-  const fallback = pool.filter(Boolean);
-  const selectionPool = usable.length ? usable : fallback;
-  const hash = hashString(`${state.seed}:${runId}:${run.side}:${runStart}:${run.length}:image`);
-  const chosen = selectionPool[hash % Math.max(1, selectionPool.length)] || null;
-  return {
-    image: chosen,
-    side: run.side
-  };
-}
 
 function getWallDestination(run) {
   const { room, side, start, length } = run;
@@ -727,100 +658,9 @@ function getWallDestination(run) {
   return { x: (room.x + room.width) * TILE_SIZE_PX, y: (room.y + start) * TILE_SIZE_PX, pixels, vertical: true, angle: Math.PI / 2 };
 }
 
-function drawWallSlice(ctx, image, state, run) {
-  const wallImage = image?.image || image || null;
-  if (!wallImage) {
-    return;
-  }
-  const dest = getWallDestination(run);
-  const longAxis = Math.max(wallImage.width, wallImage.height);
-  const shortAxis = Math.min(wallImage.width, wallImage.height);
-  const sliceLength = Math.min(dest.pixels, longAxis);
-  const maxOffset = Math.max(0, longAxis - sliceLength);
-  const runId = run.room?.id || run.hallId || "wall";
-  const runStart = run.room ? run.start : `${run.x},${run.y}`;
-  const offset = maxOffset === 0
-    ? 0
-    : hashString(`${state.seed}:${runId}:${run.side}:${runStart}:${run.length}:slice`) % (maxOffset + 1);
-  const sourceIsHorizontal = wallImage.width >= wallImage.height;
-  const sx = sourceIsHorizontal ? offset : 0;
-  const sy = sourceIsHorizontal ? 0 : offset;
-  const sw = sourceIsHorizontal ? sliceLength : shortAxis;
-  const sh = sourceIsHorizontal ? shortAxis : sliceLength;
-  const thickness = sourceIsHorizontal ? wallImage.height : wallImage.width;
-  const outwardInset = Math.max(0, thickness - (TILE_SIZE_PX / 2));
 
-  ctx.save();
-  if (dest.vertical) {
-    ctx.translate(dest.x, dest.y);
-    ctx.rotate(dest.angle);
-    if (sourceIsHorizontal) {
-      ctx.drawImage(wallImage, sx, sy, sw, sh, 0, -outwardInset, sw, sh);
-    } else {
-      ctx.rotate(-Math.PI / 2);
-      ctx.drawImage(wallImage, sx, sy, sw, sh, -outwardInset, -sw, sh, sw);
-    }
-  } else {
-    if (sourceIsHorizontal) {
-      ctx.drawImage(wallImage, sx, sy, sw, sh, dest.x, dest.y - outwardInset, sw, sh);
-    } else {
-      ctx.translate(dest.x, dest.y);
-      ctx.rotate(-Math.PI / 2);
-      ctx.drawImage(wallImage, sx, sy, sw, sh, -outwardInset, -sw, sh, sw);
-    }
-  }
-  ctx.restore();
-}
 
-function getWallEdgeTile(run, offset) {
-  if (run.room) {
-    if (run.side === "north") {
-      return { x: run.room.x + run.start + offset, y: run.room.y };
-    }
-    if (run.side === "south") {
-      return { x: run.room.x + run.start + offset, y: run.room.y + run.room.height - 1 };
-    }
-    if (run.side === "west") {
-      return { x: run.room.x, y: run.room.y + run.start + offset };
-    }
-    return { x: run.room.x + run.room.width - 1, y: run.room.y + run.start + offset };
-  }
 
-  if (run.side === "north") {
-    return { x: run.x + offset, y: run.y };
-  }
-  if (run.side === "south") {
-    return { x: run.x + offset, y: run.y - 1 };
-  }
-  if (run.side === "west") {
-    return { x: run.x, y: run.y + offset };
-  }
-  return { x: run.x - 1, y: run.y + offset };
-}
-
-function chooseTileWallEdgeImage(state, run, tile, offset) {
-  const pool = (rendererAssets.wallEdges?.[run.side] || []).filter((entry) => entry?.image);
-  if (!pool.length) {
-    return null;
-  }
-  const runId = run.room?.id || run.hallId || "wall";
-  const hash = hashString(`${state.seed}:${runId}:${run.side}:${tile.x},${tile.y}:${offset}:tile-wall-edge`);
-  return pool[hash % pool.length]?.image || null;
-}
-
-function drawTileWallEdgeOverlays(state, ctx, wallRuns) {
-  for (const run of wallRuns) {
-    if (run.length <= 0) {
-      continue;
-    }
-    const rotationTurns = TILE_WALL_EDGE_ROTATION[run.side] || 0;
-    for (let offset = 0; offset < run.length; offset += 1) {
-      const tile = getWallEdgeTile(run, offset);
-      const image = chooseTileWallEdgeImage(state, run, tile, offset);
-      drawTileImage(ctx, image, tile.x, tile.y, rotationTurns);
-    }
-  }
-}
 
 function getRunNormal(run) {
   if (run.side === "north") return { x: 0, y: -1 };
@@ -1369,6 +1209,21 @@ function drawNativePlacedDecorList(state, ctx, placements, imageMap) {
     if (!image) {
       continue;
     }
+    if (placement.gridWidthTiles && placement.gridHeightTiles) {
+      // Match the workbench's grid anchor, including art slightly wider than whole cells.
+      const nativeWidth = placement.gridWidthTiles * TILE_SIZE_PX;
+      const nativeHeight = placement.gridHeightTiles * TILE_SIZE_PX;
+      const turns = Number(placement.rotationTurns || 0);
+      const width = turns % 2 ? nativeHeight : nativeWidth;
+      const height = turns % 2 ? nativeWidth : nativeHeight;
+      ctx.save();
+      ctx.translate(Number(placement.x) * TILE_SIZE_PX + width / 2, Number(placement.y) * TILE_SIZE_PX + height / 2);
+      ctx.rotate(turns * Math.PI / 2);
+      ctx.scale(placement.flipX ? -1 : 1, placement.flipY ? -1 : 1);
+      ctx.drawImage(image, -nativeWidth / 2, -nativeHeight / 2);
+      ctx.restore();
+      continue;
+    }
     drawNativeTileImage(
       ctx,
       image,
@@ -1538,9 +1393,9 @@ function createOrganicShellUnderlay(image, organic) {
       continue;
     }
     const outputIndex = index * 4;
-    outputData.data[outputIndex] = ORGANIC_FLOOR_RGB[0];
-    outputData.data[outputIndex + 1] = ORGANIC_FLOOR_RGB[1];
-    outputData.data[outputIndex + 2] = ORGANIC_FLOOR_RGB[2];
+    outputData.data[outputIndex] = 255;
+    outputData.data[outputIndex + 1] = 255;
+    outputData.data[outputIndex + 2] = 255;
     outputData.data[outputIndex + 3] = 255;
   }
   outputCtx.putImageData(outputData, 0, 0);
@@ -1559,7 +1414,15 @@ function drawOrganicShellUnderlay(ctx, tile) {
     return;
   }
   const underlay = createOrganicShellUnderlay(image, organic);
-  ctx.drawImage(underlay, tile.x * TILE_SIZE_PX, tile.y * TILE_SIZE_PX);
+  const paper = createCanvas(TILE_SIZE_PX, TILE_SIZE_PX);
+  const paperCtx = paper.getContext("2d");
+  const floor = rendererAssets.images.floor;
+  const x = tile.x * TILE_SIZE_PX;
+  const y = tile.y * TILE_SIZE_PX;
+  paperCtx.drawImage(floor, x % floor.width, y % floor.height, TILE_SIZE_PX, TILE_SIZE_PX, 0, 0, TILE_SIZE_PX, TILE_SIZE_PX);
+  paperCtx.globalCompositeOperation = "destination-in";
+  paperCtx.drawImage(underlay, 0, 0);
+  ctx.drawImage(paper, x, y);
 }
 
 function drawInnerWallTileDecor(state, ctx) {
@@ -1619,19 +1482,19 @@ function drawAngledWallTileDecor(state, ctx) {
 function drawHandDrawnTopology(state, ctx) {
   const floorImage = rendererAssets.images.floor;
   const organicFloor = isOrganicDungeon(state);
+  ctx.fillStyle = '#000000';
+  for (const tile of state.tiles) if (tile.meta?.cryptWall || tile.meta?.reviewedWall ||
+      (organicFloor && (tile.type===TILE_TYPES.WALL || tile.type===TILE_TYPES.VOID))) {
+    ctx.fillRect(tile.x * TILE_SIZE_PX, tile.y * TILE_SIZE_PX, TILE_SIZE_PX, TILE_SIZE_PX);
+  }
   for (const tile of state.tiles) {
     if (!isWalkableTile(tile)) {
       continue;
     }
     const dx = tile.x * TILE_SIZE_PX;
     const dy = tile.y * TILE_SIZE_PX;
-    if (organicFloor) {
-      if (tile?.meta?.organicShell === true) {
-        drawOrganicShellUnderlay(ctx, tile);
-        continue;
-      }
-      ctx.fillStyle = ORGANIC_FLOOR_COLOR;
-      ctx.fillRect(dx, dy, TILE_SIZE_PX, TILE_SIZE_PX);
+    if (organicFloor && tile?.meta?.organicShell === true) {
+      drawOrganicShellUnderlay(ctx, tile);
       continue;
     }
     const sx = (dx % floorImage.width);
@@ -1645,19 +1508,14 @@ function drawHandDrawnTopology(state, ctx) {
   drawJunkDecor(state, ctx);
   drawOrganicTileDecor(state, ctx);
   drawOrganicHallDecor(state, ctx);
+  drawNativePlacedDecorList(state, ctx, state.decor?.crypts, rendererAssets.decor.crypts);
+  drawNativePlacedDecorList(state, ctx, state.decor?.reviewed, rendererAssets.decor.reviewed);
   drawInnerWallTileDecor(state, ctx);
 
   const wallRuns = [
     ...collectWallRuns(state),
     ...collectHallWallRuns(state)
   ];
-  for (const run of wallRuns) {
-    if (run.length <= 0) {
-      continue;
-    }
-    drawWallSlice(ctx, chooseWallImage(state, run), state, run);
-  }
-  drawTileWallEdgeOverlays(state, ctx, wallRuns);
   drawRoundedCornerDecor(state, ctx);
   drawAngledWallTileDecor(state, ctx);
   if (USE_WATABOU_INK_OVERLAY) {
@@ -1701,14 +1559,6 @@ function getDoorTileCenter(entity) {
   };
 }
 
-function getDoorRotationAngle(entity) {
-  const angle = Number(entity.doorRotationAngle || 0);
-  if (entity.orientation !== "horizontal") {
-    return angle < 0 ? -Math.PI / 2 : Math.PI / 2;
-  }
-  return Math.abs(angle) > Math.PI / 2 ? Math.PI : 0;
-}
-
 function getDoorTrap(state, door) {
   return state.entities.find((entity) => (
     entity.type === ENTITY_TYPES.TRAP &&
@@ -1718,20 +1568,6 @@ function getDoorTrap(state, door) {
   )) || null;
 }
 
-function getDoorSpriteKey(state, door) {
-  const baseKey = door.doorSpriteId || "door1";
-  const trap = getDoorTrap(state, door);
-  if (trap?.wasSprung || trap?.revealed || trap?.visible) {
-    return `${baseKey}-t`;
-  }
-  if (door.doorState === DOOR_STATES.OPEN) {
-    return `${baseKey}-o`;
-  }
-  if (door.doorState === DOOR_STATES.LOCKED) {
-    return `${baseKey}-l`;
-  }
-  return baseKey;
-}
 
 function getDoorVisualKind(state, door) {
   const explicit = String(door.doorKind || door.visualKind || "").toLowerCase();
@@ -1800,13 +1636,10 @@ function getNewDoorSpriteKey(state, door) {
   if (kind === "gate" || kind === "portcullis") {
     return "door-portcullis";
   }
-  if (kind === "trap") {
-    return "door-trap";
-  }
   if (kind === "gone") {
     return "door-gone";
   }
-  if (kind === "open") {
+  if (door.doorState === DOOR_STATES.OPEN || kind === "open") {
     return "door-open";
   }
   return "door-closed";
@@ -1873,21 +1706,18 @@ function drawSecretDoorSprite(state, entity, ctx) {
     return;
   }
   const center = getDoorBoundaryCenter(entity);
-  ctx.save();
-  ctx.translate(center.x, center.y);
-  ctx.rotate(getSecretDoorRotationAngle(entity));
-  ctx.drawImage(image, -image.width / 2, -image.height / 2, image.width, image.height);
-  ctx.restore();
+  if (entity.doorState === DOOR_STATES.OPEN) {
+    ctx.save();
+    ctx.translate(center.x, center.y);
+    ctx.rotate(getSecretDoorRotationAngle(entity));
+    ctx.drawImage(image, -image.width / 2, -image.height / 2, image.width, image.height);
+    ctx.restore();
+  }
 
   const foundImage = rendererAssets.doors["door-secret-found"];
   if (foundImage && isSecretDoorFoundMarkVisible(state, entity)) {
-    ctx.drawImage(
-      foundImage,
-      center.x - foundImage.width / 2,
-      center.y - foundImage.height / 2,
-      foundImage.width,
-      foundImage.height
-    );
+    const rect = secretFoundMarkerRect(entity, foundImage.width, foundImage.height);
+    ctx.drawImage(foundImage, rect.x, rect.y, rect.width, rect.height);
   }
 }
 
@@ -1898,7 +1728,7 @@ function drawDoorFallback(state, entity, ctx) {
   const length = size * 0.72;
   ctx.save();
   ctx.translate(center.x, center.y);
-  ctx.rotate(getDoorRotationAngle(entity));
+  ctx.rotate(doorRotationAngle(entity));
   ctx.fillStyle = entity.doorState === DOOR_STATES.OPEN ? "#c99a57" : "#2b160d";
   if (getDoorTrap(state, entity)?.revealed) {
     ctx.fillStyle = "#4b1a4f";
@@ -1919,8 +1749,7 @@ function drawDoorSprite(state, entity, ctx) {
     return;
   }
   const newKey = getNewDoorSpriteKey(state, entity);
-  const key = getDoorSpriteKey(state, entity);
-  const image = rendererAssets.doors[newKey] || rendererAssets.doors[key] || rendererAssets.doors[entity.doorSpriteId || "door1"];
+  const image = rendererAssets.doors[newKey];
   if (!image) {
     drawDoorFallback(state, entity, ctx);
     return;
@@ -1930,28 +1759,11 @@ function drawDoorSprite(state, entity, ctx) {
   const size = TILE_SIZE_PX;
   ctx.save();
   ctx.translate(center.x, center.y);
-  ctx.rotate(getDoorRotationAngle(entity));
+  ctx.rotate(doorRotationAngle(entity));
   ctx.drawImage(image, -size / 2, -size / 2, size, size);
   ctx.restore();
 }
 
-function drawTopology(state, ctx) {
-  for (const tile of state.tiles) {
-    const px = tile.x * TILE_SIZE_PX;
-    const py = tile.y * TILE_SIZE_PX;
-
-    if (tile.type === TILE_TYPES.FLOOR) {
-      ctx.fillStyle = "#8d8f94";
-      ctx.fillRect(px, py, TILE_SIZE_PX, TILE_SIZE_PX);
-      ctx.strokeStyle = "#1a1a1a";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(px, py, TILE_SIZE_PX, TILE_SIZE_PX);
-    } else {
-      ctx.fillStyle = "#282828";
-      ctx.fillRect(px, py, TILE_SIZE_PX, TILE_SIZE_PX);
-    }
-  }
-}
 
 function drawFloorTrapSprite(state, entity, ctx) {
   const image = pickDeterministicImage(
@@ -1966,11 +1778,11 @@ function drawFloorTrapSprite(state, entity, ctx) {
 }
 
 function drawEntity(entity, ctx, state) {
-  const cx = entity.x * TILE_SIZE_PX + TILE_SIZE_PX / 2;
-  const cy = entity.y * TILE_SIZE_PX + TILE_SIZE_PX / 2;
+  const [cx,cy]=visualTilePoint(state,entity.x,entity.y).map(value=>value*TILE_SIZE_PX);
   const radius = TILE_SIZE_PX * 0.24;
 
   if (entity.subtype === "door") {
+    if(entity.hiddenStairSprite)return;
     drawDoorSprite(state, entity, ctx);
     return;
   }
@@ -2094,8 +1906,7 @@ function drawObjects(state, ctx, options = {}) {
 }
 
 function drawPlayer(state, ctx) {
-  const cx = state.player.x * TILE_SIZE_PX + TILE_SIZE_PX / 2;
-  const cy = state.player.y * TILE_SIZE_PX + TILE_SIZE_PX / 2;
+  const [cx,cy]=visualTilePoint(state,state.player.x,state.player.y).map(value=>value*TILE_SIZE_PX);
   const radius = TILE_SIZE_PX * 0.27;
   ctx.fillStyle = "#3a7bd5";
   ctx.beginPath();
@@ -2106,9 +1917,8 @@ function drawPlayer(state, ctx) {
   ctx.stroke();
 }
 
-function drawCharacterDot(character, ctx, isActive) {
-  const cx = (character.visualX ?? character.x) * TILE_SIZE_PX + TILE_SIZE_PX / 2;
-  const cy = (character.visualY ?? character.y) * TILE_SIZE_PX + TILE_SIZE_PX / 2;
+function drawCharacterDot(character, ctx, isActive, state) {
+  const [cx,cy]=visualTilePoint(state,character.visualX ?? character.x,character.visualY ?? character.y).map(value=>value*TILE_SIZE_PX);
   const radius = TILE_SIZE_PX * 0.27;
   ctx.fillStyle = character.colorValue || "#174a9c";
   ctx.beginPath();
@@ -2161,45 +1971,11 @@ function drawCharacters(state, ctx) {
     return;
   }
   for (const character of characters) {
-    drawCharacterDot(character, ctx, character.id === state.activeCharacterId);
+    drawCharacterDot(character, ctx, character.id === state.activeCharacterId, state);
   }
 }
 
-function getRoundedCornerFogAlpha(state, tile) {
-  if (!ROUND_CORNERS_ENABLED) {
-    return null;
-  }
-  for (const room of state.rooms || []) {
-    const cornerSize = Number(room.cornerSize || 0);
-    if (cornerSize !== 1 || room.rotunda === true) {
-      continue;
-    }
-    const placements = [
-      { x: Number(room.x), y: Number(room.y) },
-      { x: Number(room.x + room.width - cornerSize), y: Number(room.y) },
-      { x: Number(room.x + room.width - cornerSize), y: Number(room.y + room.height - cornerSize) },
-      { x: Number(room.x), y: Number(room.y + room.height - cornerSize) }
-    ];
-    if (placements.some((placement) => (
-      tile.x >= placement.x &&
-      tile.y >= placement.y &&
-      tile.x < placement.x + cornerSize &&
-      tile.y < placement.y + cornerSize
-    ))) {
-      return null;
-    }
-  }
-  return null;
-}
 
-function getCurvedDecorFogAlpha(state, tile, fallbackAlpha) {
-  const cornerAlpha = getRoundedCornerFogAlpha(state, tile);
-  const candidates = [cornerAlpha].filter((value) => value !== null);
-  if (!candidates.length) {
-    return fallbackAlpha;
-  }
-  return Math.min(fallbackAlpha, ...candidates);
-}
 
 function drawFog(state, ctx, widthPx, heightPx, forceBlackout) {
   if (forceBlackout) {
@@ -2215,15 +1991,8 @@ function drawFog(state, ctx, widthPx, heightPx, forceBlackout) {
     return;
   }
 
-  for (const tile of state.tiles) {
-    const px = tile.x * TILE_SIZE_PX;
-    const py = tile.y * TILE_SIZE_PX;
-    const alpha = tile?.meta?.neverExplore === true
-      ? 1
-      : getCurvedDecorFogAlpha(state, tile, UNEXPLORED_FOG_ALPHA);
-    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-    ctx.fillRect(px, py, TILE_SIZE_PX, TILE_SIZE_PX);
-  }
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, widthPx, heightPx);
   drawExploredFog(state, ctx);
   drawAngledShadowWedges(state, ctx);
   drawVisibleBlockingDecorFogCutouts(state, ctx);
@@ -2359,15 +2128,15 @@ function drawFogPolygon(ctx, points, alpha) {
 }
 
 function isBlockingDecorFogTile(tile) {
-  if (tile?.meta?.neverExplore === true) {
+  // Organic floor visibility follows the contour, never the whole movement-blocking cell.
+  if (tile?.meta?.neverExplore === true || getOrganicTileData(tile)) {
     return false;
   }
   const innerWall = getInnerWallTileData(tile);
   if (innerWall?.blocksMovement === true) {
     return false;
   }
-  return isOrganicMovementBlockingTile(tile) ||
-    isAngledWallLightBlockingTile(tile) ||
+  return isAngledWallLightBlockingTile(tile) ||
     isAngledWallMovementBlockingTile(tile);
 }
 
@@ -2442,7 +2211,7 @@ function isClosedDoorFogTile(state, tile) {
 }
 
 function canUseCoarseExploredTileFog(state, visitedRoomIds, tile) {
-  if (getInnerWallTileData(tile)?.blocksMovement === true) {
+  if (getInnerWallTileData(tile)?.blocksMovement === true || isOrganicMovementBlockingTile(tile)) {
     return false;
   }
   if (isClosedDoorFogTile(state, tile)) {
@@ -2467,8 +2236,7 @@ function drawExploredTileFog(state, ctx) {
     }
     const px = tile.x * TILE_SIZE_PX;
     const py = tile.y * TILE_SIZE_PX;
-    const alpha = getCurvedDecorFogAlpha(state, tile, EXPLORED_FOG_ALPHA);
-    drawFogRect(ctx, px, py, TILE_SIZE_PX, TILE_SIZE_PX, alpha);
+    drawFogRect(ctx, px, py, TILE_SIZE_PX, TILE_SIZE_PX, EXPLORED_FOG_ALPHA);
   }
 }
 
@@ -2564,7 +2332,10 @@ function getColumnShadowPolygon(source, column, radiusPx) {
 }
 
 function drawCurrentPillarShadowFog(state, ctx) {
-  const columns = Array.isArray(state.decor?.columns) ? state.decor.columns : [];
+  const legacyOrganicPillars = (state.tiles || []).filter((tile) => (
+    isOrganicPillarTile(tile) && !getReviewedTileRule(getOrganicTileData(tile)?.asset)
+  ));
+  const columns = [...(state.decor?.columns || []), ...legacyOrganicPillars];
   if (!columns.length) {
     return;
   }
@@ -2572,16 +2343,9 @@ function drawCurrentPillarShadowFog(state, ctx) {
   if (!lightSources.length) {
     return;
   }
-  const stateWithoutColumns = {
-    ...state,
-    decor: {
-      ...(state.decor || {}),
-      columns: []
-    }
-  };
   for (const source of lightSources) {
     const radiusPx = (Math.max(1, Number(source.radius) || 6) + 0.5) * TILE_SIZE_PX;
-    const unblockedByPillarsPolygon = computeLightPolygon(stateWithoutColumns, source);
+    const unblockedByPillarsPolygon = computeLightPolygon(state, source, { ignorePillars: true });
     if (unblockedByPillarsPolygon.length < 3) {
       continue;
     }
@@ -2636,6 +2400,7 @@ function drawAngledShadowWedges(state, ctx) {
     return;
   }
   const lightSources = collectLightSources(state);
+  const secretThresholds = new Set((state.entities || []).filter(isClosedSecretDoor).map(door => tileKey(door.x, door.y)));
   ctx.save();
   ctx.globalCompositeOperation = "destination-out";
   ctx.fillStyle = "#000000";
@@ -2647,7 +2412,7 @@ function drawAngledShadowWedges(state, ctx) {
     }
     ctx.save();
     clipToFloorTiles(ctx, state, (tile) => (
-      !isDoorThresholdTile(state, tile) ||
+      !secretThresholds.has(tileKey(tile.x, tile.y)) ||
       state.visibility.visibleNow.has(tileKey(tile.x, tile.y))
     ));
     drawCutoutPolygon(ctx, polygon);
@@ -2669,7 +2434,8 @@ function drawClosedDoorFogBisectors(state, ctx) {
   };
 
   for (const door of state.entities || []) {
-    if (door.subtype !== "door" || door.doorState === DOOR_STATES.OPEN) {
+    // Ordinary doors use the exact reviewed light polygon, never rectangular half-tile fog.
+    if (door.subtype !== "door" || !isClosedSecretDoor(door)) {
       continue;
     }
     if (door.secret === true && door.secretFound !== true && door.revealed !== true) {
@@ -2697,32 +2463,63 @@ function drawClosedDoorFogBisectors(state, ctx) {
   }
 }
 
+function drawCombatMovement(state, ctx) {
+  const combat = state.combat;
+  const entry = combat?.active ? combat.turnOrder?.[combat.turnIndex] : null;
+  if (entry?.type !== 'character' || !(combat.movementRemaining > 0)) return;
+  const actor = state.characters.find(character => character.id === entry.id);
+  if (!actor) return;
+  const sources = collectLightSources(state);
+  ctx.save();
+  ctx.beginPath();
+  for (const source of sources) {
+    const polygon = computeLightPolygon(state, source);
+    if (!polygon.length) continue;
+    ctx.moveTo(...polygon[0]);
+    for (const point of polygon.slice(1)) ctx.lineTo(...point);
+    ctx.closePath();
+  }
+  ctx.clip();
+  clipToFloorTiles(ctx, state, tile => state.visibility.visibleNow.has(tileKey(tile.x, tile.y)) &&
+    !isOrganicMovementBlockingTile(tile) && !tile.meta?.layoutBlocks &&
+    canMoveBetweenTiles(state, tile.x, tile.y, tile.x, tile.y).ok);
+  const center = visualTilePoint(state, Number(actor.visualX ?? actor.x), Number(actor.visualY ?? actor.y));
+  ctx.globalAlpha = .2;
+  ctx.fillStyle = actor.colorValue || '#397ed9';
+  ctx.beginPath();
+  ctx.arc(center[0] * TILE_SIZE_PX, center[1] * TILE_SIZE_PX, combat.movementRemaining * TILE_SIZE_PX, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 export function renderDungeon(state, layers, options = {}) {
+  return withLightPolygonCache(state, () => drawDungeonFrame(state, layers, options), options.lightPolygons);
+}
+
+function drawDungeonFrame(state, layers, options) {
   const widthPx = state.map.width * TILE_SIZE_PX;
   const heightPx = state.map.height * TILE_SIZE_PX;
   const { backgroundCtx, topologyCtx, objectsCtx, fogCtx } = layers;
+  if (!rendererAssets.ready && options.motionOnly !== true) {
+    fogCtx.fillStyle = "#000000";
+    fogCtx.fillRect(0, 0, widthPx, heightPx);
+    return;
+  }
   const now = options.now ?? performance.now();
+  const secretWallKey = state.entities.filter(door => door.secret || door.isSecret).map(door => `${door.id}:${door.doorState}`).join('|');
 
   if (options.motionOnly !== true) {
     const previousTerrain = terrainFrames.get(topologyCtx);
     // Generated terrain stays fixed while tokens, doors, and fog use dynamic layers.
-    if (!previousTerrain || previousTerrain.tiles !== state.tiles || previousTerrain.decor !== state.decor ||
+    if (!previousTerrain || previousTerrain.secretWallKey !== secretWallKey || previousTerrain.tiles !== state.tiles || previousTerrain.decor !== state.decor ||
         previousTerrain.rooms !== state.rooms || previousTerrain.ready !== rendererAssets.ready ||
         previousTerrain.entities !== state.entities || previousTerrain.seed !== state.seed ||
         previousTerrain.generation !== state.generation ||
         previousTerrain.width !== widthPx || previousTerrain.height !== heightPx) {
-      if (USE_HAND_DRAWN_RENDERER && rendererAssets.ready) {
-        drawHandDrawnBackground(backgroundCtx, widthPx, heightPx);
-      } else {
-        drawBackground(backgroundCtx, widthPx, heightPx);
-      }
+      drawHandDrawnBackground(backgroundCtx, widthPx, heightPx);
       topologyCtx.clearRect(0, 0, widthPx, heightPx);
-      if (USE_HAND_DRAWN_RENDERER && rendererAssets.ready) {
-        drawHandDrawnTopology(state, topologyCtx);
-      } else {
-        drawTopology(state, topologyCtx);
-      }
-      terrainFrames.set(topologyCtx, { tiles: state.tiles, decor: state.decor, rooms: state.rooms,
+      drawHandDrawnTopology(state, topologyCtx);
+      terrainFrames.set(topologyCtx, { secretWallKey, tiles: state.tiles, decor: state.decor, rooms: state.rooms,
         entities: state.entities, seed: state.seed, generation: state.generation,
         ready: rendererAssets.ready, width: widthPx, height: heightPx });
     }
@@ -2732,5 +2529,6 @@ export function renderDungeon(state, layers, options = {}) {
   }
   fogCtx.clearRect(0, 0, widthPx, heightPx);
   drawFog(state, fogCtx, widthPx, heightPx, options.forceBlackout === true);
+  if (!options.forceBlackout) drawCombatMovement(state, fogCtx);
   drawCharacters(state, fogCtx);
 }

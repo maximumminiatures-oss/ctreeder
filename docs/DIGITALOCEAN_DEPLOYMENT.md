@@ -3,7 +3,7 @@
 ## Current layout
 
 - Repository: `https://github.com/maximumminiatures-oss/ctreeder.git`.
-- Local checkout: `C:\SD_game\ctreeder`.
+- Local checkout: `C:\SD_game\ShadowSpawner\.source`.
 - Host: `root@157.230.143.58`, droplet `ctr-portfolio-sd`.
 - Server checkout: `/opt/SD-Dungeon-Generator`, branch `main`. The legacy path
   preserves existing service and volume paths; origin is the personal repo.

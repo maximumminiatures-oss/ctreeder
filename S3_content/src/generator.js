@@ -13,11 +13,16 @@ import {
   setTileType,
 } from "./state-schema.js";
 import { createTreasureDetails } from "./treasure.js";
+import { addCryptHallways, CRYPT_RULES, isUndeadMonster } from "./crypts.js";
+import { enforceSecretDoorApproaches } from "./secret-door-placement.js";
+import { pickReviewedLayout, applyReviewedLayout, canCrossReviewedGeometry, hasRangedMonsterAttack } from "./reviewed-layouts.js";
 import {
   canCrossOrganicEdge,
   clearOrganicTileMeta,
+  getOrganicTileData,
   isInvalidOrganicFreeTile,
   isOrganicMovementBlockingTile,
+  organicBlocksSide,
   parseOrganicKind,
   parseOrganicSignature,
   setOrganicTileMeta,
@@ -282,6 +287,10 @@ function isRotundaExitTile(room, x, y, size) {
 }
 
 function isRoomFloorTile(room, x, y) {
+  if (Array.isArray(room.reviewedFloorKeys)) return room.reviewedFloorKeys.includes(coordKey(x,y));
+  if (room.organic === true && Array.isArray(room.organicTileKeys)) {
+    return room.organicTileKeys.includes(coordKey(x, y));
+  }
   if (room.rotunda === true) {
     const rotundaSize = Number(room.rotundaSize || room.width || room.height);
     if (rotundaSize === 5) {
@@ -411,6 +420,7 @@ function carveLShapedHall(state, from, to, hallId, rng) {
 }
 
 function getRoomCenter(room) {
+  if (room.organic === true && room.center) return { ...room.center };
   return {
     x: Math.floor(room.x + room.width / 2),
     y: Math.floor(room.y + room.height / 2)
@@ -801,12 +811,9 @@ function floodFillReachableRooms(state, startRoomId) {
     }
     visited.add(roomId);
     for (const hall of state.halls) {
-      if (hall.fromRoomId === roomId && hall.toRoomId && !visited.has(hall.toRoomId)) {
-        queue.push(hall.toRoomId);
-      }
-      if (hall.toRoomId === roomId && hall.fromRoomId && !visited.has(hall.fromRoomId)) {
-        queue.push(hall.fromRoomId);
-      }
+      const connected = [hall.fromRoomId, hall.toRoomId, ...(hall.cryptRoomIds || [])].filter(Boolean);
+      if (!connected.includes(roomId)) continue;
+      for (const id of connected) if (!visited.has(id)) queue.push(id);
     }
   }
   return visited;
@@ -814,6 +821,7 @@ function floodFillReachableRooms(state, startRoomId) {
 
 function isWalkableForValidation(state, tile) {
   return tile?.type === TILE_TYPES.FLOOR &&
+    !tile.meta?.layoutBlocks && !tile.meta?.encounterOnly &&
     !isOrganicMovementBlockingTile(tile) &&
     !isInnerWallBlockingTile(tile) &&
     !isAngledWallMovementBlockingTile(tile) &&
@@ -839,10 +847,13 @@ function validateTileConnectivity(state) {
       [1, 0],
       [-1, 0],
       [0, 1],
-      [0, -1]
+      [0, -1],
+      [1, 1], [1, -1], [-1, 1], [-1, -1]
     ]) {
       const neighbor = getTile(state, tile.x + dx, tile.y + dy);
-      if (isWalkableForValidation(state, neighbor) && !visited.has(`${neighbor.x},${neighbor.y}`)) {
+      if(dx&&dy&&!(tile.meta?.reviewed&&neighbor?.meta?.reviewed))continue;
+      if (isWalkableForValidation(state, neighbor) && !visited.has(`${neighbor.x},${neighbor.y}`) &&
+        canCrossReviewedGeometry(state,tile.x,tile.y,neighbor.x,neighbor.y)) {
         queue.push(neighbor);
       }
     }
@@ -991,6 +1002,7 @@ function pickRandomFloorTileInRoom(state, rng, room, options = {}) {
         !isOrganicMovementBlockingTile(tile) &&
         !isInnerWallBlockingTile(tile) &&
         !isAngledWallMovementBlockingTile(tile) &&
+        !tile.meta?.layoutBlocks && !tile.meta?.encounterOnly &&
         (options.allowOccupied || !isFloorOccupied(state, x, y))
       ) {
         candidates.push(tile);
@@ -1068,7 +1080,8 @@ function spawnTrap(state, rng, room, trapTable, targetType, targetEntityId = nul
   return spawnEntity(state, rng, room, "trap", ENTITY_TYPES.TRAP, "hidden-trap", false, {
     ...details,
     targetType,
-    targetEntityId
+    targetEntityId,
+    placement: { allowOccupied: room.crypt === true }
   });
 }
 
@@ -1549,6 +1562,12 @@ function pickOrganicPlacement(catalog, kind, sides, rng, options = {}) {
     if (cornerMatches.length) {
       return rng.pick(cornerMatches);
     }
+    if (options.strictCorners === true) return null;
+    const score = (candidate) => Object.entries(options.corners).reduce((count, [corner, value]) => (
+      count + (candidate.corners[corner] === value ? 1 : 0)
+    ), 0);
+    const best = Math.max(...candidates.map(score));
+    return rng.pick(candidates.filter((candidate) => score(candidate) === best));
   }
   if (!options.state || !options.tile) {
     return rng.pick(candidates);
@@ -1581,7 +1600,8 @@ function getOrganicRoomTileSides(state, tile) {
   for (const side of RECT_GRAPH_SIDES) {
     const { dx, dy } = getOrganicNeighborDelta(side);
     const neighbor = getTile(state, tile.x + dx, tile.y + dy);
-    sides[side] = neighbor?.type === TILE_TYPES.FLOOR && !isOrganicMovementBlockingTile(neighbor) ? "x" : "o";
+    const filled = isOrganicMovementBlockingTile(neighbor) && organicBlocksSide(neighbor, RECT_GRAPH_OPPOSITE[side]);
+    sides[side] = neighbor?.type === TILE_TYPES.FLOOR && !filled ? "x" : "o";
   }
   return sides;
 }
@@ -1591,16 +1611,7 @@ function isOrganicShellTile(tile) {
 }
 
 function getOrganicCaveFreeTileSides(state, tile) {
-  const sides = {};
-  for (const side of RECT_GRAPH_SIDES) {
-    const { dx, dy } = getOrganicNeighborDelta(side);
-    const neighbor = getTile(state, tile.x + dx, tile.y + dy);
-    sides[side] = (
-      neighbor?.type === TILE_TYPES.FLOOR &&
-      (!isOrganicMovementBlockingTile(neighbor) || isOrganicShellTile(neighbor))
-    ) ? "x" : "o";
-  }
-  return sides;
+  return getOrganicRoomTileSides(state, tile);
 }
 
 function organicTileTouchesDiagonalBoundary(state, tile) {
@@ -1933,6 +1944,7 @@ function applyOrganicDungeonTheme(state, rng, organicAssets = [], pattern = "pro
   const chance = getOrganicRoomChance(pattern);
   const candidates = state.rooms.filter((room) => (
     room.rotunda !== true &&
+    !room.reviewedTemplate &&
     room.width >= (pattern === "organic" ? 4 : 5) &&
     room.height >= (pattern === "organic" ? 4 : 5)
   ));
@@ -2133,6 +2145,7 @@ function applyAngledCornerDungeonTheme(state, rng, pattern = "processional") {
   ];
   const candidates = state.rooms.filter((room) => (
     room.rotunda !== true &&
+    !room.reviewedTemplate &&
     room.organic !== true &&
     !String(room.theme || "").includes("organic") &&
     room.width >= 3 &&
@@ -2241,6 +2254,7 @@ function innerWallTRotationFor(sides) {
 
 function isGeneratedPassableTile(tile) {
   return tile?.type === TILE_TYPES.FLOOR &&
+    !tile.meta?.layoutBlocks && !tile.meta?.encounterOnly &&
     !isOrganicMovementBlockingTile(tile) &&
     !isInnerWallBlockingTile(tile) &&
     !isAngledWallMovementBlockingTile(tile);
@@ -2950,6 +2964,7 @@ function applyInnerWallDungeonTheme(state, rng, innerWallAssets = [], pattern = 
   const chance = getInnerWallRoomChance(pattern);
   const candidates = state.rooms.filter((room) => (
     room.id !== state.generation.entranceRoomId &&
+    !room.reviewedTemplate &&
     room.rotunda !== true &&
     !String(room.theme || "").includes("organic") &&
     room.width >= INNER_WALL_MIN_ROOM_WIDTH &&
@@ -3164,6 +3179,9 @@ function assignArchitecturalRoles(state, rng, pattern) {
 }
 
 function getRoomContentProfile(room) {
+  if (room?.crypt === true) {
+    return { monster: .45, treasure: .72, trap: .35, feature: 0, doorTrap: CRYPT_RULES.doorTrapChance };
+  }
   if (room?.organic === true) {
     const organicBase = {
       monster: 0.72,
@@ -3498,6 +3516,8 @@ function pickBossRooms(state, rng) {
   const candidates = state.rooms
     .filter((room) => room.id !== state.generation.entranceRoomId)
     .filter((room) => room.secretTreasureRoom !== true)
+    .filter((room) => room.crypt !== true)
+    .filter((room) => !room.isolatedBankKeys?.length)
     .filter((room) => getFloorTilesInRoom(state, room).length > 0)
     .map((room) => ({
       room,
@@ -3587,18 +3607,28 @@ function ensureBossRooms(state, rng, bossMonsterTable = [], fallbackMonsterTable
 }
 
 function populateRoomEntities(state, rng, monsterTable = [], trapTable = [], lootCatalog = {}, bossMonsterTable = []) {
+  const cryptMonsters = monsterTable.filter(isUndeadMonster);
   for (const room of state.rooms) {
     if (room.id === state.generation.entranceRoomId) {
       continue;
     }
     const profile = getRoomContentProfile(room);
+    if(room.isolatedBankKeys?.length && rng.nextFloat()<.45) {
+      const monster=createMonsterDetails(rng,monsterTable.filter(hasRangedMonsterAttack));
+      const point=rng.pick(room.isolatedBankKeys);
+      if(monster&&point) {
+        const [x,y]=point.split(',').map(Number);
+        state.entities.push({id:`monster-${state.entities.length}`,type:ENTITY_TYPES.MONSTER,subtype:'foe',roomId:room.id,
+          x,y,visible:true,...monster,canalSentry:true});
+      }
+    }
     const secretTreasureRoom = room.secretTreasureRoom === true;
     let monsterSpawned = false;
     const monsterChance = secretTreasureRoom ? SECRET_TREASURE_ROOM_MONSTER_CHANCE : profile.monster;
     if (rng.nextFloat() < monsterChance) {
       const monster = secretTreasureRoom
         ? pickBossMonsterDetails(state, rng, bossMonsterTable, monsterTable)
-        : createMonsterDetails(rng, monsterTable);
+        : createMonsterDetails(rng, room.crypt ? cryptMonsters : monsterTable);
       if (monster) {
         spawnEntity(
           state,
@@ -3676,7 +3706,7 @@ function isRoomAreaClear(state, rect) {
   }
   for (let y = rect.y; y < rect.y + rect.height; y += 1) {
     for (let x = rect.x; x < rect.x + rect.width; x += 1) {
-      if (isFloorAt(state, x, y)) {
+      if (isFloorAt(state, x, y) || getTile(state, x, y)?.meta?.reviewed) {
         return false;
       }
     }
@@ -3828,6 +3858,10 @@ function pickCompoundRoomShape(rng, size, depth = 0, pattern = "processional") {
 }
 
 function getDoorInteriorTile(room, side, doorTile) {
+  if (room.organic === true) {
+    const direction = RECT_GRAPH_DIRECTIONS[side];
+    return { x: doorTile.x - direction.x, y: doorTile.y - direction.y };
+  }
   if (side === "east") return { x: room.x + room.width - 1, y: doorTile.y };
   if (side === "west") return { x: room.x, y: doorTile.y };
   if (side === "south") return { x: doorTile.x, y: room.y + room.height - 1 };
@@ -3836,6 +3870,7 @@ function getDoorInteriorTile(room, side, doorTile) {
 
 function isDoorInteriorFloor(room, side, doorTile) {
   const interior = getDoorInteriorTile(room, side, doorTile);
+  if (room.reviewedPorts && !room.reviewedPorts.some(([s,x,y])=>s===side && room.x+x===interior.x && room.y+y===interior.y)) return false;
   return isRoomFloorTile(room, interior.x, interior.y);
 }
 
@@ -3852,6 +3887,11 @@ function fitCornerSizeToDoors(room, doorPlacements) {
 }
 
 function getRoomAttachmentPoint(room, side, rng) {
+  if (room.reviewedPorts) {
+    const port=rng.pick(room.reviewedPorts.filter(([s])=>s===side));
+    if(!port)return null;
+    const delta=RECT_GRAPH_DIRECTIONS[side]; return {x:room.x+port[1]+delta.x,y:room.y+port[2]+delta.y};
+  }
   if (room.rotunda === true) {
     const size = Number(room.rotundaSize || room.width || room.height || 7);
     const radius = Math.floor(size / 2);
@@ -3948,7 +3988,7 @@ function areHallTilesClear(state, hallTiles, options = {}) {
     const pathKeys = new Set(hallTiles.map((tile) => `${tile.x},${tile.y}`));
     return hallTiles.every((tile, index) => {
       const existing = getTile(state, tile.x, tile.y);
-      if (!existing || existing.type !== TILE_TYPES.WALL) {
+      if (!existing || existing.type !== TILE_TYPES.WALL || existing.meta?.reviewed) {
         return false;
       }
       for (const side of RECT_GRAPH_SIDES) {
@@ -3973,7 +4013,7 @@ function areHallTilesClear(state, hallTiles, options = {}) {
     : [{ x: 0, y: -1 }, { x: 0, y: 1 }];
   return hallTiles.every((tile) => {
     const existing = getTile(state, tile.x, tile.y);
-    if (!existing || existing.type !== TILE_TYPES.WALL) {
+    if (!existing || existing.type !== TILE_TYPES.WALL || existing.meta?.reviewed) {
       return false;
     }
     return bufferOffsets.every((offset) => {
@@ -4080,7 +4120,26 @@ function buildOrganicHallTilesFromDoor(parentDoorTile, side, length, rng) {
 }
 
 function buildHallTilesFromDoor(parentDoorTile, side, length, rng, pattern = "processional") {
-  if (pattern === "organic" || (pattern === "organicHybrid" && rng.nextFloat() < 0.6)) {
+  if (pattern === "organic") {
+    const tiles = buildStraightHallTilesFromDoor(parentDoorTile, side, length);
+    if (rng.nextFloat() < 0.6) return tiles;
+    const forward = RECT_GRAPH_DIRECTIONS[side];
+    const lateral = RECT_GRAPH_DIRECTIONS[rng.pick(getPerpendicularSides(side))];
+    const bend = rng.nextInt(2, Math.max(2, length - 2));
+    const result = tiles.slice(0, bend);
+    let point = result[result.length - 1];
+    const lateralLength = rng.nextInt(2, 3);
+    for (let step = 0; step < lateralLength; step += 1) {
+      point = { x: point.x + lateral.x, y: point.y + lateral.y };
+      result.push(point);
+    }
+    for (let step = bend; step < length + 1; step += 1) {
+      point = { x: point.x + forward.x, y: point.y + forward.y };
+      result.push(point);
+    }
+    return result;
+  }
+  if (pattern === "organicHybrid" && rng.nextFloat() < 0.6) {
     return buildOrganicHallTilesFromDoor(parentDoorTile, side, length, rng);
   }
   return buildStraightHallTilesFromDoor(parentDoorTile, side, length);
@@ -4156,7 +4215,7 @@ function getHallTileDirection(tiles, index) {
 
 function canCarveHallBranchTile(state, x, y, pathKeys) {
   const tile = getTile(state, x, y);
-  if (!tile || tile.type !== TILE_TYPES.WALL || pathKeys.has(`${x},${y}`)) {
+  if (!tile || tile.type !== TILE_TYPES.WALL || tile.meta?.reviewed || pathKeys.has(`${x},${y}`)) {
     return false;
   }
   for (const side of RECT_GRAPH_SIDES) {
@@ -4180,7 +4239,7 @@ function findConnectingHallBranch(state, anchor, branchSide, minLength, maxLengt
     y += delta.y;
     const tile = getTile(state, x, y);
     const key = `${x},${y}`;
-    if (!tile) {
+    if (!tile || tile.meta?.reviewed) {
       return null;
     }
     if (tile.type === TILE_TYPES.WALL) {
@@ -4218,6 +4277,9 @@ function addHallBranches(state, rng, pattern = "processional") {
   for (const hall of state.halls || []) {
     const tiles = Array.isArray(hall.tiles) ? hall.tiles : [];
     if (hall.entrance || tiles.length < 4 || rng.nextFloat() > chance) {
+      continue;
+    }
+    if (hall.reviewedTemplate) {
       continue;
     }
     const orderedTiles = [...tiles];
@@ -5042,13 +5104,13 @@ function validateOrganicPassableConnectivity(state) {
   const queue = [start];
   while (queue.length) {
     const current = queue.shift();
-    for (const side of RECT_GRAPH_SIDES) {
-      const { dx, dy } = getOrganicNeighborDelta(side);
+    for (const {dx,dy} of [...RECT_GRAPH_SIDES.map(getOrganicNeighborDelta),{dx:1,dy:1},{dx:1,dy:-1},{dx:-1,dy:1},{dx:-1,dy:-1}]) {
       const neighbor = byKey.get(coordKey(current.x + dx, current.y + dy));
+      if(dx&&dy&&!(current.meta?.reviewed&&neighbor?.meta?.reviewed))continue;
       if (!neighbor || visited.has(coordKey(neighbor.x, neighbor.y))) {
         continue;
       }
-      if (!canCrossOrganicEdge(current, neighbor, dx, dy)) {
+      if (!canCrossOrganicEdge(current, neighbor, dx, dy) || !canCrossReviewedGeometry(state,current.x,current.y,neighbor.x,neighbor.y)) {
         continue;
       }
       visited.add(coordKey(neighbor.x, neighbor.y));
@@ -5155,7 +5217,7 @@ function placeOrganicCaveBlocks(state, rng, catalog, protectedKeys, targetBlocks
 function applyOrganicCaveFreeArt(state, rng, catalog, protectedKeys) {
   let placed = 0;
   for (const tile of state.tiles || []) {
-    if (tile?.type !== TILE_TYPES.FLOOR || isOrganicMovementBlockingTile(tile)) {
+    if (tile?.type !== TILE_TYPES.FLOOR || tile.meta?.reviewed || tile.meta?.crypt || isOrganicMovementBlockingTile(tile)) {
       continue;
     }
     const sides = getOrganicCaveFreeTileSides(state, tile);
@@ -5165,7 +5227,13 @@ function applyOrganicCaveFreeArt(state, rng, catalog, protectedKeys) {
     const placement = pickOrganicPlacement(catalog, "free", sides, rng, {
       state,
       tile,
-      closeDiagonalCorners: true
+      corners: Object.fromEntries(["nw", "ne", "se", "sw"].map((corner) => {
+        const { dx, dy } = getOrganicCornerNeighborDeltas(corner)[2];
+        const neighbor = getTile(state, tile.x + dx, tile.y + dy);
+        const facing = { nw: "se", ne: "sw", se: "nw", sw: "ne" }[corner];
+        const filled = isOrganicMovementBlockingTile(neighbor) && getOrganicTileData(neighbor)?.corners[facing] === "o";
+        return [corner, neighbor?.type === TILE_TYPES.FLOOR && !filled ? "x" : "o"];
+      }))
     });
     if (!placement) {
       continue;
@@ -5258,6 +5326,168 @@ function applyOrganicCaveTileArt(state, rng, organicAssets = []) {
   applyOrganicCaveFreeArt(state, rng, catalog, protectedKeys);
 }
 
+function reshapeOrganicRooms(state, rng) {
+  const protectedKeys = getDoorTileKeys(state);
+  for (const room of state.rooms) {
+    for (const key of getRoomDoorInteriorKeys(state, room)) protectedKeys.add(key);
+  }
+  protectedKeys.add(coordKey(state.player.x, state.player.y));
+  for (const room of state.rooms) {
+    room.center = getRoomCenter(room);
+    room.organic = true;
+    room.renderer = "organic";
+    room.cornerSize = 0;
+    const original = { x: room.x, y: room.y, width: room.width, height: room.height };
+    if (rng.nextFloat() < 0.88) {
+      const cuts = rng.nextInt(1, 3);
+      for (let index = 0; index < cuts; index += 1) {
+        const corner = rng.pick(["nw", "ne", "se", "sw"]);
+        const width = rng.nextInt(1, 2);
+        const height = rng.nextInt(1, 2);
+        const removed = [];
+        for (let dy = 0; dy < height; dy += 1) {
+          for (let dx = 0; dx < width; dx += 1) {
+            const x = corner.includes("w") ? original.x + dx : original.x + original.width - 1 - dx;
+            const y = corner.includes("n") ? original.y + dy : original.y + original.height - 1 - dy;
+            const tile = getTile(state, x, y);
+            if (tile?.roomId !== room.id || tile.type !== TILE_TYPES.FLOOR || protectedKeys.has(coordKey(x, y)) ||
+                (Math.abs(x - room.center.x) <= 1 && Math.abs(y - room.center.y) <= 1)) continue;
+            removed.push(tile);
+            setTileType(state, x, y, TILE_TYPES.WALL, { roomId: null, hallId: null });
+          }
+        }
+        if (!roomStructuralConnectivityValid(state, room)) {
+          for (const tile of removed) setTileType(state, tile.x, tile.y, TILE_TYPES.FLOOR, { roomId: room.id });
+        }
+      }
+      const bulges = rng.nextInt(1, 3);
+      for (let index = 0; index < bulges; index += 1) {
+        const side = rng.pick(RECT_GRAPH_SIDES);
+        const span = side === "north" || side === "south" ? original.width : original.height;
+        const offset = rng.nextInt(1, Math.max(1, span - 3));
+        for (let step = 0; step < 2; step += 1) {
+          const x = side === "west" ? original.x - 1 : side === "east" ? original.x + original.width : original.x + offset + step;
+          const y = side === "north" ? original.y - 1 : side === "south" ? original.y + original.height : original.y + offset + step;
+          const tile = getTile(state, x, y);
+          if (!tile || tile.type !== TILE_TYPES.WALL || tile.meta?.reviewed || protectedKeys.has(coordKey(x, y)) || !isPointInOrganicBounds(state, x, y, 2)) continue;
+          const neighbors = RECT_GRAPH_SIDES.map((direction) => {
+            const delta = RECT_GRAPH_DIRECTIONS[direction];
+            return getTile(state, x + delta.x, y + delta.y);
+          });
+          if (!neighbors.some((neighbor) => neighbor?.roomId === room.id && neighbor.type === TILE_TYPES.FLOOR) ||
+              neighbors.some((neighbor) => neighbor?.type === TILE_TYPES.FLOOR && neighbor.roomId !== room.id)) continue;
+          setTileType(state, x, y, TILE_TYPES.FLOOR, { roomId: room.id, hallId: null });
+        }
+      }
+    }
+    const keys = new Set(state.tiles.filter((tile) => tile.type === TILE_TYPES.FLOOR && tile.roomId === room.id).map((tile) => coordKey(tile.x, tile.y)));
+    Object.assign(room, getOrganicBoundingRect(keys), { organicTileKeys: [...keys] });
+  }
+  for (const hall of state.halls) Object.assign(hall, { organic: true, style: hall.reviewedTemplate ? 'reviewed' : 'organic' });
+}
+
+const ORGANIC_SIDE_CORNERS = Object.freeze({
+  north: ["nw", "ne"], east: ["ne", "se"], south: ["se", "sw"], west: ["sw", "nw"]
+});
+
+function fitOrganicDoorArt(state, rng, catalog) {
+  const invalid = new Set();
+  const requirements = new Map();
+  for (const door of state.entities) {
+    if (door.subtype !== "door" || door.crypt || String(door.doorKind || "").startsWith("stairs")) continue;
+    const axis = door.orientation === "horizontal" ? ["north", "south"] : ["west", "east"];
+    const neighbors = [];
+    for (const side of axis) {
+      const delta = RECT_GRAPH_DIRECTIONS[side];
+      const tile = getTile(state, door.x + delta.x, door.y + delta.y);
+      const facing = RECT_GRAPH_OPPOSITE[side];
+      if (!isGeneratedPassableTile(tile)) break;
+      const sides = getOrganicRoomTileSides(state, tile);
+      if (sides[facing] !== "x") break;
+      const corners = Object.fromEntries(ORGANIC_SIDE_CORNERS[facing].map((corner) => [corner, "o"]));
+      neighbors.push({ tile, sides, corners });
+    }
+    if (neighbors.length !== 2) {
+      invalid.add(door.id);
+      continue;
+    }
+    for (const { tile, sides, corners } of neighbors) {
+      const key = coordKey(tile.x, tile.y);
+      const requirement = requirements.get(key) || { tile, sides, corners: {}, doors: [] };
+      Object.assign(requirement.corners, corners);
+      requirement.doors.push(door.id);
+      requirements.set(key, requirement);
+    }
+    door.organic = true;
+  }
+  // A tile between two doors must satisfy both sets of jamb corners at once.
+  for (const requirement of requirements.values()) {
+    const placement = pickOrganicPlacement(catalog, "free", requirement.sides, rng, {
+      corners: requirement.corners, strictCorners: true
+    });
+    if (placement) setOrganicTileMeta(requirement.tile, placement.asset, placement);
+    else for (const id of requirement.doors) invalid.add(id);
+  }
+  if (invalid.size) {
+    state.entities = state.entities.filter((entity) => !invalid.has(entity.id));
+    for (const hall of state.halls) hall.doors = (hall.doors || []).filter((id) => !invalid.has(id));
+  }
+  for (const door of state.entities) {
+    if (door.organic !== true || rng.nextFloat() >= 0.025) continue;
+    const axis = door.orientation === "horizontal" ? ["north", "south"] : ["west", "east"];
+    const neighbors = axis.map((side) => {
+      const delta = RECT_GRAPH_DIRECTIONS[side];
+      return getTile(state, door.x + delta.x, door.y + delta.y);
+    });
+    if (neighbors.some(isOrganicMovementBlockingTile)) continue;
+    const candidates = neighbors.map((tile) => requirements.get(coordKey(tile?.x, tile?.y)))
+      .filter((entry) => entry && organicPassableNeighborCount(state, entry.tile) >= 3);
+    if (!candidates.length) continue;
+    const requirement = rng.pick(candidates);
+    const placement = pickOrganicPlacement(catalog, "blocks", requirement.sides, rng, {
+      corners: requirement.corners, strictCorners: true
+    });
+    if (!placement) continue;
+    const changes = new Map();
+    rememberOrganicTileChange(changes, requirement.tile);
+    setOrganicTileMeta(requirement.tile, placement.asset, placement);
+    const hasDoubleBlocker = state.entities.some((other) => {
+      if (other.organic !== true) return false;
+      const sides = other.orientation === "horizontal" ? ["north", "south"] : ["west", "east"];
+      return sides.every((side) => {
+        const delta = RECT_GRAPH_DIRECTIONS[side];
+        return isOrganicMovementBlockingTile(getTile(state, other.x + delta.x, other.y + delta.y));
+      });
+    });
+    if (hasDoubleBlocker || !validateOrganicPassableConnectivity(state)) restoreOrganicTileChanges(changes);
+  }
+}
+
+function applyOrganicRoomAndHallArt(state, rng, organicAssets) {
+  const catalog = buildOrganicAssetCatalog(organicAssets);
+  if (!catalog.available) return;
+  const protectedKeys = getDoorTileKeys(state);
+  protectedKeys.add(coordKey(state.player.x, state.player.y));
+  for(const room of state.rooms) for(const key of getRoomDoorInteriorKeys(state,room)) protectedKeys.add(key);
+  for (const room of state.rooms) {
+    if (room.crypt || room.reviewedTemplate || room.width * room.height < 30 || rng.nextFloat() > 0.6) continue;
+    const candidates = getRoomOrganicFloorTiles(state, room).filter((tile) => (
+      !protectedKeys.has(coordKey(tile.x, tile.y)) && organicPassableNeighborCount(state, tile) >= 3 &&
+      (Math.abs(tile.x - room.center.x) > 1 || Math.abs(tile.y - room.center.y) > 1)
+    ));
+    const tile = candidates.length ? rng.pick(candidates) : null;
+    const placement = tile && pickOrganicPlacement(catalog, "blocks", getOrganicRoomTileSides(state,tile), rng, {
+      state,tile,closeDiagonalCorners:true
+    });
+    if (placement) {
+      setOrganicTileMeta(tile, placement.asset, placement);
+      if (!validateOrganicPassableConnectivity(state)) clearOrganicTileMeta(tile);
+    }
+  }
+  applyOrganicCaveFreeArt(state, rng, catalog, protectedKeys);
+  fitOrganicDoorArt(state, rng, catalog);
+}
+
 function createOrganicEntranceMarker(state, room, rng) {
   const candidates = (room.organicTileKeys || [])
     .map(parseCoordKey)
@@ -5296,6 +5526,9 @@ function tryGrowRectGraphRoom(state, queueEntry, rng, roomIndex, hallIndex) {
       size = { width: rng.nextInt(5, 7), height: rng.nextInt(5, 6), rotunda: false };
     }
     const pattern = queueEntry.architecture || queueEntry.pattern || "processional";
+    const reviewed = state.rooms.filter(room=>room.reviewedTemplate).length < 4
+      ? pickReviewedLayout(rng,'room',pattern,state.generation.reviewedLayouts !== false) : null;
+    if(reviewed)size={width:reviewed.width,height:reviewed.height,rotunda:false};
     const hallLength = pattern === "innerWalls"
       ? rng.nextInt(2, 4)
       : pattern === "maze"
@@ -5309,14 +5542,44 @@ function tryGrowRectGraphRoom(state, queueEntry, rng, roomIndex, hallIndex) {
     if (!parentDoorTile) {
       continue;
     }
-    const hallTiles = buildHallTilesFromDoor(parentDoorTile, side, hallLength, rng, pattern);
+    let reviewedHall=state.halls.filter(hall=>hall.reviewedTemplate).length<(pattern==='organic'?5:2)
+      ? pickReviewedLayout(rng,'hall',pattern,state.generation.reviewedLayouts!==false,RECT_GRAPH_OPPOSITE[side]):null;
+    const entryPort=reviewedHall?.ports.find(([s])=>s===RECT_GRAPH_OPPOSITE[side]);
+    if(reviewedHall&&!entryPort)reviewedHall=null;
+    const inputDirection=RECT_GRAPH_DIRECTIONS[side];
+    const hallOrigin=reviewedHall?{x:parentDoorTile.x+2*inputDirection.x-entryPort[1],y:parentDoorTile.y+2*inputDirection.y-entryPort[2]}:null;
+    const exitPort=reviewedHall?.ports.find(port=>port[1]!==entryPort[1]||port[2]!==entryPort[2]);
+    const exitSide=exitPort?.[0]||side;
+    const templateExit=exitPort?{x:hallOrigin.x+exitPort[1],y:hallOrigin.y+exitPort[2]}:null;
+    let hallTiles = reviewedHall ? reviewedHall.floor.map(([x,y])=>({x:hallOrigin.x+x,y:hallOrigin.y+y}))
+      .filter(point=>!(point.x===parentDoorTile.x&&point.y===parentDoorTile.y)&&!(point.x===templateExit.x&&point.y===templateExit.y))
+      : buildHallTilesFromDoor(parentDoorTile, side, hallLength, rng, pattern);
+    if(reviewedHall) {
+      const outputDirection=RECT_GRAPH_DIRECTIONS[exitSide];
+      const templateEntry={x:hallOrigin.x+entryPort[1],y:hallOrigin.y+entryPort[2]};
+      hallTiles=hallTiles.filter(point=>point.x!==templateEntry.x||point.y!==templateEntry.y);
+      hallTiles=[parentDoorTile,{x:parentDoorTile.x+inputDirection.x,y:parentDoorTile.y+inputDirection.y},
+        templateEntry,...hallTiles,templateExit,{x:templateExit.x+outputDirection.x,y:templateExit.y+outputDirection.y},
+        {x:templateExit.x+2*outputDirection.x,y:templateExit.y+2*outputDirection.y}];
+      if(hallOrigin.x<1||hallOrigin.y<1||hallOrigin.x+reviewedHall.width>=state.map.width-1||hallOrigin.y+reviewedHall.height>=state.map.height-1)continue;
+      let clear=true;
+      for(let y=hallOrigin.y;y<hallOrigin.y+reviewedHall.height;y++)for(let x=hallOrigin.x;x<hallOrigin.x+reviewedHall.width;x++) {
+        const tile=getTile(state,x,y);
+        if(tile?.type!=='wall'||tile.meta?.reviewed)clear=false;
+      }
+      if(!clear)continue;
+    }
     const bentHall = !(hallTiles.every((tile) => tile.x === hallTiles[0].x) || hallTiles.every((tile) => tile.y === hallTiles[0].y));
     if (!areHallTilesClear(state, hallTiles, { allowBent: bentHall, parentRoomId: room.id })) {
       continue;
     }
     const childDoorTile = hallTiles[hallTiles.length - 1];
-    const childSide = RECT_GRAPH_OPPOSITE[side];
-    const rect = createAttachedRoomRect(childDoorTile, side, size, rng);
+    const childSide = RECT_GRAPH_OPPOSITE[exitSide];
+    const port=reviewed && rng.pick(reviewed.ports.filter(([s])=>s===childSide));
+    if(reviewed&&!port)continue;
+    const direction=RECT_GRAPH_DIRECTIONS[exitSide];
+    const rect = reviewed ? {x:childDoorTile.x+direction.x-port[1],y:childDoorTile.y+direction.y-port[2],width:size.width,height:size.height}
+      : createAttachedRoomRect(childDoorTile, exitSide, size, rng);
     const candidate = {
       id: `room-${roomIndex}`,
       x: rect.x,
@@ -5332,18 +5595,28 @@ function tryGrowRectGraphRoom(state, queueEntry, rng, roomIndex, hallIndex) {
       cornerSize: size.rotunda === true || pattern === "organic" ? 0 : pickRoomCornerSize(rng, size.width, size.height, depth),
       graphDepth: depth
     };
+    if(reviewed)Object.assign(candidate,{reviewedTemplate:reviewed.id,renderer:'reviewed',shape:'rect',cornerSize:0,
+      reviewedPorts:reviewed.ports,reviewedFloorKeys:reviewed.floor.map(([x,y])=>coordKey(candidate.x+x,candidate.y+y))});
     if (candidate.shape !== "rect" && !isDoorInteriorFloor(candidate, childSide, childDoorTile)) {
       candidate.shape = "rect";
     }
     fitCornerSizeToDoors(candidate, [{ side: childSide, tile: childDoorTile }]);
+    if(reviewedHall && hallTiles.slice(0,-1).some(point=>point.x>=candidate.x-1&&point.x<=candidate.x+candidate.width&&
+      point.y>=candidate.y-1&&point.y<=candidate.y+candidate.height))continue;
     if (!isRoomAreaClear(state, candidate)) {
       continue;
     }
 
     const hallId = `hall-${hallIndex}`;
     carveRectGraphHall(state, hallTiles, hallId);
+    if(reviewedHall)applyReviewedLayout(state,reviewedHall,hallOrigin.x,hallOrigin.y,null,hallId,rng);
     carveRoom(state, candidate);
     state.rooms.push(candidate);
+    if(reviewed) {
+      const result=applyReviewedLayout(state,reviewed,candidate.x,candidate.y,candidate.id,null,rng);
+      candidate.isolatedBankKeys=result.isolated.map(point=>point.join(','));
+      candidate.pendingCustomLight=reviewed.pendingCustomLight===true;
+    }
     const parentDoor = addRectGraphDoor(state, room, parentDoorTile, hallId, side, rng);
     const doors = [parentDoor.id];
     if (candidate.rotunda === true || hallTiles.length > 4 || rng.nextFloat() < 0.82) {
@@ -5356,7 +5629,8 @@ function tryGrowRectGraphRoom(state, queueEntry, rng, roomIndex, hallIndex) {
       toRoomId: candidate.id,
       doors,
       tiles: hallTiles.map((tile) => ({ ...tile })),
-      style: "rect-graph"
+      style: reviewedHall ? 'reviewed' : 'rect-graph',
+      reviewedTemplate: reviewedHall?.id || null
     });
     return { room: candidate, hallId };
   }
@@ -5448,7 +5722,7 @@ function addRectGraphColumns(state, rng) {
   };
 
   for (const room of state.rooms) {
-    if (room.id === state.generation.entranceRoomId || room.width < 5 || room.height < 5 || room.rotunda) {
+    if (room.reviewedTemplate || room.id === state.generation.entranceRoomId || room.width < 5 || room.height < 5 || room.rotunda) {
       continue;
     }
     const roleChance = room.role === ROOM_ROLES.SHRINE
@@ -5519,6 +5793,7 @@ function addRectGraphWater(state, rng, pattern = "processional") {
 
   const roomCandidates = state.rooms.filter((room) => (
     room.id !== state.generation.entranceRoomId &&
+    !room.reviewedTemplate &&
     room.hasCanal !== true &&
     room.width >= 5 &&
     room.height >= 5 &&
@@ -5651,6 +5926,7 @@ function addPlacedDecor(list, placement) {
 }
 
 function configureSecretDoor(door, rng, options = {}) {
+  if (!/^door-secret-/.test(String(door.doorSpriteId || ''))) door.normalDoorSpriteId = door.doorSpriteId;
   door.doorKind = "secret";
   door.secret = true;
   door.secretFound = door.secretFound === true;
@@ -5745,6 +6021,15 @@ function addBuiltSecretDoors(state, rng, pattern = "processional") {
     configureSecretDoor(door, rng);
     count += 1;
   }
+}
+
+function validateSecretDoorApproaches(state) {
+  const walkable = new Set(state.tiles.filter(tile => isWalkableForValidation(state, tile)).map(tile => coordKey(tile.x, tile.y)));
+  enforceSecretDoorApproaches(state, (from, to) => {
+    if (!walkable.has(coordKey(from.x, from.y)) || !walkable.has(coordKey(to.x, to.y))) return false;
+    return canCrossReviewedGeometry(state, from.x, from.y, to.x, to.y) &&
+      canCrossOrganicEdge(getTile(state, from.x, from.y), getTile(state, to.x, to.y), to.x - from.x, to.y - from.y);
+  });
 }
 
 function plannedDecorCoversTile(planned, x, y) {
@@ -6221,6 +6506,8 @@ function canPlaceDecorFootprint(state, x, y, width, height, occupied, boundarySi
       const tile = getTile(state, xx, yy);
       if (
         tile?.type !== TILE_TYPES.FLOOR ||
+        tile?.meta?.crypt === true ||
+        tile?.meta?.reviewed === true ||
         isOrganicMovementBlockingTile(tile) ||
         isInnerWallBlockingTile(tile) ||
         isAngledWallMovementBlockingTile(tile) ||
@@ -6362,6 +6649,7 @@ function createOrganicDungeon(seed, level, options = {}) {
   markEndingRoom(state, rng);
   assignArchitecturalRoles(state, rng, "organic");
   applyArchitecturalDoorDetails(state, rng, "organic");
+  validateSecretDoorApproaches(state);
 
   const reachableRooms = entranceRoom ? floodFillReachableRooms(state, entranceRoom.id) : new Set();
   state.generation.connectivityValid = reachableRooms.size === state.rooms.length && validateOrganicPassableConnectivity(state);
@@ -6386,11 +6674,13 @@ function createRectGraphDungeon(seed, level, options = {}) {
   state.rulesData = options.rulesData || options.contentCatalog?.rulesData || null;
   const rng = new SeededRng(seed);
   const architecturePattern = options.architecturePattern || chooseArchitecturePattern(rng);
+  state.generation.reviewedLayouts = options.reviewedLayouts !== false;
   state.generation.architecture = {
     pattern: architecturePattern,
     rolePassVersion: 1
   };
-  const firstSize = { width: rng.nextInt(5, 7), height: rng.nextInt(5, 6), rotunda: false };
+  const entranceLayout=pickReviewedLayout(rng,'entrance',architecturePattern,state.generation.reviewedLayouts);
+  const firstSize = entranceLayout || { width: rng.nextInt(5, 7), height: rng.nextInt(5, 6), rotunda: false };
   const firstRoom = {
     id: "room-0",
     x: 5,
@@ -6406,10 +6696,20 @@ function createRectGraphDungeon(seed, level, options = {}) {
   state.rooms.push(firstRoom);
   carveRoom(state, firstRoom);
   state.generation.entranceRoomId = firstRoom.id;
-  createEntranceStairs(state, firstRoom, rng);
+  if(entranceLayout) {
+    Object.assign(firstRoom,{reviewedTemplate:entranceLayout.id,renderer:'reviewed',reviewedPorts:entranceLayout.ports,
+      reviewedFloorKeys:entranceLayout.floor.map(([x,y])=>coordKey(firstRoom.x+x,firstRoom.y+y))});
+    applyReviewedLayout(state,entranceLayout,firstRoom.x,firstRoom.y,firstRoom.id,null,rng);
+  } else createEntranceStairs(state, firstRoom, rng);
   state.player.x = Math.floor(firstRoom.x + firstRoom.width / 2);
   state.player.y = firstRoom.y + 1;
   state.player.roomId = firstRoom.id;
+  if(entranceLayout) {
+    state.player.x=firstRoom.x+entranceLayout.token[0];state.player.y=firstRoom.y+entranceLayout.token[1];
+    const stairs=createDoorEntity(state.player.x,state.player.y,firstRoom.id,null,rng);
+    Object.assign(stairs,{doorKind:'stairs-up',doorState:DOOR_STATES.OPEN,hiddenStairSprite:true,highestStep:'south'});
+    state.entities.push(stairs);
+  }
 
   const queue = [];
   addInitialRoomExits(queue, firstRoom, rng, architecturePattern);
@@ -6487,17 +6787,31 @@ function createRectGraphDungeon(seed, level, options = {}) {
   assignArchitecturalRoles(state, rng, architecturePattern);
   applyArchitecturalDoorDetails(state, rng, architecturePattern);
   finalizeRoomGeometry(state);
-  applyOrganicDungeonTheme(state, rng, options.organicAssets || [], architecturePattern);
+  if (architecturePattern === "organic") {
+    state.generation.architecture.renderer = "organic";
+    reshapeOrganicRooms(state, rng);
+    addCryptHallways(state, { ...options, canAnchor: tile => isWalkableForValidation(state, tile) && !tile?.meta?.reviewed });
+    applyOrganicRoomAndHallArt(state, rng, options.organicAssets || []);
+  } else {
+    applyOrganicDungeonTheme(state, rng, options.organicAssets || [], architecturePattern);
+  }
   applyAngledCornerDungeonTheme(state, rng, architecturePattern);
   applyInnerWallDungeonTheme(state, rng, options.innerWallAssets || [], architecturePattern);
-  addRectGraphCanals(state, rng);
-  addRectGraphColumns(state, rng);
-  addRectGraphWater(state, rng, architecturePattern);
-  addRotundaWells(state, rng);
+  if (architecturePattern !== "organic") {
+    // Reviewed bank/bridge templates replace the old procedural canal composition.
+    state.decor.canals = [];
+    addRectGraphColumns(state, rng);
+    addRectGraphWater(state, rng, architecturePattern);
+    addRotundaWells(state, rng);
+  }
   addBuiltSecretDoors(state, rng, architecturePattern);
 
+  if(architecturePattern!=='organic') addCryptHallways(state, { ...options, canAnchor: tile => isWalkableForValidation(state, tile) && !tile?.meta?.reviewed });
+  validateSecretDoorApproaches(state);
+
   const reachableRooms = floodFillReachableRooms(state, firstRoom.id);
-  state.generation.connectivityValid = reachableRooms.size === state.rooms.length && validateTileConnectivity(state) && validateOrganicPassableConnectivity(state);
+  state.generation.connectivityValid = reachableRooms.size === state.rooms.length &&
+    (architecturePattern === "organic" || validateTileConnectivity(state)) && validateOrganicPassableConnectivity(state);
 
   populateRoomEntities(state, rng, options.monsterTable || [], options.trapTable || [], options.contentCatalog?.loot || {});
   ensureBossRooms(
@@ -6518,16 +6832,13 @@ function createRectGraphDungeon(seed, level, options = {}) {
 export function generateDungeon(seed = Date.now(), level = 1, options = {}) {
   const rng = new SeededRng(seed);
   const architecturePattern = options.architecturePattern || chooseArchitecturePattern(rng);
-  if (architecturePattern === "organic") {
-    return createOrganicDungeon(seed, level, {
-      ...options,
-      architecturePattern
-    });
+  const state=createRectGraphDungeon(seed,level,{...options,architecturePattern});
+  if(!state.generation.connectivityValid&&options.reviewedLayouts!==false) {
+    const fallback=createRectGraphDungeon(seed,level,{...options,architecturePattern,reviewedLayouts:false});
+    fallback.generation.reviewedLayoutFallback=true;
+    return fallback;
   }
-  return createRectGraphDungeon(seed, level, {
-    ...options,
-    architecturePattern
-  });
+  return state;
 }
 
 export function generateClassicDungeon(seed = Date.now(), level = 1, options = {}) {
@@ -6570,9 +6881,12 @@ export function generateClassicDungeon(seed = Date.now(), level = 1, options = {
   state.player.y = start.y;
   state.player.roomId = entranceRoom.id;
 
+  addCryptHallways(state, { ...options, canAnchor: tile => isWalkableForValidation(state, tile) });
+
   const reachableRooms = floodFillReachableRooms(state, entranceRoom.id);
   state.generation.connectivityValid = reachableRooms.size === state.rooms.length;
   addBuiltSecretDoors(state, rng, "classic");
+  validateSecretDoorApproaches(state);
 
   populateRoomEntities(state, rng, options.monsterTable || [], options.trapTable || [], options.contentCatalog?.loot || {});
   ensureBossRooms(

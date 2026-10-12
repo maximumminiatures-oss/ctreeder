@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShadowSpawner Tile Workbench</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header>
+    <h1>Tile Workbench</h1>
+    <input id="map-name" aria-label="Map name" value="Organic tile example" maxlength="120">
+    <select id="study-page" aria-label="Study page" title="Study page" hidden></select>
+    <div class="commands">
+      <button id="undo" title="Undo" aria-label="Undo"><span data-icon="undo-2"></span></button>
+      <button id="redo" title="Redo" aria-label="Redo"><span data-icon="redo-2"></span></button>
+      <button id="new-map">New Map</button>
+      <button id="open-map" title="Open a previous JSON output"><span data-icon="folder-open"></span>Open</button>
+      <button id="output" class="primary"><span data-icon="save"></span>Output</button>
+      <input id="file" type="file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+  <div class="toolbar">
+    <div class="segments" role="group" aria-label="Selection mode">
+      <button data-mode="tile" aria-pressed="true" title="Select tiles"><span data-icon="mouse-pointer-2"></span>Tile</button>
+      <button data-mode="edge" aria-pressed="false" title="Select grid edges"><span data-icon="minus"></span>Edge</button>
+      <button data-mode="vertex" aria-pressed="false" title="Select grid corners"><span data-icon="circle-dot"></span>Vertex</button>
+      <button data-mode="shadow" aria-pressed="false" title="Draw a light-blocking polyline; secondary click finishes"><span data-icon="pen-tool"></span>Shadow Pen</button>
+      <button data-mode="token" aria-pressed="false" title="Move the character token"><span data-icon="person-standing"></span>Token</button>
+      <button data-mode="paint" aria-pressed="false" title="Paint locked solid black tiles"><span data-icon="paintbrush"></span>Paint Black</button>
+      <button data-mode="erase" aria-pressed="false" title="Erase the top layer across a mouse drag"><span data-icon="eraser"></span>Erase</button>
+    </div>
+    <div class="segments" role="group" aria-label="View">
+      <button id="build-view" aria-pressed="true">Build</button>
+      <button id="light-view" aria-pressed="false">Lighting</button>
+    </div>
+    <label><input id="torch" type="checkbox" checked> Torch</label>
+    <label>Radius <input id="radius" type="number" value="6" min="1" max="20"></label>
+    <button id="reset-light" title="Clear explored lighting"><span data-icon="refresh-cw"></span>Reset Lighting</button>
+    <div class="zoom">
+      <button id="zoom-out" title="Zoom out" aria-label="Zoom out"><span data-icon="zoom-out"></span></button>
+      <output id="zoom-label">100%</output>
+      <button id="zoom-in" title="Zoom in" aria-label="Zoom in"><span data-icon="zoom-in"></span></button>
+      <button id="fit" title="Fit map" aria-label="Fit map"><span data-icon="scan"></span></button>
+    </div>
+  </div>
+  <main>
+    <aside class="picker-panel">
+      <div class="picker-controls">
+        <input id="search" type="search" placeholder="Find tile" aria-label="Find tile">
+        <label><input id="pending-only" type="checkbox"> Unconfirmed</label>
+        <output id="asset-count"></output>
+      </div>
+      <div id="picker" role="list" aria-label="Tile assets"></div>
+      <div class="inspector">
+        <h2 id="selection-name">No selection</h2>
+        <output id="selection-details"></output>
+        <div class="transforms" role="group" aria-label="Tile orientation">
+          <button data-turn="0" title="Default rotation (1)">0&deg;</button>
+          <button data-turn="1" title="90 degrees clockwise (2)">90&deg;</button>
+          <button data-turn="2" title="180 degrees clockwise (3)">180&deg;</button>
+          <button data-turn="3" title="270 degrees clockwise (4)">270&deg;</button>
+          <button id="flip-x" title="Flip horizontally (5)" aria-label="Flip horizontally"><span data-icon="flip-horizontal-2"></span></button>
+          <button id="flip-y" title="Flip vertically (6)" aria-label="Flip vertically"><span data-icon="flip-vertical-2"></span></button>
+        </div>
+        <label title="Toggle movement blocking (B)"><input id="movement" type="checkbox"> Blocks movement</label>
+        <label id="light-shape-row">Light <select id="light-shape"><option value="edges">Edges</option><option value="solid">Solid</option><option value="pillar">Pillar</option><option value="door">Closed door</option><option value="none">None</option></select></label>
+        <label id="edge-light-row" title="Toggle light blocking (L)" hidden><input id="edge-light" type="checkbox"> Blocks light</label>
+        <label><input id="confirmed" type="checkbox"> Confirmed</label>
+        <div class="inspector-actions">
+          <button id="duplicate" title="Duplicate selected tile" aria-label="Duplicate selected tile"><span data-icon="copy"></span></button>
+          <button id="delete" title="Delete top layer (Escape or Backspace)" aria-label="Delete selected tile"><span data-icon="trash-2"></span></button>
+          <button id="deselect" title="Deselect" aria-label="Deselect"><span data-icon="x"></span></button>
+        </div>
+        <label id="background-row">Background <select id="background"><option value="paper">Paper + drawn grid</option><option value="dungeon">Dungeon background</option></select></label>
+        <div class="map-size"><label>W <input id="map-width" type="number" value="32" min="4" max="80"></label><label>H <input id="map-height" type="number" value="24" min="4" max="80"></label></div>
+        <textarea id="notes" placeholder="Example notes" aria-label="Example notes" rows="2"></textarea>
+      </div>
+    </aside>
+    <section id="viewport" tabindex="0" aria-label="Dungeon tile map">
+      <canvas id="map"></canvas>
+      <div id="loading">Loading assets...</div>
+    </section>
+  </main>
+  <footer><output id="status">Local workbench</output><output id="coordinates"></output><output id="pending-count"></output></footer>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>

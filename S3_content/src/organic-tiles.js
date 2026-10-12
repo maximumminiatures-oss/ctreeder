@@ -1,4 +1,10 @@
+import { ORGANIC_ASSET_SIGNATURES } from "./organic-asset-geometry.js";
+import { getReviewedTileRule, movementIntersects, reviewedTileMovementSegments } from "./reviewed-tile-rules.js";
+
 const ORGANIC_SIGNATURE_PATTERN = /(NW[ox]NE[ox]SE[ox]SW[ox]N[ox]E[ox]S[ox]W[ox])/i;
+const reviewedSignatures = new Map();
+const tileDataCache = new WeakMap();
+const movementCache = new WeakMap();
 
 export const ORGANIC_SIDES = Object.freeze(["north", "east", "south", "west"]);
 export const ORGANIC_OPPOSITE_SIDE = Object.freeze({
@@ -38,7 +44,17 @@ export function normalizeOrganicAssetName(asset) {
 }
 
 export function parseOrganicSignature(value) {
-  const match = String(value || "").match(ORGANIC_SIGNATURE_PATTERN);
+  const asset = normalizeOrganicAssetName(value);
+  const rule = getReviewedTileRule(asset);
+  if(rule?.w===1 && rule?.h===1) {
+    if(reviewedSignatures.has(asset)) return reviewedSignatures.get(asset);
+    const cell=rule.cells[0];
+    const parsed={ signature: asset, sides:Object.fromEntries(ORGANIC_SIDES.map((side,i)=>[side,cell.sides[i]?'o':'x'])),
+      corners:Object.fromEntries(['nw','ne','se','sw'].map((corner,i)=>[corner,cell.corners[i]?'o':'x'])) };
+    reviewedSignatures.set(asset,parsed);
+    return parsed;
+  }
+  const match = String(ORGANIC_ASSET_SIGNATURES[asset] || value || "").match(ORGANIC_SIGNATURE_PATTERN);
   if (!match) {
     return null;
   }
@@ -63,6 +79,8 @@ export function parseOrganicSignature(value) {
 
 export function parseOrganicKind(value) {
   const text = String(value || "").toLowerCase();
+  const rule = getReviewedTileRule(value);
+  if(rule) return rule.kind;
   if (text.includes("org-blocks-")) return "blocks";
   if (text.includes("org-free-")) return "free";
   return null;
@@ -166,11 +184,15 @@ export function getOrganicTileData(tile) {
   if (!meta) {
     return null;
   }
+  const cacheKey=[meta.asset,meta.kind,meta.signature,meta.rotationTurns,meta.rotation,meta.flipX,meta.flippedX,meta.flipY,meta.flippedY].join(':');
+  const cached=tileDataCache.get(meta);
+  if(cached?.key===cacheKey && (getReviewedTileRule(meta.asset) || (!meta.sides && !meta.edges && !meta.corners))) return cached.data;
   const asset = meta.asset ? normalizeOrganicAssetName(meta.asset) : "";
   const kind = meta.kind || parseOrganicKind(asset) || parseOrganicKind(meta.signature);
   const directSides = sidesFromMeta(meta);
   const directCorners = cornersFromMeta(meta);
-  const parsed = directSides
+  const pixelSignature = getReviewedTileRule(asset) ? asset : ORGANIC_ASSET_SIGNATURES[asset];
+  const parsed = pixelSignature ? parseOrganicSignature(pixelSignature) : directSides
     ? { signature: meta.signature || null, corners: directCorners || {}, sides: directSides }
     : parseOrganicSignature(meta.signature || asset);
   if (!parsed) {
@@ -179,8 +201,8 @@ export function getOrganicTileData(tile) {
   const rotationTurns = Number(meta.rotationTurns ?? meta.rotation ?? 0) || 0;
   const flipX = meta.flipX === true || meta.flippedX === true;
   const flipY = meta.flipY === true || meta.flippedY === true;
-  const transformed = directSides ? parsed : transformOrganicSignature(parsed, rotationTurns, flipX, flipY);
-  return {
+  const transformed = directSides && !pixelSignature ? parsed : transformOrganicSignature(parsed, rotationTurns, flipX, flipY);
+  const data = {
     kind,
     asset,
     rotationTurns,
@@ -189,6 +211,8 @@ export function getOrganicTileData(tile) {
     corners: transformed.corners,
     sides: transformed.sides
   };
+  tileDataCache.set(meta,{key:cacheKey,data});
+  return data;
 }
 
 export function createOrganicTileMeta(asset, options = {}) {
@@ -252,6 +276,10 @@ export function getOrganicBlockedSides(tile) {
   return ORGANIC_SIDES.filter((side) => organicBlocksSide(tile, side));
 }
 
+export function isOrganicPillarTile(tile) {
+  return isOrganicMovementBlockingTile(tile) && getOrganicBlockedSides(tile).length === 0;
+}
+
 export function directionToOrganicSide(dx, dy) {
   if (dx === 0 && dy === -1) return "north";
   if (dx === 1 && dy === 0) return "east";
@@ -261,6 +289,20 @@ export function directionToOrganicSide(dx, dy) {
 }
 
 export function canCrossOrganicEdge(fromTile, toTile, dx, dy) {
+  if(fromTile && toTile) {
+    const a=[fromTile.x+.5,fromTile.y+.5],b=[toTile.x+.5,toTile.y+.5];
+    for(const tile of [fromTile,toTile]) {
+      const data=getOrganicTileData(tile);
+      if(!data) continue;
+      let cached=movementCache.get(tile);
+      if(cached?.data!==data || cached.x!==tile.x || cached.y!==tile.y) {
+        const pose={x:tile.x,y:tile.y,w:1,h:1,turn:data.rotationTurns,flipX:data.flipX,flipY:data.flipY};
+        cached={data,x:tile.x,y:tile.y,segments:reviewedTileMovementSegments(data.asset,pose)};
+        movementCache.set(tile,cached);
+      }
+      if(cached.segments.some(([c,d])=>movementIntersects(a,b,c,d))) return false;
+    }
+  }
   const side = directionToOrganicSide(dx, dy);
   if (!side) {
     return true;

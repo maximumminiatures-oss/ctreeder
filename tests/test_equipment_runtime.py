@@ -124,10 +124,11 @@ def test_unarmed_attack_is_not_the_spell_check_die_and_uses_strength():
         assert result["state_json"]["entities"][-1]["hp"] == 99
         assert result["dice"]["total"] == 1
         message = result["message"]
-        name = message.split(" with ")[1].split(":")[0]
-        assert name in {"Punch", "Kick", "Headbutt", "Body block"}
+        name = message.split(" with a ")[1].split(" and ")[0]
+        assert name in {"punch", "kick", "headbutt", "body block"}
         names.add(name)
-        assert int(message.split(": ")[1].split(" vs AC")[0]) >= 5
+        assert int(message.split("To hit: ")[1].split(" vs ")[0]) >= 5
+        assert "+4 STR" in message
     assert len(names) >= 2
 
 

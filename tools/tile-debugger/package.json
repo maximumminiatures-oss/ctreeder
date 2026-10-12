@@ -1,0 +1,6 @@
+{
+  "name": "shadowspawner-local-tile-workbench",
+  "private": true,
+  "type": "module",
+  "dependencies": { "lucide": "0.468.0" }
+}

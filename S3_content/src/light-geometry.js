@@ -1,7 +1,10 @@
 import { DOOR_STATES, TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
-import { getOrganicBlockedSides, isOrganicMovementBlockingTile } from "./organic-tiles.js";
+import { doorLightSegments, isClosedSecretDoor, doorBoundaryCenter } from './door-geometry.js';
+import { getOrganicBlockedSides, getOrganicTileData, isOrganicMovementBlockingTile, isOrganicPillarTile } from "./organic-tiles.js";
 import { getInnerWallConnectedSides, getInnerWallTileData } from "./inner-walls.js";
 import { isAngledWallLightBlockingTile, isAngledWallMovementBlockingTile } from "./angled-walls.js";
+import { reviewedTileLightSegments } from "./reviewed-tile-rules.js";
+import { visualTilePoint } from "./tile-positions.js";
 
 const ANGLE_EPSILON = 0.00008;
 const RADIUS_RAY_COUNT = 96;
@@ -9,6 +12,9 @@ const INNER_WALL_EDGE_INSET_PX = 5;
 const PILLAR_SHADOW_SIZE_PX = TILE_SIZE_PX / 3;
 const PILLAR_SHADOW_INSET_PX = (TILE_SIZE_PX - PILLAR_SHADOW_SIZE_PX) / 2;
 const polygonBounds = new WeakMap();
+const organicSegmentCache = new WeakMap();
+const reviewedSegmentCache = new WeakMap();
+const lightPolygonPasses = new WeakMap();
 const TILE_SAMPLE_POINTS = Object.freeze([
   [0.5, 0.5],
   [0.16, 0.16],
@@ -140,10 +146,8 @@ function lightReachesViewer(state, source, viewers) {
     return false;
   }
   const polygon = computeLightPolygon(state, source);
-  return viewers.some((character) => isPointInPolygon([
-    (Number(character.visualX ?? character.x) + 0.5) * TILE_SIZE_PX,
-    (Number(character.visualY ?? character.y) + 0.5) * TILE_SIZE_PX
-  ], polygon));
+  return viewers.some((character) => isPointInPolygon(visualTilePoint(state,character.visualX ?? character.x,character.visualY ?? character.y)
+    .map(value=>value*TILE_SIZE_PX),polygon));
 }
 
 export function collectLightSources(state) {
@@ -274,6 +278,11 @@ export function isPortcullisDoor(door) {
 }
 
 export function getClosedDoorSegment(door) {
+  if (isClosedSecretDoor(door)) {
+    const center = doorBoundaryCenter(door), half = TILE_SIZE_PX / 2;
+    return isHorizontalDoor(door) ? [[center.x - half, center.y], [center.x + half, center.y]]
+      : [[center.x, center.y - half], [center.x, center.y + half]];
+  }
   const left = door.x * TILE_SIZE_PX;
   const top = door.y * TILE_SIZE_PX;
   const right = left + TILE_SIZE_PX;
@@ -292,7 +301,23 @@ function segmentNearSource(segment, sourcePoint, radiusPx) {
   return segment.some(([x, y]) => Math.hypot(x - sourcePoint[0], y - sourcePoint[1]) <= radiusWithPadding);
 }
 
-function collectBlockingSegments(state, source, sourcePoint, radiusPx) {
+function organicBlockingSegments(tile) {
+  const data=getOrganicTileData(tile);
+  if(data) {
+    const cached=organicSegmentCache.get(tile);
+    if(cached?.data===data && cached.x===tile.x && cached.y===tile.y) return cached.segments;
+    const reviewed=reviewedTileLightSegments(data.asset,{x:tile.x,y:tile.y,w:1,h:1,turn:data.rotationTurns,flipX:data.flipX,flipY:data.flipY});
+    if(reviewed!==null) {
+      const segments=reviewed.map(segment=>segment.map(point=>point.map(value=>value*TILE_SIZE_PX)));
+      organicSegmentCache.set(tile,{data,x:tile.x,y:tile.y,segments});
+      return segments;
+    }
+  }
+  if (isOrganicPillarTile(tile)) return columnBlockingSegments(tile);
+  return getOrganicBlockedSides(tile).map((side) => tileEdgeSegment(tile.x, tile.y, side));
+}
+
+function collectBlockingSegments(state, source, sourcePoint, radiusPx, options = {}) {
   const segments = [];
   const radiusTiles = Math.ceil(Math.max(1, Number(source.radius) || 6)) + 2;
   const originX = Math.round(Number(source.x));
@@ -311,6 +336,11 @@ function collectBlockingSegments(state, source, sourcePoint, radiusPx) {
   for (let y = minY; y <= maxY; y += 1) {
     for (let x = minX; x <= maxX; x += 1) {
       const tile = getTileAt(state, x, y);
+      if(tile?.meta?.organicMacro) continue;
+      if (getOrganicTileData(tile)) {
+        if (!options.ignorePillars || !isOrganicPillarTile(tile)) segments.push(...organicBlockingSegments(tile));
+        continue;
+      }
       const innerWallSegments = innerWallBlockingSegments(tile);
       if (innerWallSegments.length) {
         segments.push(...innerWallSegments);
@@ -330,7 +360,7 @@ function collectBlockingSegments(state, source, sourcePoint, radiusPx) {
     }
   }
 
-  for (const column of state.decor?.columns || []) {
+  for (const column of options.ignorePillars ? [] : state.decor?.columns || []) {
     for (const segment of columnBlockingSegments(column)) {
       if (segmentNearSource(segment, sourcePoint, radiusPx)) {
         segments.push(segment);
@@ -339,15 +369,21 @@ function collectBlockingSegments(state, source, sourcePoint, radiusPx) {
   }
 
   for (const entity of state.entities || []) {
-    if (entity.subtype !== "door" || entity.doorState === DOOR_STATES.OPEN || isPortcullisDoor(entity)) {
+    if (entity.subtype !== "door" || isPortcullisDoor(entity)) {
       continue;
     }
-    const segment = getClosedDoorSegment(entity);
-    if (segmentNearSource(segment, sourcePoint, radiusPx)) {
+    const reviewed = doorLightSegments(entity);
+    const doorSegments = reviewed ?? (entity.doorState === DOOR_STATES.OPEN ? [] : [getClosedDoorSegment(entity)]);
+    for (const segment of doorSegments) if (segmentNearSource(segment, sourcePoint, radiusPx)) {
       segments.push(segment);
     }
   }
 
+  for (const line of state.decor?.reviewedLight || []) {
+    let segment=reviewedSegmentCache.get(line);
+    if(!segment) { segment=line.map(point=>point.map(value=>value*TILE_SIZE_PX));reviewedSegmentCache.set(line,segment); }
+    if(segmentNearSource(segment,sourcePoint,radiusPx))segments.push(segment);
+  }
   return segments;
 }
 
@@ -425,13 +461,40 @@ function collectRayAngles(sourcePoint, radiusPx, segments) {
   return [...angles.values()].sort((a, b) => a - b);
 }
 
-export function computeLightPolygon(state, source) {
-  const sourcePoint = [
-    (Number(source.x) + 0.5) * TILE_SIZE_PX,
-    (Number(source.y) + 0.5) * TILE_SIZE_PX
-  ];
+export function organicTileBlocksLine(tile, from, to) {
+  const distance = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  const angle = Math.atan2(to[1] - from[1], to[0] - from[0]);
+  return organicBlockingSegments(tile).some((segment) => {
+    const hit = raySegmentIntersection(from, angle, segment, distance);
+    return hit && hit.distance < distance - 0.001;
+  });
+}
+
+const lightPolygonKey = (source, options = {}) => `${source.x},${source.y},${source.radius}:${options.ignorePillars === true}`;
+
+export function withLightPolygonCache(state, draw, knownPolygons = []) {
+  const previous = lightPolygonPasses.get(state);
+  lightPolygonPasses.set(state, new Map(knownPolygons.map(({ source, polygon }) => [lightPolygonKey(source), polygon])));
+  try { return draw(); }
+  finally {
+    if (previous) lightPolygonPasses.set(state, previous);
+    else lightPolygonPasses.delete(state);
+  }
+}
+
+export function computeLightPolygon(state, source, options = {}) {
+  const cache = lightPolygonPasses.get(state);
+  const key = lightPolygonKey(source, options);
+  if (cache?.has(key)) return cache.get(key);
+  const sourcePoint = visualTilePoint(state,source.x,source.y).map(value=>value*TILE_SIZE_PX);
   const radiusPx = (Math.max(1, Number(source.radius) || 6) + 0.5) * TILE_SIZE_PX;
-  const segments = collectBlockingSegments(state, source, sourcePoint, radiusPx);
+  const segments = collectBlockingSegments(state, source, sourcePoint, radiusPx, options);
+  const polygon = computeLightPolygonFromSegments(sourcePoint, radiusPx, segments);
+  cache?.set(key, polygon);
+  return polygon;
+}
+
+export function computeLightPolygonFromSegments(sourcePoint, radiusPx, segments) {
   const angles = collectRayAngles(sourcePoint, radiusPx, segments);
   return angles.map((angle) => castRay(sourcePoint, angle, radiusPx, segments));
 }
@@ -471,8 +534,8 @@ export function isTileCenterInLightPolygon(tile, polygon) {
     return false;
   }
   return isPointInPolygon([
-    (tile.x + 0.5) * TILE_SIZE_PX,
-    (tile.y + 0.5) * TILE_SIZE_PX
+    (tile.x + (tile.meta?.visualCenter?.[0] ?? 0.5)) * TILE_SIZE_PX,
+    (tile.y + (tile.meta?.visualCenter?.[1] ?? 0.5)) * TILE_SIZE_PX
   ], polygon);
 }
 
@@ -482,8 +545,8 @@ export function isTileTouchedByLightPolygon(tile, polygon) {
   }
   for (const [sampleX, sampleY] of TILE_SAMPLE_POINTS) {
     const point = [
-      (tile.x + sampleX) * TILE_SIZE_PX,
-      (tile.y + sampleY) * TILE_SIZE_PX
+      (tile.x + (sampleX===.5 ? tile.meta?.visualCenter?.[0] ?? sampleX : sampleX)) * TILE_SIZE_PX,
+      (tile.y + (sampleY===.5 ? tile.meta?.visualCenter?.[1] ?? sampleY : sampleY)) * TILE_SIZE_PX
     ];
     if (isPointInPolygon(point, polygon)) {
       return true;

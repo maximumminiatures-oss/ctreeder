@@ -1,11 +1,13 @@
 import { DOOR_STATES, TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
-import { collectLightSources, computeLightPolygon, getClosedDoorSegment, isPointInPolygon, isPortcullisDoor, isTileCenterInLightPolygon, isTileTouchedByLightPolygon } from "./light-geometry.js";
+import { collectLightSources, computeLightPolygon, getClosedDoorSegment, isPointInPolygon, isPortcullisDoor, isTileTouchedByLightPolygon, organicTileBlocksLine, withLightPolygonCache } from "./light-geometry.js";
 import { tileKey } from "./state-schema.js";
-import { canCrossOrganicEdge, isOrganicMovementBlockingTile } from "./organic-tiles.js";
+import { reviewedBlocksLine } from "./reviewed-layouts.js";
+import { getOrganicTileData, isOrganicMovementBlockingTile } from "./organic-tiles.js";
 import { getInnerWallTileData, isInnerWallBlockingTile } from "./inner-walls.js";
 import { isAngledWallLightBlockingTile, isAngledWallMovementBlockingTile } from "./angled-walls.js";
+import { visualTilePoint } from "./tile-positions.js";
 
-const LIGHT_GEOMETRY_VERSION = 7;
+const LIGHT_GEOMETRY_VERSION = 12;
 
 function isWithinRadius(x1, y1, x2, y2, radius) {
   return Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2)) <= radius;
@@ -53,6 +55,7 @@ function isLightBlockingTile(state, x, y) {
   if (!tile) {
     return true;
   }
+  if(tile.meta?.organicMacro) return false;
   if (isOrganicMovementBlockingTile(tile) || isInnerWallBlockingTile(tile)) {
     return true;
   }
@@ -139,21 +142,6 @@ function getTileAt(state, x, y) {
   return state.tiles[y * state.map.width + x] || null;
 }
 
-function getDoorSpaceSide(door, space) {
-  const side = door.hallDirection || door.wallSide;
-  const isHall = space === "hall";
-  if (side === "east") {
-    return isHall ? "right" : "left";
-  }
-  if (side === "west") {
-    return isHall ? "left" : "right";
-  }
-  if (side === "south") {
-    return isHall ? "bottom" : "top";
-  }
-  return isHall ? "top" : "bottom";
-}
-
 function cloneDoorSideMap(map) {
   const clone = new Map();
   if (!(map instanceof Map)) {
@@ -198,7 +186,7 @@ function revealTouchedBlockingDecor(state) {
   const visible = state.visibility.visibleNow;
   const newlyVisible = [];
   for (const tile of state.tiles || []) {
-    if (!tile || tile.type !== TILE_TYPES.FLOOR || !isBlockingDecorTile(tile)) {
+    if (!tile || tile.type !== TILE_TYPES.FLOOR || getOrganicTileData(tile) || !isBlockingDecorTile(tile)) {
       continue;
     }
     const key = tileKey(tile.x, tile.y);
@@ -242,7 +230,7 @@ function revealLitClosedDoorSides(state, lightPolygons) {
     if (door.secret === true) {
       continue;
     }
-    const sides = [getDoorSpaceSide(door, "hall"), getDoorSpaceSide(door, "room")];
+    const sides = door.orientation === "horizontal" ? ["top", "bottom"] : ["left", "right"];
     for (const side of sides) {
       const [sampleX, sampleY] = getDoorSideSamplePoint(door, side);
       const point = [sampleX * TILE_SIZE_PX, sampleY * TILE_SIZE_PX];
@@ -250,6 +238,9 @@ function revealLitClosedDoorSides(state, lightPolygons) {
       if (lit) {
         addDoorSide(state.visibility.closedDoorVisibleSides, door, side);
         addDoorSide(state.visibility.closedDoorExploredSides, door, side);
+        const key = tileKey(door.x, door.y);
+        state.visibility.visibleNow.add(key);
+        state.visibility.exploredEver.add(key);
       }
     }
   }
@@ -324,14 +315,18 @@ function getLineBetween(x0, y0, x1, y1) {
 }
 
 export function hasLineOfSightFrom(state, originX, originY, x, y) {
+  if (reviewedBlocksLine(state,originX,originY,x,y)) return false;
   const points = getLineBetween(originX, originY, x, y);
+  const from = visualTilePoint(state,originX,originY).map(value=>value*TILE_SIZE_PX);
+  const to = visualTilePoint(state,x,y).map(value=>value*TILE_SIZE_PX);
+  for (const point of points) {
+    const tile = getTileAt(state, point.x, point.y);
+    if (getOrganicTileData(tile) && organicTileBlocksLine(tile, from, to)) return false;
+  }
   for (let i = 1; i < points.length; i += 1) {
     const prev = points[i - 1];
     const curr = points[i];
-    if (!canCrossOrganicEdge(getTileAt(state, prev.x, prev.y), getTileAt(state, curr.x, curr.y), curr.x - prev.x, curr.y - prev.y)) {
-      return false;
-    }
-    if (isLightBlockingTile(state, curr.x, curr.y)) {
+    if (!getOrganicTileData(getTileAt(state, curr.x, curr.y)) && isLightBlockingTile(state, curr.x, curr.y)) {
       return false;
     }
     const door = getDoorBetween(state, prev.x, prev.y, curr.x, curr.y);
@@ -456,6 +451,10 @@ function rememberAdjacentInnerWallInteriors(state, lightSources) {
 }
 
 export function recomputeVisibility(state) {
+  return withLightPolygonCache(state, () => updateVisibility(state));
+}
+
+function updateVisibility(state) {
   migrateVisibilityGeometry(state);
   ensureExploredInnerWallInteriors(state);
   const previouslyVisible = new Set(state.visibility.visibleNow || []);
@@ -476,7 +475,7 @@ export function recomputeVisibility(state) {
   state.visibility.closedDoorVisibleSides = new Map();
   const lightSources = collectLightSources(state);
   if (!lightSources.length) {
-    return;
+    return [];
   }
   rememberAdjacentInnerWallInteriors(state, lightSources);
   const lightPolygons = lightSources.map((source) => ({
@@ -505,15 +504,6 @@ export function recomputeVisibility(state) {
       if (!isTileTouchedByLightPolygon(tile, polygon)) {
         continue;
       }
-      if (
-        isDoorThresholdTile(state, tile) &&
-        (
-          !isTileCenterInLightPolygon(tile, polygon) ||
-          !hasLineOfSightFrom(state, source.x, source.y, tile.x, tile.y)
-        )
-      ) {
-        continue;
-      }
       lit = true;
     }
     if (lit) {
@@ -532,6 +522,7 @@ export function recomputeVisibility(state) {
 
   revealTouchedBlockingDecor(state);
   revealLitClosedDoorSides(state, lightPolygons);
+  return lightPolygons;
 }
 
 export function revealTrapAtPlayer(state) {

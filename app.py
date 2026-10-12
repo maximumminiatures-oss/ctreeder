@@ -831,7 +831,7 @@ def import_shadowdarklings_character():
     import_started_at = time.monotonic()
     try:
         data = request_data
-        base_classes_only = bool(data.get("base_classes_only", False))
+        base_classes_only = True
         with import_slot():
             character_json = fetch_shadowdarklings_character_json(base_classes_only=base_classes_only)
         validate_json(json.loads(character_json), max_bytes=128 * 1024)

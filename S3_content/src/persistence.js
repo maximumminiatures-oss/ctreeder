@@ -107,6 +107,8 @@ function normalizeCombat(raw = {}) {
     monsterIds: Array.isArray(raw.monsterIds) ? raw.monsterIds : [],
     sideFirst: raw.sideFirst === "monsters" ? "monsters" : "characters",
     movementRemaining: Math.max(0, Number.parseInt(raw.movementRemaining ?? 0, 10) || 0),
+    movementBudget: Math.max(0, Number.parseInt(raw.movementBudget ?? 6, 10) || 0),
+    lastUnoccupiedPosition: raw.lastUnoccupiedPosition || null,
     actionUsed: raw.actionUsed === true,
     initiative: Array.isArray(raw.initiative) ? raw.initiative : [],
     log: Array.isArray(raw.log) ? raw.log.slice(-12) : []
@@ -169,6 +171,7 @@ export function serializeDungeonState(state) {
   const copy = clonePlain({
     ...state,
     visibility: {
+      lightGeometryVersion: state.visibility?.lightGeometryVersion,
       visibleNow: Array.from(state.visibility?.visibleNow || []),
       exploredEver: Array.from(state.visibility?.exploredEver || []),
       exploredLightPolygons: normalizeExploredLightPolygons(state.visibility?.exploredLightPolygons),
@@ -198,10 +201,14 @@ export function hydrateDungeonState(raw) {
   const exploredEver = asSet(raw.visibility?.exploredEver);
   const visitedRoomIds = asSet(raw.visibility?.visitedRoomIds);
   const exploredLightPolygons = normalizeExploredLightPolygons(raw.visibility?.exploredLightPolygons);
+  const lightGeometryVersion = Number.isSafeInteger(raw.visibility?.lightGeometryVersion)
+    ? raw.visibility.lightGeometryVersion
+    : 0;
   const closedDoorExploredSides = hydrateDoorSideMap(raw.visibility?.closedDoorExploredSides);
   const state = clonePlain({
     ...raw,
     visibility: {
+      lightGeometryVersion,
       visibleNow: Array.from(visibleNow),
       exploredEver: Array.from(exploredEver),
       exploredLightPolygons,
@@ -224,6 +231,7 @@ export function hydrateDungeonState(raw) {
   state.lockedDoorAction = state.lockedDoorAction?.doorId ? state.lockedDoorAction : null;
   state.combat = normalizeCombat(state.combat);
   state.visibility = {
+    lightGeometryVersion,
     visibleNow,
     exploredEver,
     exploredLightPolygons,
@@ -241,6 +249,7 @@ export function hydrateDungeonState(raw) {
     columns: Array.isArray(state.decor?.columns) ? state.decor.columns : [],
     water: Array.isArray(state.decor?.water) ? state.decor.water : [],
     canals: Array.isArray(state.decor?.canals) ? state.decor.canals : [],
+    crypts: Array.isArray(state.decor?.crypts) ? state.decor.crypts : [],
     junk: Array.isArray(state.decor?.junk) ? state.decor.junk : [],
     wells: Array.isArray(state.decor?.wells) ? state.decor.wells : []
   };

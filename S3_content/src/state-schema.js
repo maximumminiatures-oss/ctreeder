@@ -98,6 +98,7 @@ export function createEmptyDungeonState(seed = Date.now(), level = 1) {
       canals: [],
       junk: [],
       wells: [],
+      crypts: [],
       organicHalls: []
     },
     characters: [],

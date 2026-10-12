@@ -1,4 +1,5 @@
 import { DEFAULT_LIGHT_RADIUS, MAX_SEARCH_MODIFIER, MIN_SEARCH_MODIFIER, TILE_SIZE_PX } from "./constants.js";
+import { loadLocalJson } from './data-loader.js';
 import { generateDungeon } from "./generator.js";
 import {
   addMonsterLootDrop,
@@ -11,6 +12,7 @@ import {
   dropLootAtPlayer,
   attemptLockedDoor,
   getPendingLockedDoorAction,
+  getDoorClickContext,
   getRoomLoot,
   getRoomTraps,
   movePlayer,
@@ -76,6 +78,8 @@ import {
   TORCH_SEARCH_ADVANCE_MS
 } from "./timers.js";
 import { hasLineOfSightFrom, isTileVisible, recomputeVisibility } from "./visibility.js";
+import { characterMovementBudget, characterOccupant, combatStepBlock, attackNarrative, mixTokenColor, colorChannels } from './combat-rules.js';
+import { planMarchingSteps } from './marching-order.js';
 import {
   DEFAULT_WANDERING_DENOMINATOR,
   DEFAULT_WANDERING_NUMERATOR,
@@ -86,6 +90,7 @@ import {
 
 const SERVER_RUNTIME = globalThis.__SD_SERVER_RUNTIME__ === true;
 let serverMonsterTurns = null;
+let serverFollowerFrames = new Map();
 const ui = {
   mapHost: document.getElementById("map-host"),
   levelInput: document.getElementById("level-input"),
@@ -325,11 +330,7 @@ const attackCursorCache = new Map();
 
 async function loadShadowdarkContent() {
   try {
-    const response = await fetch("./data/shadowdark-content.json");
-    if (!response.ok) {
-      throw new Error(`Shadowdark content request failed: ${response.status}`);
-    }
-    return response.json();
+    return await loadLocalJson("./data/shadowdark-content.json");
   } catch (error) {
     console.warn("Using fallback local content because the Shadowdark snapshot could not load.", error);
     return { monsters: [], loot: { gear: [], armor: [], weapons: [], magicItems: [] } };
@@ -338,11 +339,7 @@ async function loadShadowdarkContent() {
 
 async function loadTrapTable() {
   try {
-    const response = await fetch("./traps.json");
-    if (!response.ok) {
-      throw new Error(`Trap table request failed: ${response.status}`);
-    }
-    return response.json();
+    return await loadLocalJson("./traps.json");
   } catch (error) {
     console.warn("Using fallback trap names because traps.json could not load.", error);
     return [];
@@ -362,11 +359,7 @@ async function loadMonsterTableForLevel(level) {
 async function loadMonsterTableForBucket(bucket) {
   const normalizedBucket = Math.max(1, Math.min(10, Number(bucket) || 1));
   try {
-    const response = await fetch(`./monsters-${normalizedBucket}.json`);
-    if (!response.ok) {
-      throw new Error(`Monster table request failed: ${response.status}`);
-    }
-    const payload = await response.json();
+    const payload = await loadLocalJson(`./monsters-${normalizedBucket}.json`);
     return Array.isArray(payload) ? payload : [];
   } catch (error) {
     console.warn(`Using fallback monster table for level ${normalizedBucket}.`, error);
@@ -400,11 +393,7 @@ async function loadBossMonsterTableForLevel(level) {
 
 async function loadOrganicAssets() {
   try {
-    const response = await fetch("./data/organic-assets.json");
-    if (!response.ok) {
-      throw new Error(`Organic asset manifest request failed: ${response.status}`);
-    }
-    const payload = await response.json();
+    const payload = await loadLocalJson("./data/organic-assets.json");
     return Array.isArray(payload) ? payload : [];
   } catch (error) {
     console.warn("Organic dungeon assets could not load; skipping organic room shaping.", error);
@@ -414,11 +403,7 @@ async function loadOrganicAssets() {
 
 async function loadInnerWallAssets() {
   try {
-    const response = await fetch("./data/inner-wall-assets.json");
-    if (!response.ok) {
-      throw new Error(`Inner-wall asset manifest request failed: ${response.status}`);
-    }
-    const payload = await response.json();
+    const payload = await loadLocalJson("./data/inner-wall-assets.json");
     return Array.isArray(payload) ? payload : [];
   } catch (error) {
     console.warn("Inner-wall dungeon assets could not load; skipping inner-wall room shaping.", error);
@@ -673,8 +658,10 @@ function updateCombatUi() {
   summary.append(round, document.createTextNode(`: ${currentName}'s turn.`));
   ui.combatPanel.append(summary);
   if (entry?.type === "character") {
+    const actor = state.characters.find(character => character.id === entry.id);
+    ui.combatPanel.style.setProperty('--turn-color', getCharacterColorValue(actor));
     const detail = document.createElement("div");
-    detail.textContent = `Move ${combat.movementRemaining}/${CHARACTER_COMBAT_MOVE}. Action ${combat.actionUsed ? "used" : "ready"}.`;
+    detail.textContent = `Move ${combat.movementRemaining}/${combat.movementBudget ?? characterMovementBudget(actor)}. Action ${combat.actionUsed ? "used" : "ready"}.`;
     ui.combatPanel.append(detail);
   }
   if (combat.log.length) {
@@ -682,7 +669,7 @@ function updateCombatUi() {
     log.className = "combat-log";
     for (const message of combat.log.slice(-4)) {
       const item = document.createElement("li");
-      item.textContent = message;
+      appendCharacterColoredText(item, message);
       log.append(item);
     }
     ui.combatPanel.append(log);
@@ -841,7 +828,8 @@ function render(options = {}) {
   if (SERVER_RUNTIME) return;
   renderDungeon(state, layers, {
     forceBlackout: forceBlackoutWhenTorchOut && !hasAnyVisibleLightSource(),
-    motionOnly: options.motionOnly === true
+    motionOnly: options.motionOnly === true,
+    lightPolygons: options.lightPolygons
   });
   updateMonsterHoverCursor();
   if (options.motionOnly === true) return;
@@ -1729,7 +1717,9 @@ function startCurrentCombatTurn() {
   }
   setActiveCharacter(state, character.id);
   syncPlayerToActiveCharacter();
-  combat.movementRemaining = CHARACTER_COMBAT_MOVE;
+  combat.movementBudget = characterMovementBudget(character);
+  combat.movementRemaining = combat.movementBudget;
+  combat.lastUnoccupiedPosition = { x: Number(character.x), y: Number(character.y), roomId: character.roomId };
   combat.actionUsed = false;
   if (isCharacterDying(character)) {
     decrementCharacterDyingRounds(character);
@@ -1785,6 +1775,16 @@ function endCurrentTurn() {
   const entry = getCurrentCombatEntry();
   if (!entry || entry.type !== "character") {
     setStatus("It is not a character turn.");
+    return;
+  }
+  const character = getActiveCharacter(state);
+  const occupant = characterOccupant(state, Number(character.x), Number(character.y), character.id);
+  if (occupant) {
+    if (state.combat.lastUnoccupiedPosition) Object.assign(character, state.combat.lastUnoccupiedPosition);
+    syncPlayerToActiveCharacter();
+    recomputeVisibility(state);
+    setStatus(`${character.name} can't end turn on ${occupant.name}'s token.`);
+    render(); updatePanels();
     return;
   }
   advanceCombatTurn();
@@ -2036,17 +2036,17 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
   }
   const ac = getMonsterAc(monster);
   const hit = roll.total >= ac;
-  const parts = [
-    `${character.name} attacks ${monster.name || "monster"} with ${weaponName}${wasStealthed ? " from stealth" : ""}: ${roll.total} vs AC ${ac}`
-  ];
+  const parts = [];
+  let rolledDamage = null;
   let defeated = false;
   if (hit) {
     const expression = getAttackDamageExpression(combatAttack.attack);
     if (expression) {
       const damage = rollDamageExpression(expression);
+      rolledDamage = damage.total;
       monster.hp = Math.max(0, (Number.parseInt(monster.hp, 10) || 0) - damage.total);
       parts.push(`hit for ${damage.total} damage`);
-      applyDamageResultToPanel(damage, `${character.name} ${weaponName}`);
+      applyDamageResultToPanel(damage, `${character.name} ${weaponName}`, { recordHistory: false });
     } else {
       parts.push("hit");
     }
@@ -2059,7 +2059,7 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
     parts.push("miss");
     showCheckResult(roll, "Attack", {
       headline: `Attack ${roll.total}`,
-      message: parts.join(": ")
+      message: parts.join(": "), recordHistory: false
     });
   }
 
@@ -2074,7 +2074,10 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
     detectAdditionalCombatMonsters();
     preserveCombatStatus = checkCombatEnd();
   }
-  const message = parts.join("; ");
+  const ability = getWeaponProfileFromText(weaponName)?.ability || 'STR';
+  const message = attackNarrative({ character, monster: { ...monster, ac }, weapon: weaponName, roll, ability,
+    abilityModifier: abilityScoreModifier(character.stats?.[ability]), hit, damage: rolledDamage });
+  pushDiceHistory('Attack', message, character.id);
   if (!preserveCombatStatus) {
     setStatus(message);
   }
@@ -2088,8 +2091,12 @@ function attackClickedMonster(monster) {
   return resolveCharacterAttackAgainstMonster(character, getFirstCombatAttack(character), monster);
 }
 
-function applyDamageResultToPanel(roll, sourceLabel) {
-  if (SERVER_RUNTIME) { lastDamageRoll = { ...roll, sourceLabel }; return; }
+function applyDamageResultToPanel(roll, sourceLabel, options = {}) {
+  if (SERVER_RUNTIME) {
+    lastDamageRoll = { ...roll, sourceLabel };
+    if (options.recordHistory !== false) pushDiceHistory(`${roll.total} Damage`, `${sourceLabel || 'Damage'} ${roll.expression}`);
+    return;
+  }
   if (!ui.damageResult || !roll) {
     return;
   }
@@ -2104,7 +2111,7 @@ function applyDamageResultToPanel(roll, sourceLabel) {
     ui.damageExpandBtn.hidden = !(roll.terms?.length || roll.rolls?.length);
   }
   renderDamageDetail(lastDamageRoll);
-  pushDiceHistory(`${roll.total} Damage`, `${sourceLabel || "Damage"} ${roll.expression}`);
+  if (options.recordHistory !== false) pushDiceHistory(`${roll.total} Damage`, `${sourceLabel || "Damage"} ${roll.expression}`);
   setDamageDetailVisibility(false);
 }
 
@@ -2414,6 +2421,13 @@ function pickMonsterTarget(monster) {
 }
 
 async function chooseMonsterAttack(monster, target) {
+  if(monster.canalSentry) {
+    if(!canMonsterSeeCharacter(monster,target))return null;
+    const distance=getMonsterDistanceToCharacter(monster,target);
+    return getMonsterAttackOptions(monster).filter(attack=>
+      (attack.rangeInfo.hasNear||attack.rangeInfo.ranges.has('far'))&&distance<=attack.rangeInfo.maxRange)
+      .sort((a,b)=>b.averageDamage-a.averageDamage)[0]||null;
+  }
   const { bestClose, bestNear, preferNear } = getMonsterAttackPreference(monster);
   const movement = getMonsterMoveSquares(monster);
   await moveMonsterForPlan(monster, target, preferNear, movement);
@@ -2530,11 +2544,16 @@ function handleCombatMovement(delta, options = {}) {
     setStatus(`${character.name || "Character"} has no movement left.`);
     return true;
   }
+  const blocked = combatStepBlock(state, character, Number(character.x) + delta[0], Number(character.y) + delta[1]);
+  if (blocked) { setStatus(blocked); return true; }
   syncPlayerToActiveCharacter();
-  const result = movePlayer(state, delta[0], delta[1]);
+  const result = movePlayer(state, delta[0], delta[1], { deferVisibility: true });
   if (result.moved) {
     state.combat.movementRemaining = Math.max(0, state.combat.movementRemaining - 1);
     syncActiveCharacterToPlayer();
+    if (!characterOccupant(state, Number(character.x), Number(character.y), character.id)) {
+      state.combat.lastUnoccupiedPosition = { x: Number(character.x), y: Number(character.y), roomId: character.roomId };
+    }
     recomputeVisibility(state);
     processMonsterVisibilityChange();
     detectAdditionalCombatMonsters();
@@ -2589,18 +2608,23 @@ function applyLocalMovement(delta, options = {}) {
   const renderResult = options.render !== false;
   if (handleCombatMovement(delta, options)) return;
   syncPlayerToActiveCharacter();
-  const result = movePlayer(state, delta[0], delta[1]);
+  const result = movePlayer(state, delta[0], delta[1], { deferVisibility: true });
   let sighting = null;
+  let followersMoved = false;
+  let lightPolygons;
   if (result.moved) {
     syncActiveCharacterToPlayer();
-    recomputeVisibility(state);
+    lightPolygons = recomputeVisibility(state);
     sighting = processMonsterVisibilityChange();
+    followersMoved = advanceMarchingOrder(getActiveCharacter(state), delta);
   }
   markUserActivity();
   if (!sighting?.combatStarted && !sighting?.combatEnded) setStatus(result);
   if (renderResult) {
-    render();
-    updatePanels();
+    // Reuse only this step's lighting; followers and combat can change it again.
+    render({ lightPolygons: !followersMoved && !sighting?.combatStarted && !sighting?.combatEnded ? lightPolygons : undefined });
+    updatePanels({ charactersUnchanged: result.moved && !result.trapSprung && !followersMoved &&
+      !isCombatActive() && !sighting?.combatStarted && !sighting?.combatEnded });
   }
 }
 
@@ -2896,6 +2920,7 @@ function changeCharacterEquipment(character, index, equipped) {
   if (!item || !handItemKind(item)) return;
   if (isShieldItem(item) && !canUseShield(current)) return;
   if (handItemKind(item) === "weapon" && !canUseWeapon(current, item)) return;
+  if (!consumeCharacterCombatAction(current)) return;
   equipItem(current, index, equipped);
   syncCharacterEquipmentDerivedStats(current);
   syncPlayerLightFromActiveCharacter();
@@ -3515,7 +3540,7 @@ function closeExtinguishOldModal() {
 }
 
 function promptExtinguishOld(source, gearIndex = null) {
-  pendingLightRequest = { source, gearIndex };
+  pendingLightRequest = { source, gearIndex, characterId: state.activeCharacterId, round: state.combat?.round, turnIndex: state.combat?.turnIndex };
   if (!ui.extinguishOldModal) {
     applyLightRequest(source, { extinguishOld: true, gearIndex });
     return;
@@ -3545,6 +3570,7 @@ function attemptLightSource(source, gearIndex = null) {
     setStatus(failure);
     return;
   }
+  if (!consumeCharacterCombatAction(active)) return;
   if (ensureTimers(state).lightEverLit && !isCharacterInLiveLight(active) && characterHasFlintAndSteel(active)) {
     const modifier = getCharacterActionModifier(active, "dex");
     const disadvantage = !isThief(active);
@@ -4141,9 +4167,9 @@ function updateLightControlUi() {
       ui.torchOutBtn.hidden = false;
       ui.torchOutBtn.textContent = "Torch snuffed!";
     }
-    if (ui.lightTorchBtn) ui.lightTorchBtn.hidden = false;
-    if (ui.lightLanternBtn) ui.lightLanternBtn.hidden = false;
-    if (ui.castLightBtn) ui.castLightBtn.hidden = false;
+    if (ui.lightTorchBtn) ui.lightTorchBtn.hidden = true;
+    if (ui.lightLanternBtn) ui.lightLanternBtn.hidden = true;
+    if (ui.castLightBtn) ui.castLightBtn.hidden = true;
     return;
   }
   clearInvalidCharacterLight(active);
@@ -5001,11 +5027,7 @@ function getMoneyFromCopper(totalCopper) {
 
 async function loadRulesData() {
   try {
-    const response = await fetch("./data/rules-data.json");
-    if (!response.ok) {
-      throw new Error(`Rules data request failed: ${response.status}`);
-    }
-    return response.json();
+    return await loadLocalJson("./data/rules-data.json");
   } catch (error) {
     console.warn("Using built-in rules fallback because rules-data.json could not load.", error);
     return null;
@@ -5157,7 +5179,7 @@ function getTileAt(x, y) {
 
 function isCharacterTileBlocked(x, y) {
   const tile = getTileAt(x, y);
-  if (!tile || tile.type !== "floor") {
+  if (!tile || tile.type !== "floor" || tile.meta?.layoutBlocks || tile.meta?.encounterOnly) {
     return true;
   }
   return state.entities.some((entity) => (
@@ -5356,6 +5378,7 @@ function syncPlayerToActiveCharacter() {
 }
 
 function activateCharacter(character) {
+  if (isCombatActive() && !isCurrentCharacterTurn(character)) return null;
   if (!ownsCharacter(character)) return null;
   if (!state || !character) {
     return null;
@@ -5502,6 +5525,15 @@ function renderCharacterCard(character) {
   card.classList.toggle("is-active", character.id === state.activeCharacterId);
   card.classList.toggle("is-combat-inactive", Boolean(isCombatActive() && !(combatEntry?.type === "character" && combatEntry.id === character.id)));
   card.classList.toggle("is-slain", character.dead === true || character.slain === true);
+  const tokenColor = getCharacterColorValue(character);
+  card.style.setProperty('--token-color', tokenColor);
+  card.style.setProperty('--card-background', mixTokenColor(tokenColor, '#ffffff', .1));
+  card.style.setProperty('--card-border', mixTokenColor(tokenColor, '#000000', .5));
+  card.style.setProperty('--card-inactive', mixTokenColor(tokenColor, '#d1d1d1', .1));
+  card.style.setProperty('--card-current', mixTokenColor(tokenColor, '#ffffff', .2));
+  const rgb = colorChannels(tokenColor);
+  card.style.setProperty('--heading-ink', rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114 > 165 ? '#000' : '#fff');
+  card.classList.toggle('is-combat-current', isCombatActive() && isCurrentCharacterTurn(character));
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   card.setAttribute("aria-label", `Open ${character.name} character sheet`);
@@ -5527,22 +5559,34 @@ function renderCharacterCard(character) {
   reorder.type = "button";
   reorder.className = "character-reorder-handle";
   reorder.textContent = "::";
-  reorder.title = "Reorder character";
-  reorder.setAttribute("aria-label", `Reorder ${character.name}`);
-  reorder.addEventListener("click", (event) => event.stopPropagation());
+  reorder.title = "reorder / follow";
+  reorder.setAttribute("aria-label", `reorder / follow ${character.name}`);
+  const followAvailable = ownsCharacter(character) && state.characters.filter(ownsCharacter).length > 1;
+  reorder.setAttribute('aria-pressed', String(followAvailable && localFollowIds().includes(character.id)));
+  reorder.classList.toggle('is-following', followAvailable && localFollowIds().includes(character.id));
+  let reorderDragged = false, reorderStart = null;
+  reorder.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (reorderDragged) { reorderDragged = false; return; }
+    if (followAvailable) toggleCharacterFollow(character.id);
+  });
   let reorderPointer = null;
   reorder.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     event.stopPropagation();
     reorderPointer = event.pointerId;
+    reorderStart = [event.clientX, event.clientY];
     reorder.setPointerCapture(event.pointerId);
   });
   reorder.addEventListener("pointerup", (event) => {
     if (event.pointerId !== reorderPointer) return;
     event.stopPropagation();
     reorderPointer = null;
-    const destination = document.elementFromPoint(event.clientX, event.clientY)?.closest(".character-card")?.dataset.characterId;
-    reorderLocalCharacter(character.id, destination);
+    reorderDragged = Math.hypot(event.clientX - reorderStart[0], event.clientY - reorderStart[1]) > 5;
+    if (reorderDragged) {
+      const destination = document.elementFromPoint(event.clientX, event.clientY)?.closest(".character-card")?.dataset.characterId;
+      reorderLocalCharacter(character.id, destination);
+    }
   });
   reorder.addEventListener("pointercancel", () => { reorderPointer = null; });
   reorder.addEventListener("keydown", (event) => {
@@ -5561,20 +5605,15 @@ function renderCharacterCard(character) {
   const name = document.createElement("span");
   name.className = "character-mini-name";
   name.textContent = character.name;
-  name.style.color = getCharacterColorValue(character);
   header.append(
     name,
-    document.createTextNode(` | ${character.ancestry || "Unknown"} | ${character.className || "Class"} ${character.level || 1} | AC ${character.armorClass} | HP `),
-    createMiniInlineNumberField(character.hp, character.maxHitPoints, (value) => {
-      const currentCharacter = getCurrentCharacter(character);
-      setCharacterHp(currentCharacter, value);
-      clearMagicLightIfIncapacitated(currentCharacter);
-      refreshCharacterViews(currentCharacter);
-    }),
-    document.createTextNode(" "),
-    createCharacterColorControl(character)
+    document.createTextNode(` | ${character.ancestry || "Unknown"} | ${character.className || "Class"} ${character.level || 1}`)
   );
   card.append(header);
+  const stats = document.createElement('div');
+  stats.className = 'character-mini-stats';
+  stats.append(document.createTextNode(`AC ${character.armorClass} | HP ${character.hp}`), createCharacterColorControl(character));
+  card.append(stats);
 
   card.append(buildMiniAttackLine(character));
   const dyingBanner = createDyingBanner(character);
@@ -5703,12 +5742,16 @@ function renderCharacterDetail(character, target = ui.characterDetail, options =
   }
   target.append(sheet);
   target.dataset.characterId = character.id;
-  if (isSharedRoom() && !canControlCharacter(character)) {
+  target.dataset.interactionKey = characterSheetInteractionKey(character);
+  if (isCombatActive()) {
+    for (const control of target.querySelectorAll('.sd-rename-button, .sd-coin-field input')) control.disabled = true;
+  }
+  if (!canControlCharacter(character) || (isCombatActive() && (!isCurrentCharacterTurn(character) || state.combat.actionUsed))) {
     for (const control of target.querySelectorAll("input, select, textarea, button")) control.disabled = true;
     const save = target.querySelector(".sd-save-character-button");
     if (save && ownsCharacter(character)) save.disabled = false;
     const bury = target.querySelector(".sd-dismiss-button");
-    if (bury && isCharacterDead(character) && canBuryCharacter(character)) bury.disabled = false;
+    if (bury && !isCombatActive() && isCharacterDead(character) && canBuryCharacter(character)) bury.disabled = false;
   }
 }
 
@@ -6282,7 +6325,13 @@ function updateCharactersUi() {
   applyCharacterColorOverrides();
   ensureCharacterPresentation();
   ui.charactersList.innerHTML = "";
-  if (isSharedRoom() && !multiplayerSession.owned_character_ids?.includes(state.activeCharacterId)) state.activeCharacterId = multiplayerSession.owned_character_ids?.[0] || null;
+  if (isCombatActive()) {
+    const entry = getCurrentCombatEntry();
+    if (entry?.type === 'character' && state.activeCharacterId !== entry.id) {
+      state.activeCharacterId = entry.id;
+      syncPlayerToActiveCharacter();
+    }
+  } else if (isSharedRoom() && !multiplayerSession.owned_character_ids?.includes(state.activeCharacterId)) state.activeCharacterId = multiplayerSession.owned_character_ids?.[0] || null;
   ui.charactersEmpty.hidden = state.characters.length > 0;
   const order = localCharacterOrder();
   const orderedCharacters = [...state.characters].sort((a, b) => {
@@ -6305,7 +6354,7 @@ function updateCharactersUi() {
       updateCharactersUi();
     });
     card.classList.toggle("is-readonly", !canControlCharacter(character));
-    if (!canControlCharacter(character)) for (const control of card.querySelectorAll("input, select, button:not(.character-reorder-handle)")) control.disabled = true;
+    if (!canControlCharacter(character) || (isCombatActive() && !isCurrentCharacterTurn(character))) for (const control of card.querySelectorAll("input, select, button:not(.character-reorder-handle)")) control.disabled = true;
     ui.charactersList.append(card);
   }
   ui.characterDetail.hidden = true;
@@ -6368,8 +6417,8 @@ function updatePartyAssetsUi() {
     return;
   }
   const assets = ensurePartyAssets();
-  ui.partyAssetsSummary.textContent = `PARTY ASSETS: ${assets.gold || 0} GP`;
-  ui.partyAssetsSummary.title = `PARTY ASSETS: ${formatMoneyParts(assets).toUpperCase()}`;
+  ui.partyAssetsSummary.textContent = `Party Assets: ${assets.gold || 0} Gold.`;
+  ui.partyAssetsSummary.title = formatMoneyParts(assets);
 }
 
 function isLivingCharacter(character) {
@@ -6700,7 +6749,7 @@ function syncBaseClassesOnlyToggleState(isEnabled) {
 }
 
 function getBaseClassesOnlyToggleState() {
-  return Boolean(ui.baseClassesOnlyToggle?.checked);
+  return true;
 }
 
 async function setShadowdarklingsSourceSwitches(page, enabled) {
@@ -6897,6 +6946,7 @@ function performSpellCast(character, spell) {
   if (!currentCharacter || !spell) {
     return;
   }
+  if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
 
   const modifier = getSpellCastingModifier(currentCharacter, spell);
   const dc = getSpellCastingDc(spell);
@@ -6979,6 +7029,7 @@ function getDiceHistoryAgeLabel(index) {
 }
 
 function renderDiceHistory() {
+  if (SERVER_RUNTIME) return;
   if (!ui.diceHistory) {
     return;
   }
@@ -6988,21 +7039,39 @@ function renderDiceHistory() {
   ui.diceHistory.innerHTML = "";
   diceHistory.forEach((entry, index) => {
     const item = document.createElement("li");
-    const details = document.createElement("details");
-    const summary = document.createElement("summary");
-    summary.textContent = `${getDiceHistoryAgeLabel(index)}: ${entry.label}`;
     const detail = document.createElement("div");
     detail.className = "dice-history-detail";
-    detail.textContent = entry.detail || "";
-    details.append(summary, detail);
-    item.append(details);
+    appendCharacterColoredText(detail, entry.detail || entry.label || '');
+    item.append(detail);
     ui.diceHistory.append(item);
   });
 }
 
-function pushDiceHistory(label, detail) {
-  diceHistory.unshift({ label, detail });
+function appendCharacterColoredText(target, value) {
+  const names = (state?.characters || []).filter(character => character.name).sort((a, b) => b.name.length - a.name.length);
+  let offset = 0;
+  while (offset < value.length) {
+    const matches = names.map(character => ({ character, index: value.indexOf(character.name, offset) })).filter(match => match.index >= 0).sort((a, b) => a.index - b.index);
+    const match = matches[0];
+    if (!match) { target.append(document.createTextNode(value.slice(offset))); break; }
+    target.append(document.createTextNode(value.slice(offset, match.index)));
+    const span = document.createElement('strong');
+    span.textContent = match.character.name;
+    span.style.color = getCharacterColorValue(match.character);
+    target.append(span);
+    offset = match.index + match.character.name.length;
+  }
+}
+
+function characterSheetInteractionKey(character) {
+  return `${state.combat?.active}:${getCurrentCombatEntry()?.id}:${state.combat?.actionUsed}:${canControlCharacter(character)}`;
+}
+
+function pushDiceHistory(label, detail, characterId = null) {
+  diceHistory = Array.isArray(state?.rollHistory) ? state.rollHistory : diceHistory;
+  diceHistory.unshift({ label, detail, characterId });
   diceHistory = diceHistory.slice(0, 100);
+  if (state) state.rollHistory = diceHistory;
   renderDiceHistory();
 }
 
@@ -7604,7 +7673,7 @@ function createSdGearPanel(character) {
         lightButton.addEventListener("click", (event) => {
           event.stopPropagation();
           const currentCharacter = getCurrentCharacter(character);
-          setActiveCharacter(state, currentCharacter.id);
+          if (!activateCharacter(currentCharacter)) return;
           attemptLightSource(gearLightSource, entry.gearIndex);
         });
         row.append(lightButton);
@@ -7913,6 +7982,7 @@ function formatRoomLootButtonText(loot) {
 
 function updateRoomLootPanel() {
   ui.roomLootPanel.innerHTML = "";
+  ui.roomLootPanel.hidden = false;
   const roomLoot = getRoomLoot(state);
   const treasureLoot = roomLoot.filter((loot) => loot.subtype !== "dropped-equipment");
   const roomFeatures = state.entities.filter((entity) => (
@@ -7924,7 +7994,7 @@ function updateRoomLootPanel() {
     (entity.roomId === state.player.roomId || isTileVisible(state, Number(entity.x), Number(entity.y)))
   ));
   if (roomLoot.length === 0 && roomFeatures.length === 0) {
-    ui.roomLootPanel.textContent = "No revealed treasure or features in view.";
+    ui.roomLootPanel.hidden = true;
     return;
   }
 
@@ -8022,13 +8092,14 @@ function createMonsterAttackStatRow(monster) {
 
 function updateMonsterPanel() {
   ui.monsterPanel.innerHTML = "";
+  ui.monsterPanel.hidden = false;
   const currentRoomId = state.player.roomId;
   const monsters = state.entities.filter((entity) => {
     return entity.type === "monster" && !entity.defeated && entity.roomId === currentRoomId;
   });
 
   if (!currentRoomId || monsters.length === 0) {
-    ui.monsterPanel.textContent = "No monsters in this room.";
+    ui.monsterPanel.hidden = true;
     return;
   }
 
@@ -8124,9 +8195,10 @@ function updateMonsterPanel() {
 
 function updateTrapPanel() {
   ui.trapPanel.innerHTML = "";
+  ui.trapPanel.hidden = false;
   const traps = getRoomTraps(state);
   if (!state.player.roomId || traps.length === 0) {
-    ui.trapPanel.textContent = "No revealed traps in this room.";
+    ui.trapPanel.hidden = true;
     return;
   }
 
@@ -8184,11 +8256,12 @@ function updateTrapPanel() {
   }
 }
 
-function updatePanels() {
+function updatePanels(options = {}) {
   if (SERVER_RUNTIME) return;
+  if (Array.isArray(state.rollHistory)) { diceHistory = state.rollHistory; renderDiceHistory(); }
   updatePartyAssetsUi();
   updateLootUi();
-  updateCharactersUi();
+  if (!options.charactersUnchanged) updateCharactersUi();
   updateLightControlUi();
   updateRoomLootPanel();
   updateMonsterPanel();
@@ -8197,6 +8270,15 @@ function updatePanels() {
   updateCombatUi();
   renderMultiplayerUi();
   applyRoomInteractionPermissions();
+  const selected = getExplicitActiveCharacter(state);
+  const swatch = document.getElementById('selected-character-swatch');
+  const name = document.getElementById('selected-character-name');
+  if (swatch) swatch.style.backgroundColor = selected ? getCharacterColorValue(selected) : '#888';
+  if (name) name.textContent = selected?.name || 'None';
+  if (!options.charactersUnchanged && !ui.characterSheetModal?.hidden) {
+    const character = state.characters.find(item => item.id === ui.characterSheetContent?.dataset.characterId);
+    if (character && (ui.characterSheetContent.dataset.interactionKey !== characterSheetInteractionKey(character) || !ui.characterSheetContent.contains(document.activeElement))) renderCharacterDetail(character, ui.characterSheetContent, { popout: true });
+  }
 }
 
 function maybeShowFullyLooted() {
@@ -8246,7 +8328,11 @@ function formatRollTooltip(result, action) {
 }
 
 function showCheckResult(result, action = "check", options = {}) {
-  if (SERVER_RUNTIME) { lastDamageRoll = { kind: "check", result, actionLabel: action, total: result?.total }; return; }
+  if (SERVER_RUNTIME) {
+    lastDamageRoll = { kind: "check", result, actionLabel: action, total: result?.total };
+    if (options.recordHistory !== false) pushDiceHistory(action, options.message || result?.message || formatRollText(result));
+    return;
+  }
   if (!result || !ui.damageResult) {
     return;
   }
@@ -8263,7 +8349,7 @@ function showCheckResult(result, action = "check", options = {}) {
     ui.damageExpandBtn.hidden = !Number.isFinite(result.roll) || result.roll <= 0;
   }
   renderDamageDetail(lastDamageRoll);
-  pushDiceHistory(`${actionLabel} ${result.total}`, options.message || result.message || formatRollText(result));
+  if (options.recordHistory !== false) pushDiceHistory(`${actionLabel} ${result.total}`, options.message || result.message || formatRollText(result));
   setDamageDetailVisibility(false);
 }
 
@@ -8335,6 +8421,7 @@ function performSearch() {
   if (!state) {
     return;
   }
+  if (!SERVER_RUNTIME && !consumeCharacterCombatAction(getActiveCharacter(state))) return;
   const context = getCharacterActionContext("search");
   const result = searchForTraps(state, context.modifier, { doubleRoll: context.doubleRoll });
   const characterName = getCharacterDisplayName(context.character);
@@ -8729,7 +8816,13 @@ function ownsCharacter(character) {
 }
 
 function canControlCharacter(character) {
-  return ownsCharacter(character) && (!isSharedRoom() || multiplayerSession.can_explore);
+  return Boolean(character) && ownsCharacter(character) && (!isSharedRoom() || multiplayerSession.can_explore) &&
+    (!isCombatActive() || isCurrentCharacterTurn(character));
+}
+
+function isPendingLightRequestCurrent() {
+  return pendingLightRequest?.characterId === state.activeCharacterId && (!isCombatActive() ||
+    (pendingLightRequest.round === state.combat.round && pendingLightRequest.turnIndex === state.combat.turnIndex));
 }
 
 function canBuryCharacter(character) {
@@ -8746,13 +8839,14 @@ function canUseRoomCharacterImport() {
 
 function applyRoomInteractionPermissions() {
   if (!state) return;
-  const blocked = isSharedRoom() && !canControlCharacter(getExplicitActiveCharacter(state));
+  const active = getExplicitActiveCharacter(state);
+  const blocked = !active || !canControlCharacter(active) || (isCombatActive() && !isCurrentCharacterTurn(active));
   for (const control of [ui.lightTorchBtn, ui.lightLanternBtn, ui.castLightBtn, ui.torchOutBtn, ui.searchBtn,
     ui.stealthBtn, ui.pickLockBtn, ui.breakDoorBtn, ui.endTurnBtn]) {
-    if (control) control.disabled = blocked;
+    if (control) control.disabled = blocked || (isCombatActive() && state.combat.actionUsed && control !== ui.endTurnBtn);
   }
   for (const root of [ui.roomLootPanel, ui.monsterPanel, ui.trapPanel, ui.combatPanel]) {
-    if (blocked) {
+    if (blocked || (isCombatActive() && state.combat.actionUsed)) {
       for (const control of root?.querySelectorAll("button, input, select, textarea") || []) control.disabled = true;
     }
   }
@@ -8779,6 +8873,75 @@ function reorderLocalCharacter(source, destination) {
   ids.splice(ids.indexOf(destination), 0, source);
   localStorage.setItem(roomOrderKey(), JSON.stringify(ids));
   updateCharactersUi();
+}
+
+function localFollowIds() {
+  if (SERVER_RUNTIME) return [];
+  try { return JSON.parse(localStorage.getItem(`${roomOrderKey()}:follow`) || '[]'); } catch { return []; }
+}
+
+function toggleCharacterFollow(id) {
+  const ids = new Set(localFollowIds());
+  if (ids.has(id)) ids.delete(id); else ids.add(id);
+  localStorage.setItem(`${roomOrderKey()}:follow`, JSON.stringify([...ids]));
+  updateCharactersUi();
+}
+
+function currentMarchingCommand() {
+  const owned = state.characters.filter(ownsCharacter).map(character => character.id);
+  const preferred = localCharacterOrder();
+  const order = [...preferred.filter(id => owned.includes(id)), ...owned.filter(id => !preferred.includes(id))];
+  return { marching_order: order, following_ids: localFollowIds().filter(id => owned.includes(id)) };
+}
+
+function advanceMarchingOrder(anchor, delta = null, command = null, options = {}) {
+  if (!anchor || isCombatActive()) return false;
+  const values = command || currentMarchingCommand();
+  if (!values.following_ids?.length) return false;
+  const groupId = SERVER_RUNTIME ? values.follow_group_id || 'solo' : multiplayerSession.current_player_id || 'solo';
+  state.marchingGroups ||= {};
+  const previous = state.marchingGroups[groupId];
+  const group = previous?.anchorId === anchor.id ? previous : { anchorId: anchor.id, direction: [0, 1], trail: [] };
+  if (delta) {
+    group.direction = delta;
+    group.trail.unshift({ x: Number(anchor.x), y: Number(anchor.y) });
+    if (group.trail.length === 1) group.trail.push({ x: Number(anchor.x) - delta[0], y: Number(anchor.y) - delta[1] });
+    group.trail = group.trail.slice(0, 40);
+  }
+  state.marchingGroups[groupId] = group;
+  const steps = planMarchingSteps(state, anchor.id, { order: values.marching_order, followingIds: values.following_ids, ...group }, {
+    canStep: (x, y, nextX, nextY) => canMoveBetweenTiles(state, x, y, nextX, nextY).ok,
+    isLit: (x, y) => isTileVisible(state, x, y)
+  });
+  if (options.previewOnly) return steps.length > 0;
+  if (SERVER_RUNTIME && command?.type === 'follow_step') {
+    if (Date.now() - (group.lastFollowAt || 0) < 900) return false;
+    group.lastFollowAt = Date.now();
+  }
+  let changed = false;
+  for (const step of steps) {
+    if (isCombatActive()) break;
+    const character = state.characters.find(item => item.id === step.characterId);
+    if (!SERVER_RUNTIME && !canControlCharacter(character)) continue;
+    const before = { x: Number(character.x), y: Number(character.y), roomId: character.roomId };
+    setActiveCharacter(state, character.id);
+    syncPlayerToActiveCharacter();
+    const result = movePlayer(state, step.dx, step.dy, { deferVisibility: true });
+    if (!result.moved) continue;
+    changed = true;
+    syncActiveCharacterToPlayer();
+    recomputeVisibility(state);
+    processMonsterVisibilityChange();
+    if (SERVER_RUNTIME && values.motion_id) {
+      const frames = serverFollowerFrames.get(character.id) || [before];
+      frames.push({ x: character.x, y: character.y, roomId: character.roomId });
+      serverFollowerFrames.set(character.id, frames);
+    }
+  }
+  if (!isCombatActive()) setActiveCharacter(state, anchor.id);
+  syncPlayerToActiveCharacter();
+  if (changed) { recomputeVisibility(state); markRunDirty(); }
+  return changed;
 }
 
 let sharedCommandQueue = Promise.resolve();
@@ -9003,6 +9166,7 @@ function flushSharedMoveBuffer(forceAll = false) {
     void executeSharedCommand({
       type: "move_batch",
       character_id: first.characterId,
+      ...currentMarchingCommand(),
       moves: batch.map(({ dx, dy }) => ({ dx, dy }))
     }, null, { optimisticMoveIds: batch.map((move) => move.id) })
       .catch(() => {})
@@ -9047,8 +9211,8 @@ async function executeSharedCommand(command, expectedRevision = null, options = 
           if (generation !== sharedCommandGeneration || multiplayerSession.id !== id) return { cancelled: true };
           removePendingSharedMoves(optimisticMoveIds);
           applyMultiplayerSessionState(result, { message: result.message });
-          if (result.dice?.kind === "check") showCheckResult(result.dice.result, result.dice.actionLabel, { message: result.message });
-          else if (result.dice) applyDamageResultToPanel(result.dice, result.message);
+          if (result.dice?.kind === "check") showCheckResult(result.dice.result, result.dice.actionLabel, { message: result.message, recordHistory: false });
+          else if (result.dice) applyDamageResultToPanel(result.dice, result.message, { recordHistory: false });
           return result;
         } catch (error) {
           if (error.status === 409 && attempt === 0 && command.type !== "edit_character") {
@@ -9156,7 +9320,8 @@ function applyMultiplayerSessionState(payload, options = {}) {
         payload.viewer_visibility || {}
       );
       attachSharedViewerScope(state, owned);
-      state.activeCharacterId = newOwned.at(-1) || (owned.includes(activeId) ? activeId : owned[0]) || null;
+      const combatEntry = nextState.combat?.active ? nextState.combat.turnOrder?.[nextState.combat.turnIndex] : null;
+      state.activeCharacterId = combatEntry?.type === 'character' ? combatEntry.id : newOwned.at(-1) || (owned.includes(activeId) ? activeId : owned[0]) || null;
       if (state.activeCharacterId) syncPlayerToActiveCharacter();
       const initialized = new Set();
       for (const motion of remoteMotions) {
@@ -9627,15 +9792,28 @@ function hookInputEvents() {
   });
 
   ui.saveBtn.addEventListener("click", () => {
+    document.getElementById('save-load-menu').hidden = true;
     openSaveLoadModal("save");
   });
 
   ui.loadBtn.addEventListener("click", () => {
+    document.getElementById('save-load-menu').hidden = true;
     openSaveLoadModal("load");
   });
 
   ui.loadCharacterBtn?.addEventListener("click", () => {
+    document.getElementById('save-load-menu').hidden = true;
     openSaveLoadModal("load-character");
+  });
+  const saveLoadMenu = document.getElementById('save-load-menu');
+  document.getElementById('save-load-menu-btn')?.addEventListener('click', () => { saveLoadMenu.hidden = false; });
+  document.getElementById('save-load-menu-close')?.addEventListener('click', () => { saveLoadMenu.hidden = true; });
+  saveLoadMenu?.addEventListener('click', event => { if (event.target === saveLoadMenu) saveLoadMenu.hidden = true; });
+  document.getElementById('save-character-menu-btn')?.addEventListener('click', () => {
+    saveLoadMenu.hidden = true;
+    const character = getExplicitActiveCharacter(state);
+    if (character && ownsCharacter(character)) saveCharacterSnapshot(character);
+    else setStatus('Select one of your characters to save.');
   });
 
   ui.multiplayerBtn?.addEventListener("click", openMultiplayerModal);
@@ -9732,6 +9910,7 @@ function hookInputEvents() {
 
   ui.pickLockBtn.addEventListener("click", () => {
     if (sendSharedCommand("pick_lock")) return;
+    if (!consumeCharacterCombatAction(getActiveCharacter(state))) return;
     const context = getCharacterActionContext("pick");
     const result = attemptLockedDoor(state, "pick", context.modifier, {
       doubleRoll: context.doubleRoll,
@@ -9753,6 +9932,7 @@ function hookInputEvents() {
 
   ui.breakDoorBtn.addEventListener("click", () => {
     if (sendSharedCommand("break_door")) return;
+    if (!consumeCharacterCombatAction(getActiveCharacter(state))) return;
     const context = getCharacterActionContext("break");
     const result = attemptLockedDoor(state, "break", context.modifier, {
       doubleRoll: context.doubleRoll,
@@ -9799,6 +9979,7 @@ function hookInputEvents() {
   });
 
   ui.extinguishOldYesBtn?.addEventListener("click", () => {
+    if (!isPendingLightRequestCurrent()) { closeExtinguishOldModal(); return; }
     const source = pendingLightRequest?.source;
     const gearIndex = pendingLightRequest?.gearIndex;
     closeExtinguishOldModal();
@@ -9808,6 +9989,7 @@ function hookInputEvents() {
   });
 
   ui.extinguishOldNoBtn?.addEventListener("click", () => {
+    if (!isPendingLightRequestCurrent()) { closeExtinguishOldModal(); return; }
     const source = pendingLightRequest?.source;
     const gearIndex = pendingLightRequest?.gearIndex;
     closeExtinguishOldModal();
@@ -9882,12 +10064,22 @@ function hookMapViewportInteractions() {
       return;
     }
     const clickedMonster = getVisibleMonsterAtTile(x, y);
+    const doorClick = clickedMonster ? null : getDoorClickContext(state, x, y, { canUseCharacter: canControlCharacter });
+    if (doorClick?.message) { setStatus(doorClick.message); return; }
+    if (doorClick?.character) {
+      activateCharacter(doorClick.character);
+      if (!isSharedRoom() && !consumeCharacterCombatAction(doorClick.character)) return;
+      render();
+      updatePanels();
+    }
     if (isSharedRoom()) {
       if (clickedMonster) attackClickedMonster(clickedMonster);
-      else sendSharedCommand("interact", { x, y });
+      else sendSharedCommand("interact", { x, y }, doorClick?.character || getActiveCharacter(state));
       return;
     }
-    const result = clickedMonster ? attackClickedMonster(clickedMonster) : clickEntity(state, x, y);
+    const result = clickedMonster ? attackClickedMonster(clickedMonster) : clickEntity(state, x, y, {
+      characterId: doorClick?.character?.id
+    });
     let sighting = null;
     if (!clickedMonster) {
       sighting = processMonsterVisibilityChange();
@@ -10021,12 +10213,21 @@ async function generateAndRender() {
 }
 
 function startClock() {
+  let followPending = false;
   window.setInterval(() => {
-    if (!state || isSharedRoom()) {
+    if (!state) return;
+    if (isSharedRoom()) {
+      const character = getExplicitActiveCharacter(state);
+      if (!followPending && !sharedCommandPending && !isCombatActive() && canControlCharacter(character) &&
+          advanceMarchingOrder(character, null, null, { previewOnly: true })) {
+        followPending = true;
+        void executeSharedCommand({ type: 'follow_step', character_id: character.id, ...currentMarchingCommand() })
+          .catch(() => {}).finally(() => { followPending = false; });
+      }
       return;
     }
     const result = syncElapsedTime(state);
-    let changed = false;
+    let changed = advanceMarchingOrder(getExplicitActiveCharacter(state));
     if (result.crossedWanderingChecks) {
       processWanderingChecks(result.crossedWanderingChecks);
       changed = true;
@@ -10051,8 +10252,9 @@ async function initialize() {
     accountSession = session;
     renderMultiplayerUi();
   }).catch(() => {});
-  const assetsReady = preloadRendererAssets().catch((error) => {
-    console.warn("Hand-drawn renderer assets failed to load. Falling back to flat renderer.", error);
+  const assetsReady = preloadRendererAssets().then(() => true).catch((error) => {
+    console.warn("Dungeon artwork failed to load; keeping the map black.", error);
+    return false;
   });
   hookInputEvents();
   hookMapViewportInteractions();
@@ -10066,8 +10268,9 @@ async function initialize() {
   }
   window.addEventListener("resize", syncSidebarWidth);
   startClock();
-  await Promise.all([assetsReady, generateAndRender()]);
+  const [artworkLoaded] = await Promise.all([assetsReady, generateAndRender()]);
   render();
+  if (!artworkLoaded) setStatus("Dungeon artwork could not load. Reload the page to retry.");
   restoreRoomFromUrlIfPresent();
 }
 
@@ -10085,14 +10288,16 @@ export async function executeGameCommand(rawState, command) {
   await serverContentReady;
   state = hydrateDungeonState(rawState);
   serverMonsterTurns = null;
+  serverFollowerFrames = new Map();
   lastDamageRoll = null;
-  diceHistory = [];
+  diceHistory = Array.isArray(state.rollHistory) ? state.rollHistory : [];
   ui.statusText.textContent = "";
   state.combat.autoRunning = false;
   state.run = state.run || {};
   const character = state.characters.find((item) => item.id === command.character_id);
   let movementFrames = null;
   const utilityCommands = new Set(["normalize", "import", "bury", "dismiss", "edit_character", "tick"]);
+  if (command.type === 'edit_character' && isCombatActive()) throw new Error('Character sheet edits are unavailable during combat; use the turn actions.');
   if (!utilityCommands.has(command.type)) {
     if (!character || !isCharacterAbleToAct(character)) throw new Error("This character cannot act.");
     if (isCombatActive() && !isCurrentCharacterTurn(character)) throw new Error("It is not this character's turn.");
@@ -10101,6 +10306,12 @@ export async function executeGameCommand(rawState, command) {
     syncCharacterEquipmentDerivedStats(character);
     setActiveCharacter(state, character.id);
     syncPlayerToActiveCharacter();
+  }
+  if (command.type === "interact") {
+    if (!Number.isInteger(command.x) || !Number.isInteger(command.y)) throw new Error("Invalid tile.");
+    recomputeVisibility(state);
+    const doorClick = getDoorClickContext(state, command.x, command.y, { characterId: character.id });
+    if (doorClick?.message) throw new Error(doorClick.message);
   }
   const actionCommands = new Set(["search", "disarm", "get", "leave", "interact", "pick_lock", "break_door", "spell", "light", "drop_gear", "pickup", "collect", "persuade"]);
   if (isCombatActive() && actionCommands.has(command.type) && !consumeCharacterCombatAction(character)) {
@@ -10126,11 +10337,12 @@ export async function executeGameCommand(rawState, command) {
         }
         if (!isCharacterAbleToAct(character) || (isCombatActive() && !isCurrentCharacterTurn(character))) break;
         if (!handleCombatMovement([dx, dy])) {
-          const result = movePlayer(state, dx, dy);
+          const result = movePlayer(state, dx, dy, { deferVisibility: true });
           if (result.moved) {
             syncActiveCharacterToPlayer();
             recomputeVisibility(state);
             processMonsterVisibilityChange();
+            advanceMarchingOrder(character, [dx, dy], command);
           }
           setStatus(result);
         }
@@ -10145,6 +10357,9 @@ export async function executeGameCommand(rawState, command) {
       }
       break;
     }
+    case 'follow_step':
+      if (!isCombatActive()) advanceMarchingOrder(character, null, command);
+      break;
     case "attack": {
       const monster = getMonsterById(command.monster_id);
       if (!monster || !canCharacterSeeMonster(character, monster)) throw new Error("That monster is not visible.");
@@ -10171,8 +10386,7 @@ export async function executeGameCommand(rawState, command) {
       break;
     }
     case "interact": {
-      if (!Number.isInteger(command.x) || !Number.isInteger(command.y)) throw new Error("Invalid tile.");
-      setStatus(clickEntity(state, command.x, command.y));
+      setStatus(clickEntity(state, command.x, command.y, { characterId: character.id }));
       processMonsterVisibilityChange();
       break;
     }
@@ -10267,6 +10481,7 @@ export async function executeGameCommand(rawState, command) {
         label = `${command.count}d${command.sides}${formatSignedModifier(command.modifier)}`;
       }
       setStatus(`${character.name} rolls ${label}: ${lastDamageRoll.total}.`);
+      pushDiceHistory('Roll', ui.statusText.textContent, character.id);
       pushCombatLog(ui.statusText.textContent);
       break;
     }
@@ -10343,6 +10558,15 @@ export async function executeGameCommand(rawState, command) {
       frames: movementFrames,
       time: Date.now()
     });
+  }
+  if (typeof command.motion_id === 'string') {
+    state.multiplayerMotions ||= [];
+    let index = 0;
+    for (const [characterId, frames] of serverFollowerFrames) {
+      state.multiplayerMotions.push({ id: `${command.motion_id.slice(0, 36)}:f:${index++}`, actorId: command.motion_actor_id,
+        characterId, frames, time: Date.now() });
+    }
+    state.multiplayerMotions = state.multiplayerMotions.slice(-20);
   }
   normalizeCharacterState(state);
   syncAllCharacterEquipmentDerivedStats();

@@ -4,10 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ShadowSpawner</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Tagesschrift&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20260919-close-button" />
+    <link rel="preload" href="./Tagesschrift-Regular.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="stylesheet" href="./styles.css?v=20261012-headings" />
   </head>
   <body>
     <main class="layout">
@@ -15,72 +13,55 @@
         <h1 class="site-title">ShadowSpawner</h1>
         <section id="dungeon-tab-panel" class="tab-panel" role="tabpanel">
           <div class="save-load-controls" aria-label="Saved runs">
-            <button id="save-btn" type="button">Save</button>
-            <button id="load-btn" type="button">Load</button>
+            <button id="save-load-menu-btn" type="button">Save / Load</button>
             <button id="multiplayer-btn" type="button">Multiplayer</button>
             <a id="account-link" class="toolbar-button" href="/account" role="button">Account</a>
           </div>
           <div class="dungeon-config-row">
             <label>
-              DUNGEON LEVEL
+              Dungeon Level
               <input id="level-input" type="number" min="1" max="10" value="1" data-autosize-field data-size-chars="2" />
             </label>
+            <button id="generate-btn" type="button">Generate</button>
             <label>
-              SEED
+              Seed
               <input id="seed-input" type="number" />
             </label>
           </div>
-          <div class="sidebar-row sidebar-row--wrap">
-            <button id="generate-btn" type="button">Generate Dungeon</button>
-          </div>
-          <div class="sidebar-row sidebar-row--wrap">
-            <button id="light-torch-btn" type="button">Light New Torch</button>
-            <button id="light-lantern-btn" type="button">Light Lantern</button>
-            <button id="cast-light-btn" type="button">Cast Light</button>
-          </div>
+          <section class="dungeon-summary-panel" aria-labelledby="dungeon-heading">
+            <h2 id="dungeon-heading" class="party-heading">The Dungeon</h2>
+            <p class="dungeon-status" role="status"><span id="status-text">Ready.</span></p>
+            <div id="monster-panel" class="monster-panel" hidden></div>
+            <div id="room-loot-panel" class="room-loot-panel" hidden></div>
+            <div id="trap-panel" class="trap-panel" hidden></div>
+          </section>
           <section id="character-summary-panel" class="character-summary-panel" aria-labelledby="party-heading">
             <h2 id="party-heading" class="party-heading">The Party</h2>
-            <p id="party-assets-summary" class="party-assets-summary">PARTY ASSETS: 0 GP</p>
+            <p id="party-assets-summary" class="party-assets-summary">Party Assets: 0 Gold.</p>
             <div class="character-import-toolbar">
               <button id="import-character-btn" type="button">Import from ShadowDarklings</button>
-              <button id="load-character-btn" type="button">Load Character</button>
-              <label class="base-classes-toggle" title="Use only ShadowDark core sources">
-                <input id="base-classes-only-toggle" type="checkbox" />
-                <span>Base Classes Only</span>
-              </label>
             </div>
+            <div class="party-selected-row">Selected: <span id="selected-character-swatch" class="selected-character-swatch"></span><span id="selected-character-name">None</span></div>
+            <div class="sidebar-row sidebar-row--wrap party-light-controls">
+              <button id="light-torch-btn" type="button" hidden>Light Torch</button>
+              <button id="light-lantern-btn" type="button" hidden>Light Lantern</button>
+              <button id="cast-light-btn" type="button" hidden>Cast Light</button>
+            </div>
+            <div class="search-controls">
+              <button id="search-btn" type="button">Search</button>
+              <button id="stealth-btn" type="button">Stealth</button>
+              <span id="locked-door-actions" class="locked-door-actions" hidden>
+                <button id="pick-lock-btn" type="button">Pick Lock DC 8</button>
+                <button id="break-door-btn" type="button">Break DC 8</button>
+              </span>
+              <span id="combat-actions" class="combat-actions" hidden><button id="end-turn-btn" type="button">End Turn</button></span>
+            </div>
+            <div id="combat-panel" class="combat-panel" hidden></div>
             <div id="characters-empty" class="characters-empty">No characters imported yet.</div>
             <div id="characters-list" class="characters-list"></div>
           </section>
 
-          <h2 class="party-heading">Monsters</h2>
-          <div id="monster-panel" class="monster-panel">
-            No monsters in this room.
-          </div>
-
-          <div id="room-loot-panel" class="room-loot-panel">
-            No revealed treasure or features in this room.
-          </div>
-
-          <div id="trap-panel" class="trap-panel">
-            No revealed traps in this room.
-          </div>
-
-          <div class="search-controls">
-            <button id="search-btn" type="button">Search</button>
-            <button id="stealth-btn" type="button">Stealth</button>
-            <span id="locked-door-actions" class="locked-door-actions" hidden>
-              <button id="pick-lock-btn" type="button">Pick Lock DC 8</button>
-              <button id="break-door-btn" type="button">Smash DC 8</button>
-            </span>
-            <span id="combat-actions" class="combat-actions" hidden>
-              <button id="end-turn-btn" type="button">End Turn</button>
-            </span>
-          </div>
-          <div id="combat-panel" class="combat-panel" hidden></div>
-
-          <h2 class="party-heading">Dice Roller</h2>
-          <div id="manual-dice-controls" class="manual-dice-controls" aria-label="Manual dice roller">
+          <div id="manual-dice-controls" class="manual-dice-controls" aria-label="Manual dice roller" hidden>
             <div class="manual-die-button-row">
               <button class="manual-die-button" type="button" data-die-sides="100">d%</button>
               <button class="manual-die-button" type="button" data-die-sides="20">d20</button>
@@ -109,11 +90,9 @@
             <ol id="dice-history" class="dice-history" aria-label="Dice roll history" hidden></ol>
           </section>
 
-          <p>Status: <span id="status-text">Ready.</span></p>
-
           <button id="how-to-play-btn" class="how-to-play-btn" type="button" aria-expanded="false" aria-controls="how-to-play-content">How to Play</button>
           <section id="how-to-play-content" class="how-to-play-content" hidden>
-            <p>Import from ShadowDarklings imports a new random character into the dungeon. Only Base Classes are supported. Uncheck at your own risk!</p>
+            <p>Import from ShadowDarklings imports a new random core-class character into the dungeon.</p>
             <p>Click map tokens to select an imported character, interact with monsters, doors, features, and traps.</p>
             <p>Controls: arrow keys move player: Left: &larr;, Right: &rarr;, Up: &uarr;, Down: &darr;</p>
             <p>Numpad also moves: 8 up, 2 down, 4 left, 6 right, diagonals on 7, 9, 1, and 3.</p>
@@ -144,6 +123,16 @@
       </section>
     </main>
 
+    <div id="save-load-menu" class="modal-backdrop" hidden>
+      <section class="modal-card save-load-menu" role="dialog" aria-modal="true" aria-labelledby="save-load-menu-title">
+        <h2 id="save-load-menu-title" class="party-heading">Save / Load</h2>
+        <button id="save-character-menu-btn" type="button">Save Character</button>
+        <button id="load-character-btn" type="button">Load Character</button>
+        <button id="save-btn" type="button">Save Dungeon Run</button>
+        <button id="load-btn" type="button">Load Previous Dungeon Run</button>
+        <button id="save-load-menu-close" type="button">Close</button>
+      </section>
+    </div>
     <div id="save-load-modal" class="modal-backdrop" hidden>
       <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="save-load-title">
         <h2 id="save-load-title">Saved Runs</h2>

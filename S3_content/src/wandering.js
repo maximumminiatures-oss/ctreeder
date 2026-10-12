@@ -1,6 +1,7 @@
 import { ENTITY_TYPES, TILE_TYPES } from "./constants.js";
 import { getTile, tileKey } from "./state-schema.js";
 import { SeededRng } from "./rng.js";
+import { isUndeadMonster } from "./crypts.js";
 
 export const DEFAULT_WANDERING_NUMERATOR = 1;
 export const DEFAULT_WANDERING_DENOMINATOR = 6;
@@ -63,7 +64,7 @@ function visibleEdgeCandidates(state) {
 }
 
 function monsterDetails(rng, monsterTable) {
-  const validMonsters = monsterTable.filter((monster) => monster?.["Monster Name"]);
+  const validMonsters = monsterTable.filter((monster) => monster?.["Monster Name"] || monster?.name);
   const monster = rng.pick(validMonsters);
   if (!monster) {
     return {
@@ -75,11 +76,11 @@ function monsterDetails(rng, monsterTable) {
     };
   }
   return {
-    name: monster["Monster Name"],
-    level: monster["**LV**"] || monster.level || null,
-    ac: monster["**AC**"] || null,
-    hp: monster["**HP**"] || null,
-    attack: monster["**ATK**"] || null,
+    name: monster["Monster Name"] || monster.name,
+    level: monster["**LV**"] ?? monster.level ?? null,
+    ac: monster["**AC**"] ?? monster.ac ?? null,
+    hp: monster["**HP**"] ?? monster.hp ?? null,
+    attack: monster["**ATK**"] ?? monster.attack ?? null,
     movement: monster["**MV**"] || monster.movement || null,
     D: monster["**D**"] || monster.D || "",
     abilities: monster.abilities || {},
@@ -107,8 +108,12 @@ export function maybeSpawnWanderingMonster(state, monsterTable = []) {
     return { spawned: false, message: "Wandering monster check passed, but no visible edge square was available." };
   }
 
+  const crypt = state.rooms.some(room => room.id === tile.roomId && room.crypt === true);
+  const eligible = crypt ? monsterTable.filter(monster => isUndeadMonster(monster) &&
+    (monster?.["Monster Name"] || monster?.name)) : monsterTable;
+  if (crypt && !eligible.length) return { spawned: false, message: 'No eligible undead encounter for this crypt.' };
+  const details = monsterDetails(rng, eligible);
   chance.spawnedCount += 1;
-  const details = monsterDetails(rng, monsterTable);
   const entity = {
     id: `wandering-monster-${chance.spawnedCount}`,
     type: ENTITY_TYPES.MONSTER,

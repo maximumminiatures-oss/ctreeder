@@ -3,7 +3,7 @@
 This is `maximumminiatures-oss/ctreeder`, the personal repository for the live
 site. Read `docs/DIGITALOCEAN_DEPLOYMENT.md` before production work.
 
-- Local checkout: `C:\SD_game\ctreeder`.
+- Local checkout: `C:\SD_game\ShadowSpawner\.source`.
 - The server retains `/opt/SD-Dungeon-Generator` for path compatibility, but its
   origin is `https://github.com/maximumminiatures-oss/ctreeder.git`.
 - Current portfolio source: `portfolio/`. The older `S3_content/portfolio/`
