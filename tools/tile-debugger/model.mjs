@@ -1,7 +1,7 @@
 import { parseOrganicSignature } from '../../S3_content/src/organic-tiles.js';
 import { computeLightPolygonFromSegments } from '../../S3_content/src/light-geometry.js';
 import { setAssetShadowPaths, sameShadowTrace } from './shadow-paths.mjs';
-import { hasFixedSolidMovement } from '../../S3_content/src/reviewed-tile-rules.js';
+import { hasFixedSolidMovement, isStatueAsset } from '../../S3_content/src/reviewed-tile-rules.js';
 
 export const CELL = 54;
 export const VERSION = 1;
@@ -109,7 +109,7 @@ export function createPlacement(asset, x, y, id = crypto.randomUUID()) {
   const tile = { id, asset: asset.id, digest: asset.digest, x, y, w: asset.w, h: asset.h,
     turn: 0, flipX: false, flipY: false, movement: /^org-blocks-/.test(asset.name) || asset.id === '1-black.png' || asset.id === 'door-closed.png',
     lightShape: asset.id === '1-black.png' ? 'solid' : asset.id === 'door-closed.png' ? 'door' :
-      /^plr-/.test(asset.name) || (/^org-blocks-/.test(asset.name) && signature && SIDES.every(s => signature.sides[s] === 'x')) ? 'pillar' : 'edges',
+      /^plr-/.test(asset.name) || isStatueAsset(asset.id) || (/^org-blocks-/.test(asset.name) && signature && SIDES.every(s => signature.sides[s] === 'x')) ? 'pillar' : 'edges',
     locked: asset.id === '1-black.png', annotations, confirmed: false };
   if (asset.id === 'door-open.png') tile.lightShape = 'none';
   for (const f of features(tile)) {
@@ -128,6 +128,7 @@ export function createPlacement(asset, x, y, id = crypto.randomUUID()) {
 export function applyFixedMovementRules(tile) {
   if (!hasFixedSolidMovement(tile.asset)) return;
   tile.movement = true;
+  if (isStatueAsset(tile.asset)) tile.lightShape = 'pillar';
   for (const annotation of Object.values(tile.annotations)) annotation.movement = true;
 }
 

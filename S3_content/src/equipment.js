@@ -1,4 +1,6 @@
 import { DEFAULT_LIGHT_RADIUS } from "./constants.js";
+import { isFloatingDisc } from './floating-disc.js';
+import { availableHands } from './arcane-effects.js';
 
 export function normalizeWeaponSpacing(value) {
   return String(value || "").toLowerCase()
@@ -7,6 +9,7 @@ export function normalizeWeaponSpacing(value) {
 
 export function handItemKind(item) {
   const name = normalizeWeaponSpacing(item?.name);
+  if(String(item?.type||'').toLowerCase()!=='weapon'&&/\b(?:arrows?|bolts?)\b/.test(name))return '';
   if (/\bshield\b/.test(name)) return "shield";
   if (/^torch\b/.test(name)) return "torch";
   if (/\blantern\b/.test(name)) return "lantern";
@@ -26,17 +29,21 @@ export function equipItem(character, index, equipped) {
   const gear = character.gear || [];
   const item = gear[index];
   const kind = handItemKind(item);
+  if (isFloatingDisc(character) && kind !== 'lantern') return false;
   if (!kind) return false;
   if (!equipped) {
     item.equipped = false;
     syncEquipmentLight(character);
     return true;
   }
+  const hands = availableHands(character);
+  if (!hands || hands < 2 && isTwoHandedWeapon(item)) return false;
   const light = value => ["torch", "lantern"].includes(handItemKind(value));
   for (const other of gear) {
     if (other === item || !other.equipped) continue;
     const otherKind = handItemKind(other);
-    if (isTwoHandedWeapon(item) || isTwoHandedWeapon(other) ||
+    if(!otherKind)continue;
+    if (hands === 1 || isTwoHandedWeapon(item) || isTwoHandedWeapon(other) ||
         (kind === "weapon" && otherKind === "weapon") ||
         (kind === "shield" && otherKind === "shield") || (light(item) && light(other))) {
       other.equipped = false;
@@ -54,10 +61,14 @@ export function equipItem(character, index, equipped) {
 }
 
 export function ensureEquipment(character, canEquip = () => true) {
+  if (isFloatingDisc(character)) {
+    const allowed = canEquip;
+    canEquip = item => handItemKind(item) === 'lantern' && allowed(item);
+  }
   character.gear ||= [];
-  // Each carried light needs its own burning/equipped state, even when imported as a stack.
+  // Hand-held items need independent equipped states, including imported stacks.
   for (const item of [...character.gear]) {
-    if (!["torch", "lantern"].includes(handItemKind(item))) continue;
+    if (!["torch", "lantern", "weapon", "shield"].includes(handItemKind(item))) continue;
     const units = Math.floor(Number(item.totalUnits ?? item.quantity ?? 1));
     if (!Number.isFinite(units) || units <= 1 || units > 1000) continue;
     item.quantity = 1;
@@ -90,16 +101,18 @@ export function ensureEquipment(character, canEquip = () => true) {
     character.equipmentInitialized = true;
   }
   const held = new Set();
+  let handsUsed = 0;
   for (const item of character.gear) {
     const kind = handItemKind(item);
     const slot = ["torch", "lantern"].includes(kind) ? "light" : kind;
     if (!kind || !item.equipped) continue;
-    if (held.has(slot) || !canEquip(item)) item.equipped = false;
-    else held.add(slot);
+    const required = isTwoHandedWeapon(item) ? 2 : 1;
+    if (held.has(slot) || !canEquip(item) || handsUsed + required > availableHands(character)) item.equipped = false;
+    else { held.add(slot); handsUsed += required; }
   }
   const weapon = character.gear.find(item => item.equipped && handItemKind(item) === "weapon");
   for (const item of character.gear) {
-    if ((isTwoHandedWeapon(weapon) && item !== weapon) ||
+    if ((isTwoHandedWeapon(weapon) && handItemKind(item) && item !== weapon) ||
         (held.has("weapon") && held.has("shield") && ["torch", "lantern"].includes(handItemKind(item)))) item.equipped = false;
   }
   syncEquipmentLight(character);
@@ -122,6 +135,28 @@ export function syncEquipmentLight(character) {
 
 export function hasOccupiedOffHand(character) {
   return (character.gear || []).some(item => item.equipped && ["shield", "torch", "lantern"].includes(handItemKind(item)));
+}
+
+export function ensureArmorEquipment(character, {isArmor,canEquip,score}) {
+  const armor=(character.gear||[]).filter(isArmor);
+  if(!character.armorEquipmentInitialized) {
+    const explicit=armor.some(item=>typeof item.equipped==='boolean');
+    const preferred=explicit?null:armor.filter(canEquip).sort((a,b)=>score(b)-score(a))[0];
+    if(preferred)preferred.equipped=true;
+    character.armorEquipmentInitialized=true;
+  }
+  let worn=false;
+  for(const item of armor)if(item.equipped) {
+    if(worn||!canEquip(item))item.equipped=false;
+    else worn=true;
+  }
+}
+
+export function equipArmor(character,index,equipped,isArmor) {
+  const item=character.gear?.[index];
+  if(!item||!isArmor(item))return false;
+  if(equipped)for(const other of character.gear)if(isArmor(other))other.equipped=false;
+  item.equipped=equipped;character.armorEquipmentInitialized=true;return true;
 }
 
 export function equipImportLoadout(character, { needsLight, weapons, shieldAllowed, lanternFueled }) {

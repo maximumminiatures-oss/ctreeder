@@ -1,8 +1,10 @@
 import { REVIEWED_LAYOUTS } from './reviewed-layout-data.js';
 import { getTile, createDoorEntity } from './state-schema.js';
 import { ORGANIC_HALL_LAYOUTS } from './reviewed-tile-data.js';
-import { getReviewedTileRule, reviewedTileLightSegments, reviewedTileMovementSegments, hasFixedSolidMovement } from './reviewed-tile-rules.js';
+import { getReviewedTileRule, reviewedTileLightSegments, reviewedTileMovementSegments, hasFixedSolidMovement, isStatueAsset } from './reviewed-tile-rules.js';
+import { sameRoute, routeOf } from './underpasses.js';
 import { visualTilePoint } from './tile-positions.js';
+import { isSlowWaterPlacement, isSlowWaterTile, isLegacyWaterMovementSegment } from './terrain-movement.js';
 
 export const REVIEWED_ASSET_KEYS = [...new Set([...REVIEWED_LAYOUTS,...ORGANIC_HALL_LAYOUTS].flatMap(layout => layout.placements.map(tile => tile.asset.replace(/\.png$/i,''))))];
 const DELTA = { north:[0,-1], east:[1,0], south:[0,1], west:[-1,0] };
@@ -74,19 +76,29 @@ function intersects(a,b,c,d) {
   const cross=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
   return cross(a,b,c)*cross(a,b,d)<=0 && cross(c,d,a)*cross(c,d,b)<=0;
 }
-export function canCrossReviewedGeometry(state, fromX,fromY,toX,toY) {
-  if(getTile(state,toX,toY)?.meta?.layoutBlocks) return false;
+export function canCrossReviewedGeometry(state, fromX,fromY,toX,toY, source = { x: fromX, y: fromY }) {
+  if(!routeOf(state, source) && getTile(state,toX,toY)?.meta?.layoutBlocks && !isSlowWaterTile(state,toX,toY)) return false;
   for (const placement of state.decor?.reviewed || []) {
-    if (!hasFixedSolidMovement(placement.assetKey)) continue;
+    if (!hasFixedSolidMovement(placement.assetKey) || !sameRoute(state, source, placement)) continue;
     const pose={x:placement.x,y:placement.y,w:placement.gridWidthTiles||1,h:placement.gridHeightTiles||1,
       turn:placement.rotationTurns||0,flipX:placement.flipX,flipY:placement.flipY};
+    const width = pose.turn % 2 ? pose.h : pose.w, height = pose.turn % 2 ? pose.w : pose.h;
+    if (toX >= pose.x && toY >= pose.y && toX < pose.x + width && toY < pose.y + height) return false;
     if (reviewedTileMovementSegments(placement.assetKey,pose).some(([a,b])=>
       intersects([fromX+.5,fromY+.5],[toX+.5,toY+.5],a,b))) return false;
   }
-  return !(state.decor?.reviewedMovement || []).some(([a,b])=>intersects([fromX+.5,fromY+.5],[toX+.5,toY+.5],a,b));
+  if (routeOf(state, source)) return true;
+  return !(state.decor?.reviewedMovement || []).some(segment=>!isLegacyWaterMovementSegment(state,segment) &&
+    intersects([fromX+.5,fromY+.5],[toX+.5,toY+.5],...segment));
 }
-export function reviewedBlocksLine(state,fromX,fromY,toX,toY) {
+export function reviewedBlocksLine(state,fromX,fromY,toX,toY,source = { x: fromX, y: fromY }) {
   const from=visualTilePoint(state,fromX,fromY),to=visualTilePoint(state,toX,toY);
+  for (const placement of state.decor?.reviewed || []) if (isStatueAsset(placement.assetKey) && sameRoute(state, source, placement)) {
+    const pose = { x: placement.x, y: placement.y, w: placement.gridWidthTiles || 1, h: placement.gridHeightTiles || 1,
+      turn: placement.rotationTurns || 0, flipX: placement.flipX, flipY: placement.flipY };
+    if (reviewedTileLightSegments(placement.assetKey, pose).some(([a, b]) => intersects(from, to, a, b))) return true;
+  }
+  if (routeOf(state, source)) return false;
   return (state.decor?.reviewedLight||[]).some(([a,b])=>intersects(from,to,a,b));
 }
 export function hasRangedMonsterAttack(monster) {
@@ -118,12 +130,13 @@ export function applyReviewedLayout(state, layout, x,y,roomId,hallId,rng) {
       gridWidthTiles:tile.w,gridHeightTiles:tile.h,rotationTurns:tile.turn,flipX:tile.flipX,flipY:tile.flipY,roomId,hallId});
     const w=tile.turn%2?tile.h:tile.w,h=tile.turn%2?tile.w:tile.h;
     const fixedSolidMovement=hasFixedSolidMovement(tile.asset);
-    if(tile.movement || fixedSolidMovement) for(let yy=item.y;yy<item.y+h;yy++)for(let xx=item.x;xx<item.x+w;xx++) {
-      const target=getTile(state,xx,yy);if(target?.meta.reviewed)target.meta.layoutBlocks=true;
+    const slowWater=isSlowWaterPlacement(tile);
+    if(tile.movement || fixedSolidMovement || slowWater) for(let yy=item.y;yy<item.y+h;yy++)for(let xx=item.x;xx<item.x+w;xx++) {
+      const target=getTile(state,xx,yy);if(target?.meta.reviewed)target.meta[slowWater?'slowWater':'layoutBlocks']=true;
     }
     const pose={x:item.x,y:item.y,w:tile.w,h:tile.h,turn:tile.turn,flipX:tile.flipX,flipY:tile.flipY};
     const rule=getReviewedTileRule(tile.asset);
-    state.decor.reviewedMovement.push(...(rule || fixedSolidMovement ? reviewedTileMovementSegments(tile.asset,pose) : annotationSegments(item,'movement')));
+    if(!slowWater) state.decor.reviewedMovement.push(...(rule || fixedSolidMovement ? reviewedTileMovementSegments(tile.asset,pose) : annotationSegments(item,'movement')));
     const reviewedLight=reviewedTileLightSegments(tile.asset,pose);
     state.decor.reviewedLight.push(...(reviewedLight ?? annotationSegments(item,'light')));
     if(reviewedLight===null && tile.lightShape==='solid') {
@@ -146,13 +159,13 @@ export function applyReviewedLayout(state, layout, x,y,roomId,hallId,rng) {
     const point=queue.shift();if(seen.has(key(point)))continue;seen.add(key(point));
     for(const [dx,dy]of [...Object.values(DELTA),[1,1],[1,-1],[-1,1],[-1,-1]]) {
       const next=[point[0]+dx,point[1]+dy],local=[next[0]-x,next[1]-y];
-      if(floor.has(key(local))&&!seen.has(key(next))&&canCrossReviewedGeometry(state,...point,...next))queue.push(next);
+      if(floor.has(key(local))&&!seen.has(key(next))&&!(layout.isolatedBank&&isSlowWaterTile(state,...next))&&canCrossReviewedGeometry(state,...point,...next))queue.push(next);
     }
   }
   const isolated=[];
   for(const [xx,yy]of layout.floor) {
     const tile=getTile(state,x+xx,y+yy);
-    if(!tile.meta.layoutBlocks&&!seen.has(`${tile.x},${tile.y}`)) {
+    if(!tile.meta.layoutBlocks&&!isSlowWaterTile(state,tile.x,tile.y)&&!seen.has(`${tile.x},${tile.y}`)) {
       if(layout.isolatedBank){tile.meta.encounterOnly=true;isolated.push([tile.x,tile.y]);}
       else tile.meta.layoutBlocks=true;
     }

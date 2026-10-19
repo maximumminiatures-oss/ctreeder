@@ -83,7 +83,8 @@ def test_equipment_updates_ac_versatile_damage_and_light():
     state = apply(state, "equip", gear_index=1, equipped=True)["state_json"]
     assert state["characters"][0]["armorClass"] == 12
     assert state["characters"][0]["lightRadius"] == 0
-    assert state["characters"][0]["gear"][2]["lit"]
+    assert all(item["name"] != "Torch" for item in state["characters"][0]["gear"])
+    assert any(entity.get("gearItem", {}).get("name") == "Torch" for entity in state["entities"])
     state = apply(state, "equip", gear_index=1, equipped=False)["state_json"]
     assert state["characters"][0]["armorClass"] == 10
     assert "1d10" in state["characters"][0]["attacks"][0]
@@ -124,11 +125,12 @@ def test_unarmed_attack_is_not_the_spell_check_die_and_uses_strength():
         assert result["state_json"]["entities"][-1]["hp"] == 99
         assert result["dice"]["total"] == 1
         message = result["message"]
-        name = message.split(" with a ")[1].split(" and ")[0]
+        name = message.split(" with a ")[1].split(".\n")[0]
         assert name in {"punch", "kick", "headbutt", "body block"}
         names.add(name)
-        assert int(message.split("To hit: ")[1].split(" vs ")[0]) >= 5
-        assert "+4 STR" in message
+        assert int(message.split(".\n")[1].split()[0]) >= 5
+        tooltip = "".join(part["text"] for entry in result["state_json"]["rollHistory"][-1]["segments"] for part in entry.get("tooltip", []))
+        assert "+4 STR" in tooltip
     assert len(names) >= 2
 
 

@@ -18,8 +18,8 @@ test('combat movement budgets support bonuses and occupied final steps are rejec
 test('attack history describes raw roll, ability, other bonuses, AC and outcome', () => {
   assert.equal(attackNarrative({ character: { name: 'Erd' }, monster: { name: 'Apprentice', ac: 11 }, weapon: 'Dagger',
     roll: { roll: 11, modifier: -1, total: 10 }, ability: 'STR', abilityModifier: -1, hit: false }),
-  'Erd attacks the apprentice with a dagger and misses. 1d20 = (11) -1 STR = To hit: 10 vs Apprentice AC 11: miss');
-  assert.match(attackNarrative({ character: { name: 'Erd' }, monster: { ac: 10 }, weapon: 'Sword', roll: { roll: 12, modifier: 3, total: 15 }, ability: 'STR', abilityModifier: 2, hit: true, damage: 4 }), /\+2 STR \+1 other.*Damage: 4/);
+  'Erd attacks the apprentice with a dagger.\n10 Miss!');
+  assert.match(attackNarrative({ character: { name: 'Erd' }, monster: { ac: 10 }, weapon: 'Sword', roll: { roll: 12, modifier: 3, total: 15 }, ability: 'STR', abilityModifier: 2, hit: true, damage: 4 }), /15 Hits! Damage: 4/);
   assert.equal(mixTokenColor('#ff0000', '#ffffff', .1), 'rgb(255, 230, 230)');
 });
 
@@ -53,15 +53,38 @@ test('followers spread out in rooms, cluster in halls and stop in combat', () =>
   assert.deepEqual(planMarchingSteps(state, 'a', config, rules), []);
 });
 
-test('followers avoid occupied squares, revealed traps and darkness but not unknown traps', () => {
+test('followers avoid occupied squares and revealed traps but can catch up through darkness', () => {
   const state = formation(), config = { order: ['a', 'b'], followingIds: ['b'], direction: [0, -1] };
   state.entities.push({ type: 'trap', x: 6, y: 8, revealed: true });
   const step = planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => true })[0];
   assert.ok(!step || step.dx !== 0 || step.dy !== 1);
   state.entities[0].revealed = false;
   assert.deepEqual(planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => true })[0], { characterId: 'b', dx: 0, dy: 1 });
-  assert.deepEqual(planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => false }), []);
+  assert.deepEqual(planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => false })[0], {characterId:'b',dx:0,dy:1});
   assert.deepEqual(planMarchingSteps(state, 'a', { ...config, followingIds: [] }, { canStep: () => true, isLit: () => true }), []);
+});
+
+test('followers take a temporary step away to escape a U-shaped corner',()=>{
+  const state=formation();Object.assign(state.characters[0],{x:6,y:5});Object.assign(state.characters[1],{x:3,y:5});
+  const walls=new Set(['2,4','3,4','4,4','4,5','4,6','3,6']);
+  const config={order:['a','b'],followingIds:['b'],direction:[1,0],trail:[{x:6,y:5},{x:5,y:5},{x:5,y:5}]};
+  const rules={canStep:(x,y,nx,ny)=>!walls.has(`${nx},${ny}`)&&
+    (!(nx!==x&&ny!==y)||!walls.has(`${nx},${y}`)&&!walls.has(`${x},${ny}`)),isLit:()=>false};
+  const first=planMarchingSteps(state,'a',config,rules)[0];
+  assert.ok(first);assert.equal(first.dx,-1);
+  for(let i=0;i<20;i++) {
+    const step=planMarchingSteps(state,'a',config,rules)[0];if(!step)break;
+    state.characters[1].x+=step.dx;state.characters[1].y+=step.dy;
+  }
+  assert.deepEqual([state.characters[1].x,state.characters[1].y],[5,5]);
+});
+
+test('following stops at twelve squares from the selected character',()=>{
+  const state=formation();state.map.width=30;state.characters[0].x=18;state.characters[1].x=6;state.characters[1].y=6;
+  const rules={canStep:()=>true,isLit:()=>true};
+  assert.deepEqual(planMarchingSteps(state,'a',{order:['a','b'],followingIds:['b']},rules),[]);
+  state.characters[1].x=7;
+  assert.equal(planMarchingSteps(state,'a',{order:['a','b'],followingIds:['b']},rules).length,1);
 });
 
 test('earlier-ranked followers pass a moving lower-ranked token without overlapping it', () => {

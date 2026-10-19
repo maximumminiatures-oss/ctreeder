@@ -2,7 +2,8 @@ export function normalizeSpellLookupKey(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+    .trim()
+    .replace(/^floating disk$/, 'floating disc');
 }
 
 async function loadSpellTier(tier) {

@@ -27,12 +27,41 @@ MAX_MEMBERS = 16
 MAX_SAVES = 10
 MAX_CHECKPOINTS = 10
 CHARACTER_COMMANDS = {
+    "mishap_action",
+    "pit_action",
+    "phase",
+    "steal", "steal_target", "steal_take", "steal_cancel", "attack_empty", "attack_door",
+    "revive", "stand", "wake",
     "move", "move_batch", "attack", "end_turn", "search", "stealth", "get", "leave", "disarm",
     "interact", "pick_lock", "break_door", "spell", "light", "snuff", "guard",
     "drop_gear", "pickup", "collect", "persuade", "edit_character", "dismiss", "bury",
     "roll", "money", "coin_adjust", "coin_amount", "equip", "buy_gear", "follow_step",
+    "resolve_spell", "penance", "rest", "rest_accept", "rest_cancel", "rest_alarm",
+    "ancestry_invisibility", "reaction", "attack_treasure", "bury_corpse", "reorder_gear",
+    "identify", "drink_potion", "read_scroll", "read_wand", "learn_scroll", "fall_response", "sell_treasure", "advance_choice", "level_up",
 }
 OPTION_KEYS = ("autonomous_exploration", "players_can_import", "extra_characters_without_host", "bury_others")
+
+
+def reconcile_companion_ownership(db, room, previous):
+    """Only server-created companions inherit a controller; never trust client ownership."""
+    ownership = dict(room.ownership_json or {})
+    host = db.exec(select(RoomMember).where(RoomMember.room_id == room.id, RoomMember.role == "host")).first()
+    for character in room.state_json.get("characters", []):
+        identifier = character.get("id")
+        if (character.get("summon") or {}).get("kind") == "floating-disc":
+            controller = character["summon"].get("casterId")
+            ownership[identifier] = ownership.get(controller) or previous.get(controller) or ownership.get(identifier)
+        elif identifier not in ownership and character.get("companion"):
+            controller = character["companion"].get("controllerCharacterId")
+            ownership[identifier] = previous.get(controller) or (host.id if host else None)
+    ids = {character.get("id") for character in room.state_json.get("characters", [])}
+    for entity in room.state_json.get("entities", []):
+        if entity.get("subtype") == "character-corpse" and not entity.get("ownerMemberId"):
+            entity["ownerMemberId"] = previous.get((entity.get("characterCorpse") or {}).get("id"))
+    room.ownership_json = {key: owner for key, owner in ownership.items() if key in ids and owner}
+    room.primary_assignments_json = {member: identifier if identifier in ids else None
+                                     for member, identifier in (room.primary_assignments_json or {}).items()}
 
 
 def aware(value):
@@ -76,7 +105,8 @@ def room_presence(db, room):
 def primary_assignments(room, members):
     """Return one UI-facing primary character per member without changing ownership."""
     ownership = room.ownership_json or {}
-    character_ids = [item.get("id") for item in room.state_json.get("characters", []) if isinstance(item.get("id"), str)]
+    character_ids = [item.get("id") for item in room.state_json.get("characters", []) if isinstance(item.get("id"), str)
+                     and (item.get("summon") or {}).get("kind") != "floating-disc"]
     stored = room.primary_assignments_json or {}
     result = {}
     for member in members:
@@ -98,8 +128,8 @@ def validate_viewer_visibility(value, state):
     width = int(state.get("map", {}).get("width", 0))
     height = int(state.get("map", {}).get("height", 0))
 
-    def coordinates(key):
-        items = value.get(key, [])
+    def coordinates(key, items=None):
+        items = value.get(key, []) if items is None else items
         if not isinstance(items, list) or len(items) > width * height:
             raise ValueError("Invalid player visibility data.")
         normalized = []
@@ -128,8 +158,13 @@ def validate_viewer_visibility(value, state):
                 side not in {"left", "right", "top", "bottom"} for side in sides):
             raise ValueError("Invalid player visibility data.")
         normalized_doors[door_id] = list(dict.fromkeys(sides))
+    route_explored = value.get("routeExplored", {})
+    route_ids = {"", *(route["id"] for route in state.get("underpasses", []))}
+    if not isinstance(route_explored, dict) or any(route_id not in route_ids for route_id in route_explored):
+        raise ValueError("Invalid player visibility route.")
     return {
         "exploredEver": coordinates("exploredEver"),
+        "routeExplored": {route_id: coordinates("routeExplored", cells) for route_id, cells in route_explored.items()},
         "visitedRoomIds": list(dict.fromkeys(visited)),
         "exploredInnerWallInteriors": coordinates("exploredInnerWallInteriors"),
         "closedDoorExploredSides": normalized_doors,
@@ -385,11 +420,14 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             db.flush()
             _, host_present, online = room_presence(db, room)
             elapsed = (now - aware(room.simulated_at)).total_seconds()
-            if elapsed >= 2:
+            rest_state = room.state_json.get("rest")
+            simulation_interval = 1 if isinstance(rest_state, dict) and rest_state.get("phase") == "sleeping" else 2
+            if elapsed >= simulation_interval:
                 if not room.closed_at and (host_present or room.autonomous_exploration) and room.state_json.get("characters"):
                     result = game_runtime.apply(room.state_json, {"type": "tick", "elapsed_ms": min(15000, int(elapsed * 1000)),
                         "online_character_ids": [char for char, owner in room.ownership_json.items() if owner in online]})
                     room.state_json = validate_state(result["state_json"], require_map=True)
+                    reconcile_companion_ownership(db, room, dict(room.ownership_json or {}))
                     room.revision += 1
                 room.simulated_at = now
                 db.add(room)
@@ -416,14 +454,29 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
                 return {**room_view(db, room, member), "message": receipt.message, "replayed": True}
             if not check_revision(data, room):
                 return conflict()
-            _, host_present, online = room_presence(db, room)
+            members, host_present, online = room_presence(db, room)
             action = command["type"]
             if action != "import" and member.role != "host" and not (host_present or room.autonomous_exploration):
                 return {"error": "host_absent", "message": "The host is away. Character loading, saving and viewing remain available."}, 403
             ownership = dict(room.ownership_json)
+            previous_ownership = dict(ownership)
             assignments = dict(room.primary_assignments_json or {})
             own_ids = {key for key, owner in ownership.items() if owner == member.id}
             trusted = deepcopy(command)
+            trusted["rest_member_id"] = member.id
+            trusted["rest_member_ids"] = sorted(online | {member.id})
+            if action == "rest":
+                watch_order = command.get("watch_order_ids", [])
+                character_ids = {item.get("id") for item in room.state_json.get("characters", [])}
+                if (not isinstance(watch_order, list) or len(watch_order) > 16 or
+                        any(not isinstance(identifier, str) or identifier not in character_ids for identifier in watch_order) or
+                        len(set(watch_order)) != len(watch_order)):
+                    raise ValueError("Invalid rest watch order.")
+                trusted["watch_order_ids"] = watch_order
+                trusted["rest_ownership"] = ownership
+                trusted["rest_member_order"] = [item.id for item in sorted(members, key=lambda item: (aware(item.joined_at), item.id))]
+            if action in {"rest_accept", "rest_cancel"}:
+                trusted.pop("character_id", None)
             trusted["online_character_ids"] = [char for char, owner in ownership.items() if owner in online or owner == member.id]
             trusted["motion_id"] = request_id
             trusted["motion_actor_id"] = member.id
@@ -445,11 +498,16 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
                     raise ValueError("Each movement step must choose an adjacent tile.")
                 trusted["moves"] = [{"dx": move["dx"], "dy": move["dy"]} for move in moves]
             if action == "import":
-                if len(room.state_json.get("characters", [])) >= 16:
+                characters = room.state_json.get("characters", [])
+                reserved = sum((item.get("pendingSpell") or {}).get("spell") == "floating disc"
+                               and (item.get("pendingSpell") or {}).get("phase") == "critical" for item in characters)
+                if len(characters) + reserved >= 16:
                     return {"error": "character_limit", "message": "This dungeon already contains 16 characters."}, 409
                 if member.role != "host" and not room.players_can_import:
                     return {"error": "player_import_disabled", "message": "The host is assigning characters for this dungeon."}, 403
-                if member.role != "host" and own_ids and not room.extra_characters_without_host:
+                owns_creature = any(item.get("id") in own_ids and (item.get("summon") or {}).get("kind") != "floating-disc"
+                                    for item in characters)
+                if member.role != "host" and owns_creature and not room.extra_characters_without_host:
                     return {"error": "import_limit", "message": "You already control a character in this dungeon."}, 403
                 if "saved_character_id" in command:
                     if type(command["saved_character_id"]) is not int:
@@ -464,7 +522,20 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
                 trusted["new_character_id"] = uuid.uuid4().hex
                 ownership[trusted["new_character_id"]] = member.id
                 assignments[member.id] = trusted["new_character_id"]
-            else:
+            elif action == "bury_corpse":
+                corpse = next((entity for entity in room.state_json.get("entities", [])
+                               if entity.get("id") == command.get("entity_id") and entity.get("subtype") == "character-corpse"), None)
+                if not corpse:
+                    return not_found
+                if member.role != "host" and not room.bury_others and corpse.get("ownerMemberId") != member.id:
+                    return {"error": "character_not_owned", "message": "You can bury only your own characters."}, 403
+                trusted.pop("character_id", None)
+            elif action == "reaction":
+                speaker_id = (room.state_json.get("encounterPrompt") or {}).get("speakerId")
+                if not speaker_id or (member.role != "host" and ownership.get(speaker_id) != member.id):
+                    return {"error": "reaction_not_owned", "message": "The speaker or host must answer this reaction."}, 403
+                trusted["character_id"] = speaker_id
+            elif action not in {"rest_accept", "rest_cancel"}:
                 character_id = command.get("character_id")
                 if not isinstance(character_id, str) or character_id not in ownership:
                     return not_found
@@ -482,6 +553,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             room.state_json = validate_state(result["state_json"], require_map=True)
             room.ownership_json = ownership
             room.primary_assignments_json = assignments
+            reconcile_companion_ownership(db, room, previous_ownership)
             room.revision += 1
             room.updated_at = utcnow()
             member.last_seen_at = utcnow()
@@ -549,7 +621,8 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             target = db.get(RoomMember, player_id)
             if not target or target.room_id != room.id or target.status != "active":
                 return not_found
-            character_ids = [item.get("id") for item in room.state_json.get("characters", [])]
+            character_ids = [item.get("id") for item in room.state_json.get("characters", [])
+                             if (item.get("summon") or {}).get("kind") != "floating-disc"]
             if character_id is not None and character_id not in character_ids:
                 return not_found
 
@@ -576,6 +649,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
 
             room.ownership_json = ownership
             room.primary_assignments_json = assignments
+            reconcile_companion_ownership(db, room, ownership)
             room.revision += 1
             room.updated_at = utcnow()
             db.add(room)
@@ -723,6 +797,8 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             character = next((item for item in room.state_json.get("characters", []) if item["id"] == character_id), None)
             if not character:
                 return not_found
+            if (character.get("summon") or {}).get("kind") == "floating-disc":
+                raise ValueError("Floating Disc is temporary; save the dungeon run instead.")
             db.exec(update(User).where(User.id == current_user.id).values(session_version=User.session_version))
             if len(db.exec(select(SavedCharacter.id).where(SavedCharacter.user_id == current_user.id, SavedCharacter.deleted_at == None)).all()) >= 50:
                 raise ValueError("Your saved-character limit has been reached.")

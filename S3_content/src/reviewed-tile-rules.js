@@ -1,8 +1,11 @@
 import { REVIEWED_TILE_RULES } from './reviewed-tile-data.js';
 import { LEARNED_SHADOW_RULES } from './tile-shadow-rules.js';
 
+export const STATUE_ASSET_KEYS = ['statue-1x1-n', 'statue-1x1-e', 'statue-1x1-s', 'statue-1x1-w'];
+export const isStatueAsset = asset => /^statue-1x1-[nesw]\d*(?:\.png)?$/i.test(String(asset || '').split(/[\\/]/).pop());
+
 export function hasFixedSolidMovement(asset) {
-  return /^plr-1(?:\.png)?$/i.test(String(asset || '').split(/[\\/]/).pop());
+  return isStatueAsset(asset) || /^plr-1(?:\.png)?$/i.test(String(asset || '').split(/[\\/]/).pop());
 }
 
 export function getReviewedTileRule(asset) {
@@ -26,6 +29,11 @@ export function featureSegment(key) {
 }
 
 export function reviewedTileLightSegments(asset, pose) {
+  if (isStatueAsset(asset)) {
+    const cx = pose.w / 2, cy = pose.h / 2, inset = 1 / 6;
+    const corners = [[cx-inset,cy-inset],[cx+inset,cy-inset],[cx+inset,cy+inset],[cx-inset,cy+inset]];
+    return corners.map((point, index) => [point, corners[(index + 1) % 4]].map(point => tileRulePoint(pose, point)));
+  }
   const rule=getReviewedTileRule(asset) || LEARNED_SHADOW_RULES[asset];
   if(!rule || rule.w!==pose.w || rule.h!==pose.h) return null;
   const segments=(rule.lightEdges || []).map(featureSegment);

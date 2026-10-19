@@ -184,9 +184,12 @@ def test_lighting_and_equipment_use_combat_actions_and_inactive_sheets_cannot_ed
 
 def test_attack_history_is_shared_with_raw_roll_and_ability_breakdown():
     result = game_runtime.apply(fight(), {"type": "attack", "character_id": "host-char", "monster_id": "m1", "attack_index": 0})
-    assert "1d20 = (" in result["message"]
-    assert "STR" in result["message"]
+    assert "1d20 = " not in result["message"]
+    hover = "".join(part["text"] for segment in result["state_json"]["rollHistory"][0]["segments"] for part in segment.get("tooltip", []))
+    assert "1d20 = " in hover
+    assert "STR" in hover
     assert result["state_json"]["rollHistory"][0]["detail"] == result["message"]
+    assert result["state_json"]["rollHistory"][0]["segments"]
 
 
 def test_followers_move_one_lit_step_with_motion_frames_and_stop_in_combat():

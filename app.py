@@ -1160,6 +1160,8 @@ def create_saved_character():
         return {"error": "invalid_name", "message": "Character save name is required."}, 400
     if not isinstance(character_json, dict):
         return {"error": "invalid_character", "message": "character_json is required and must be an object."}, 400
+    if isinstance(character_json.get("summon"), dict) and character_json["summon"].get("kind") == "floating-disc":
+        return {"error": "invalid_character", "message": "Floating Disc is temporary; save the dungeon run instead."}, 400
 
     try:
         validate_json(character_json, max_bytes=128 * 1024)

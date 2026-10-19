@@ -13,6 +13,9 @@ import {
   setTileType,
 } from "./state-schema.js";
 import { createTreasureDetails } from "./treasure.js";
+import { placeMagicTreasure } from './magic-items.js';
+import { addUnderpasses } from './underpasses.js';
+import { addPitFeatures } from './pit-tunnels.js';
 import { addCryptHallways, CRYPT_RULES, isUndeadMonster } from "./crypts.js";
 import { enforceSecretDoorApproaches } from "./secret-door-placement.js";
 import { pickReviewedLayout, applyReviewedLayout, canCrossReviewedGeometry, hasRangedMonsterAttack } from "./reviewed-layouts.js";
@@ -1052,7 +1055,7 @@ function createTrapDetails(rng, level, trapTable = []) {
 }
 
 function spawnTrap(state, rng, room, trapTable, targetType, targetEntityId = null) {
-  const details = createTrapDetails(rng, state.level, trapTable);
+  const details = createTrapDetails(rng, state.level, targetType === 'tile' ? trapTable : trapTable.filter(trap => !/\bpit\b/i.test(trap.name || '')));
   if (!details) {
     return null;
   }
@@ -3426,11 +3429,23 @@ function createMonsterDetails(rng, monsterTable = []) {
     level: monster.level ?? monster.lv ?? monster["**LV**"] ?? monster["LV"] ?? null,
     ac: monster.ac ?? monster["**AC**"] ?? monster["AC"] ?? null,
     hp: monster.hp ?? monster["**HP**"] ?? monster["HP"] ?? null,
+    maxHp: Number.parseInt(monster.hp ?? monster["**HP**"] ?? monster["HP"],10)||1,
     attack: monster.attack ?? monster["**ATK**"] ?? monster["ATK"] ?? null,
     movement: monster.movement ?? monster.mv ?? monster["**MV**"] ?? monster["MV"] ?? null,
     D: monster.D ?? monster.dex ?? monster["**D**"] ?? "",
+    S: monster.S ?? monster["**S**"] ?? '',
+    C: monster.C ?? monster["**C**"] ?? '',
+    I: monster.I ?? monster["**I**"] ?? '',
+    W: monster.W ?? monster["**W**"] ?? '',
+    Ch: monster.Ch ?? monster["**CH**"] ?? '',
+    languages: monster.languages ?? '',
+    alignment: monster.alignment ?? monster.AL ?? monster["**AL**"] ?? "",
+    chaModifier: Number(monster.chaModifier ?? monster.Ch ?? monster.CH ?? monster["**CH**"]) || 0,
     abilities: monster.abilities || monster.talents || {},
     tags: monster.tags || [],
+    carriedGear: monster.gear || monster.carriedGear || [],
+    treasures: monster.treasures || [],
+    magicItems: monster.magicItems || [],
     diplomacy: monster.diplomacy ?? monster.Diplomacy ?? monster["Diplomacy"] ?? "",
     defeated: false
   };
@@ -6836,9 +6851,28 @@ export function generateDungeon(seed = Date.now(), level = 1, options = {}) {
   if(!state.generation.connectivityValid&&options.reviewedLayouts!==false) {
     const fallback=createRectGraphDungeon(seed,level,{...options,architecturePattern,reviewedLayouts:false});
     fallback.generation.reviewedLayoutFallback=true;
+    placeMagicTreasure(fallback, new SeededRng(Number(seed) + 7291), options.spells || []);
+    finishUnderpasses(fallback, seed, options);
     return fallback;
   }
+  placeMagicTreasure(state, new SeededRng(Number(seed) + 7291), options.spells || []);
+  finishUnderpasses(state, seed, options);
   return state;
+}
+
+function finishUnderpasses(state, seed, options) {
+  const canStep = (from, to) => {
+      const tile = getTile(state, from.x, from.y), next = getTile(state, to.x, to.y);
+      if (!isWalkableForValidation(state, next)) return false;
+      if (from.x !== to.x && from.y !== to.y &&
+          (!isWalkableForValidation(state, getTile(state, from.x, to.y)) || !isWalkableForValidation(state, getTile(state, to.x, from.y)))) return false;
+      return canCrossReviewedGeometry(state, from.x, from.y, to.x, to.y, from) &&
+        canCrossOrganicEdge(tile, next, to.x - from.x, to.y - from.y);
+  };
+  addUnderpasses(state, new SeededRng(Number(seed) + 19817), {
+    maxCount: options.underpasses === false ? 0 : 1, canStand: tile => isWalkableForValidation(state, tile), canStep
+  });
+  if (options.pits !== false) addPitFeatures(state, new SeededRng(Number(seed) + 29471), { networks: options.pitTunnels !== false, canStep });
 }
 
 export function generateClassicDungeon(seed = Date.now(), level = 1, options = {}) {

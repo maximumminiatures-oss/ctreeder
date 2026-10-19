@@ -1,5 +1,6 @@
 import { apiFetch } from "./api.js";
 import { normalizeCharacterState } from "./characters.js";
+import { normalizeUnderpassPositions } from './underpasses.js';
 
 const MAX_SAVE_NAME_LENGTH = 15;
 const MAX_SAVED_RUNS = 10;
@@ -99,6 +100,8 @@ function normalizeInventory(raw = {}) {
 function normalizeCombat(raw = {}) {
   return {
     active: raw.active === true,
+    surpriseRound: raw.surpriseRound === true,
+    surpriseParticipantIds: Array.isArray(raw.surpriseParticipantIds) ? raw.surpriseParticipantIds : [],
     round: Math.max(0, Number.parseInt(raw.round ?? 0, 10) || 0),
     turnIndex: Math.max(0, Number.parseInt(raw.turnIndex ?? 0, 10) || 0),
     turnOrder: Array.isArray(raw.turnOrder) ? raw.turnOrder : [],
@@ -147,7 +150,8 @@ function normalizeMultiplayerMotions(value) {
       return [{
         x,
         y,
-        roomId: typeof frame.roomId === "string" ? frame.roomId.slice(0, 120) : null
+        roomId: typeof frame.roomId === "string" ? frame.roomId.slice(0, 120) : null,
+        routeId: typeof frame.routeId === 'string' ? frame.routeId.slice(0, 120) : null
       }];
     });
     if (frames.length < 2) {
@@ -173,6 +177,8 @@ export function serializeDungeonState(state) {
     visibility: {
       lightGeometryVersion: state.visibility?.lightGeometryVersion,
       visibleNow: Array.from(state.visibility?.visibleNow || []),
+      routeVisible: Object.fromEntries(Object.entries(state.visibility?.routeVisible || {}).map(([id, cells]) => [id, [...cells]])),
+      routeExplored: Object.fromEntries(Object.entries(state.visibility?.routeExplored || {}).map(([id, cells]) => [id, [...cells]])),
       exploredEver: Array.from(state.visibility?.exploredEver || []),
       exploredLightPolygons: normalizeExploredLightPolygons(state.visibility?.exploredLightPolygons),
       visitedRoomIds: Array.from(state.visibility?.visitedRoomIds || []),
@@ -210,6 +216,8 @@ export function hydrateDungeonState(raw) {
     visibility: {
       lightGeometryVersion,
       visibleNow: Array.from(visibleNow),
+      routeVisible: raw.visibility?.routeVisible || {},
+      routeExplored: raw.visibility?.routeExplored || {},
       exploredEver: Array.from(exploredEver),
       exploredLightPolygons,
       visitedRoomIds: Array.from(visitedRoomIds),
@@ -233,6 +241,8 @@ export function hydrateDungeonState(raw) {
   state.visibility = {
     lightGeometryVersion,
     visibleNow,
+    routeVisible: Object.fromEntries(Object.entries(state.visibility?.routeVisible || {}).map(([id, cells]) => [id, asSet(cells)])),
+    routeExplored: Object.fromEntries(Object.entries(state.visibility?.routeExplored || {}).map(([id, cells]) => [id, asSet(cells)])),
     exploredEver,
     exploredLightPolygons,
     visitedRoomIds,
@@ -256,6 +266,7 @@ export function hydrateDungeonState(raw) {
   state.partyAssets = normalizeMoney(state.partyAssets);
   state.multiplayerMotions = normalizeMultiplayerMotions(state.multiplayerMotions);
   normalizeCharacterState(state);
+  normalizeUnderpassPositions(state);
   state.inventory = normalizeInventory(state.inventory);
   return state;
 }

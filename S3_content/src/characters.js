@@ -1,5 +1,10 @@
+import { isFloatingDisc, FLOATING_DISC_COLOR } from './floating-disc.js';
+import { wakeCreature } from './conditions.js';
+import { elementalDamage } from './elemental-effects.js';
+
 const ABILITY_KEYS = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 const MAX_EDITABLE_VALUE = 99;
+const MAX_HIT_POINTS = 999;
 const MAX_COIN_VALUE = 9999999;
 const SHADOWDARK_LANGUAGES = [
   "Dwarvish",
@@ -57,6 +62,8 @@ function hasHaulerTalent(raw = {}) {
 }
 
 function getGearSlotCapacity(stats = {}, className = "", raw = {}) {
+  if (isFloatingDisc(raw)) return 20;
+  if (raw.companion) return Math.max(1, Math.floor(Number(raw.companion.gearCapacity) || 10));
   const strCapacity = clampInRange(stats?.STR, 10, 20, 10);
   const isFighter = /\bfighter\b/i.test(String(className || raw?.className || raw?.class || ""));
   const conModifier = Math.max(0, abilityModifier(stats?.CON));
@@ -304,7 +311,7 @@ function normalizeCharacterSource(raw = {}, index = 0) {
   const gear = Array.isArray(raw.gear) ? clonePlain(raw.gear) : [];
   const languageString = normalizeLanguageList(raw.languages);
   const money = normalizeMoney(raw);
-  const maxHitPoints = clampInt(raw.maxHitPoints ?? raw.hp ?? 1, 0, MAX_EDITABLE_VALUE, 1);
+  const maxHitPoints = clampInt(raw.maxHitPoints ?? raw.hp ?? 1, 0, MAX_HIT_POINTS, 1);
   const hp = clampInt(raw.hp ?? maxHitPoints, 0, maxHitPoints, maxHitPoints);
   const armorClass = clampInt(raw.armorClass ?? raw.ac ?? 10, 0, MAX_EDITABLE_VALUE, 10);
   const baseArmorClass = clampInt(raw.baseArmorClass ?? raw.rawBaseArmorClass ?? raw.armorClass ?? raw.ac ?? 10, 0, MAX_EDITABLE_VALUE, 10);
@@ -345,9 +352,20 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     dead: raw.dead === true || raw.slain === true,
     dyingRounds: clampInt(raw.dyingRounds ?? 0, 0, MAX_EDITABLE_VALUE, 0),
     active: raw.active === true,
-    colorId: raw.colorId || "",
+    colorId: isFloatingDisc(raw) ? 'floating-disc' : raw.colorId || "",
+    colorValue: isFloatingDisc(raw) ? FLOATING_DISC_COLOR : raw.colorValue || "",
     guarding: raw.guarding === true,
     stealthed: raw.stealthed === true,
+    invisibility: raw.invisibility ? clonePlain(raw.invisibility) : null,
+    halflingInvisibilityUsed: raw.halflingInvisibilityUsed === true,
+    companion: raw.companion ? clonePlain(raw.companion) : null,
+    summon: isFloatingDisc(raw) ? clonePlain(raw.summon) : null,
+    conditions: raw.conditions && typeof raw.conditions === 'object' ? clonePlain(raw.conditions) : {},
+    routeId: typeof raw.routeId === 'string' ? raw.routeId : null,
+    reviveTurnKey: raw.reviveTurnKey || '',
+    lastReviveAt: Math.max(0, Number(raw.lastReviveAt) || 0),
+    lastPitAscent: raw.lastPitAscent ? clonePlain(raw.lastPitAscent) : null,
+    impersonation: raw.impersonation ? clonePlain(raw.impersonation) : null,
     stealthRoll: raw.stealthRoll || null,
     x: raw.x === null || raw.x === undefined ? null : Number.isFinite(Number(raw.x)) ? Number(raw.x) : null,
     y: raw.y === null || raw.y === undefined ? null : Number.isFinite(Number(raw.y)) ? Number(raw.y) : null,
@@ -358,6 +376,7 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     baseArmorClass,
     shieldReadied: raw.shieldReadied !== false,
     equipmentInitialized: raw.equipmentInitialized === true,
+    armorEquipmentInitialized: raw.armorEquipmentInitialized === true,
     lightSpellLit: raw.lightSpellLit === true,
     ammo,
     arrows: Object.prototype.hasOwnProperty.call(ammo, "arrows") ? ammo.arrows : undefined,
@@ -367,7 +386,8 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     ancestry: raw.ancestry || "",
     className: raw.class || raw.className || "",
     level: clampInt(raw.level ?? 1, 1, MAX_EDITABLE_VALUE, 1),
-    XP: clampInt(raw.XP ?? raw.xp ?? 0, 0, MAX_EDITABLE_VALUE, 0),
+    XP: clampInt(raw.XP ?? raw.xp ?? 0, 0, 1000000000, 0),
+    advancements: Array.isArray(raw.advancements) ? clonePlain(raw.advancements) : [],
     hiddenXp: Math.max(0, Number(raw.hiddenXp ?? raw.xpRemainder ?? 0) || 0),
     partyAssetShareCopper: Math.max(0, Math.floor(Number(raw.partyAssetShareCopper ?? 0) || 0)),
     title: raw.title || "",
@@ -378,6 +398,28 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     gearSlotsUsed,
     spellsKnown: raw.spellsKnown || "",
     failedSpellKeys: Array.isArray(raw.failedSpellKeys) ? clonePlain(raw.failedSpellKeys) : [],
+    spellPenance: raw.spellPenance && typeof raw.spellPenance === "object" ? clonePlain(raw.spellPenance) : {},
+    pendingSpell: raw.pendingSpell ? clonePlain(raw.pendingSpell) : null,
+    pendingSteal: raw.pendingSteal ? clonePlain(raw.pendingSteal) : null,
+    magicMissileSequence: Math.max(0, Number(raw.magicMissileSequence) || 0),
+    openingSpellActionSpent: raw.openingSpellActionSpent === true,
+    castFromConcealment: raw.castFromConcealment === true,
+    lastMagicMissile: raw.lastMagicMissile ? clonePlain(raw.lastMagicMissile) : null,
+    wizardEffects: Array.isArray(raw.wizardEffects) ? clonePlain(raw.wizardEffects) : [],
+    faithEffects: Array.isArray(raw.faithEffects) ? clonePlain(raw.faithEffects) : [],
+    focusSpell: raw.focusSpell ? clonePlain(raw.focusSpell) : null,
+    magicDetectedIds: Array.isArray(raw.magicDetectedIds) ? clonePlain(raw.magicDetectedIds) : [],
+    pendingFall: raw.pendingFall ? clonePlain(raw.pendingFall) : null,
+    potionEffects: Array.isArray(raw.potionEffects) ? clonePlain(raw.potionEffects) : [],
+    vitalityPotionsDrunk: Math.max(0, Number(raw.vitalityPotionsDrunk) || 0),
+    scrollStudy: raw.scrollStudy ? clonePlain(raw.scrollStudy) : null,
+    learnedScrollSpells: Array.isArray(raw.learnedScrollSpells) ? clonePlain(raw.learnedScrollSpells) : [],
+    detectedDoppelganger: raw.detectedDoppelganger === true,
+    spellLocks: raw.spellLocks && typeof raw.spellLocks === 'object' ? clonePlain(raw.spellLocks) : {},
+    lastWizardMishaps: Array.isArray(raw.lastWizardMishaps) ? clonePlain(raw.lastWizardMishaps) : [],
+    restHours: clampInt(raw.restHours ?? 0, 0, 8, 0),
+    restRationPaid: raw.restRationPaid === true,
+    restFailed: raw.restFailed === true,
     lightSource: raw.lightSource || "",
     lightRadius: Number.isFinite(Number(raw.lightRadius)) ? Number(raw.lightRadius) : 0,
     lightHidden: raw.lightHidden === true,
@@ -598,6 +640,7 @@ export function normalizeCharacterState(state) {
     ? state.characters.map((character, index) => normalizeCharacterSource(character, index))
     : [];
   for (const character of characters) {
+    if (character.dead || character.slain || Number(character.hp) <= 0) character.focusSpell = null;
     const gearCapacity = getGearSlotCapacity(character?.stats || {}, character?.className || "", character);
     const computedSlots = getSlotsFromGear(character.gear || [], true);
     if (character.gearSlotsTotal !== gearCapacity) {
@@ -634,13 +677,20 @@ export function setActiveCharacter(state, characterId) {
   return getActiveCharacter(state);
 }
 
-export function setCharacterHp(character, nextHp) {
+let characterDamageListener = null;
+export function setCharacterDamageListener(listener) { characterDamageListener = listener; }
+
+export function setCharacterHp(character, nextHp, { sourceId = null, damageSource = null } = {}) {
+  if (isFloatingDisc(character)) return character;
   if (!character) {
     return null;
   }
-  const maxHitPoints = clampInt(character.maxHitPoints, 0, MAX_EDITABLE_VALUE, character.hp || 0);
+  const before = Number(character.hp) || 0;
+  if (damageSource && nextHp < before) nextHp = before - elementalDamage(character, before - nextHp, damageSource).total;
+  const maxHitPoints = clampInt(character.maxHitPoints, 0, MAX_HIT_POINTS, character.hp || 0);
   character.maxHitPoints = maxHitPoints;
   character.hp = clampInt(nextHp, 0, maxHitPoints, character.hp || 0);
+  if (character.hp <= 0) character.focusSpell = null;
   if (!character.raw || typeof character.raw !== "object") {
     character.raw = {};
   }
@@ -657,10 +707,16 @@ export function setCharacterHp(character, nextHp) {
   character.raw.dyingRounds = character.dyingRounds || 0;
   character.raw.dead = character.dead === true;
   character.raw.slain = character.slain === true;
+  if (character.hp < before) {
+    wakeCreature(character);
+    if (character.hp <= 0) { character.conditions ||= {}; character.conditions.prone = true; }
+    characterDamageListener?.(character, before - character.hp, sourceId);
+  }
   return character;
 }
 
 export function decrementCharacterDyingRounds(character) {
+  if (isFloatingDisc(character)) return character;
   if (!character || character.dead === true) {
     return character;
   }
@@ -696,6 +752,7 @@ export function setCharacterAmmo(character, type, nextValue) {
 
 export function markCharacterSlain(character) {
   if (character) {
+    character.focusSpell = null;
     character.dead = true;
     character.dyingRounds = 0;
     character.slain = true;

@@ -19,5 +19,19 @@ os.environ.update(
 )
 
 from app import app
+from flask import abort, jsonify, request
+import json
+
+
+@app.get('/__preview__/test-party')
+def local_test_party():
+    if request.remote_addr not in {'127.0.0.1', '::1'}:
+        abort(404)
+    fixture = root.parents[1] / '.dev' / 'fixtures' / 'shadowspawner' / 'three-characters.json'
+    if not fixture.is_file():
+        abort(404)
+    response = jsonify(json.loads(fixture.read_text(encoding='utf-8')))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 app.run(host="127.0.0.1", port=int(os.environ.get("PREVIEW_PORT", "5057")), debug=False, threaded=True)

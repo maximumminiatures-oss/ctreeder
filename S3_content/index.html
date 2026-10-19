@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ShadowSpawner</title>
     <link rel="preload" href="./Tagesschrift-Regular.ttf" as="font" type="font/ttf" crossorigin />
-    <link rel="stylesheet" href="./styles.css?v=20261012-headings" />
+    <link rel="stylesheet" href="./styles.css?v=20261017-rest-levels" />
   </head>
   <body>
     <main class="layout">
@@ -31,34 +31,35 @@
           <section class="dungeon-summary-panel" aria-labelledby="dungeon-heading">
             <h2 id="dungeon-heading" class="party-heading">The Dungeon</h2>
             <p class="dungeon-status" role="status"><span id="status-text">Ready.</span></p>
+            <p id="detect-magic-summary" hidden></p>
             <div id="monster-panel" class="monster-panel" hidden></div>
             <div id="room-loot-panel" class="room-loot-panel" hidden></div>
             <div id="trap-panel" class="trap-panel" hidden></div>
           </section>
           <section id="character-summary-panel" class="character-summary-panel" aria-labelledby="party-heading">
             <h2 id="party-heading" class="party-heading">The Party</h2>
-            <p id="party-assets-summary" class="party-assets-summary">Party Assets: 0 Gold.</p>
-            <div class="character-import-toolbar">
-              <button id="import-character-btn" type="button">Import from ShadowDarklings</button>
-            </div>
-            <div class="party-selected-row">Selected: <span id="selected-character-swatch" class="selected-character-swatch"></span><span id="selected-character-name">None</span></div>
-            <div class="sidebar-row sidebar-row--wrap party-light-controls">
+            <div class="party-selected-row">
+              <span class="party-selected-character"><span id="selected-character-swatch" class="selected-character-swatch"></span><span id="selected-character-name">None</span></span>
+              <button id="search-btn" type="button">Search</button>
+              <button id="stealth-btn" type="button">Stealth</button>
               <button id="light-torch-btn" type="button" hidden>Light Torch</button>
               <button id="light-lantern-btn" type="button" hidden>Light Lantern</button>
               <button id="cast-light-btn" type="button" hidden>Cast Light</button>
-            </div>
-            <div class="search-controls">
-              <button id="search-btn" type="button">Search</button>
-              <button id="stealth-btn" type="button">Stealth</button>
               <span id="locked-door-actions" class="locked-door-actions" hidden>
-                <button id="pick-lock-btn" type="button">Pick Lock DC 8</button>
-                <button id="break-door-btn" type="button">Break DC 8</button>
+                <button id="pick-lock-btn" type="button">Open Lock</button>
+                <button id="break-door-btn" type="button">Smash</button>
               </span>
-              <span id="combat-actions" class="combat-actions" hidden><button id="end-turn-btn" type="button">End Turn</button></span>
             </div>
             <div id="combat-panel" class="combat-panel" hidden></div>
+            <p id="rest-progress" role="status" hidden></p>
             <div id="characters-empty" class="characters-empty">No characters imported yet.</div>
             <div id="characters-list" class="characters-list"></div>
+            <div class="party-assets-row party-footer">
+              <p id="party-assets-summary" class="party-assets-summary">Party Assets: 0 Gold</p>
+              <button id="import-character-btn" type="button">Import from ShadowDarklings</button>
+              <button id="rest-btn" type="button">Rest</button>
+              <span id="combat-actions" class="combat-actions" hidden><button id="end-turn-btn" type="button">End Turn</button></span>
+            </div>
           </section>
 
           <div id="manual-dice-controls" class="manual-dice-controls" aria-label="Manual dice roller" hidden>
@@ -80,11 +81,10 @@
             </label>
           </div>
           <section class="damage-panel" aria-live="polite">
-            <div class="damage-result-row">
+            <div class="damage-result-row" hidden>
               <span id="damage-result" class="damage-result-value">none</span>
-              <button id="damage-expand-btn" type="button" hidden>expand</button>
             </div>
-            <p id="damage-context" class="damage-context">Click a damage value from a spell, attack, monster, or trap.</p>
+            <p id="damage-context" class="damage-context" hidden></p>
             <div id="damage-detail" class="damage-detail" hidden></div>
             <button id="dice-history-toggle" class="dice-history-toggle" type="button" aria-expanded="false" hidden>Roll History</button>
             <ol id="dice-history" class="dice-history" aria-label="Dice roll history" hidden></ol>
@@ -118,8 +118,27 @@
           <button id="zoom-out-btn" type="button" aria-label="Zoom out">-</button>
         </div>
         <div id="combat-banner-layer" class="combat-banner-layer" aria-live="polite"></div>
+        <div id="turn-card-layer" class="turn-card-layer" hidden></div>
         <div id="darkness-message" class="darkness-message" aria-live="polite"></div>
         <div id="map-host" class="map-host" aria-label="Dungeon Map" tabindex="-1"></div>
+        <section id="magic-missile-panel" class="magic-missile-panel" role="dialog" aria-modal="false" aria-labelledby="magic-missile-title" hidden>
+          <h2 id="magic-missile-title" class="party-heading">Magic Missile</h2>
+          <p id="magic-missile-prompt" role="status">Pick target</p>
+          <div id="magic-missile-dots" class="magic-missile-dots" role="img" aria-label="One missile remaining"></div>
+          <p id="magic-missile-result" role="status"></p>
+          <div class="spell-detail-actions">
+            <button id="offensive-spell-cast" type="button">Cast</button>
+            <button id="offensive-spell-release" type="button" hidden>Release Flames</button>
+            <button id="offensive-spell-discard" type="button" hidden>Discard Spell</button>
+            <button id="offensive-spell-details" type="button">Spell Details</button>
+          </div>
+          <button id="magic-missile-finish" type="button">Dismiss Remaining</button>
+        </section>
+        <aside id="holy-weapon-panel" class="magic-missile-panel" role="dialog" aria-modal="false" aria-labelledby="holy-weapon-title" hidden>
+          <h2 id="holy-weapon-title" class="party-heading">Holy Weapon</h2>
+          <p>Pick a character with an equipped weapon.</p>
+          <button id="holy-weapon-discard" type="button">Discard Spell</button>
+        </aside>
       </section>
     </main>
 
@@ -220,12 +239,26 @@
 
     <div id="extinguish-old-modal" class="modal-backdrop" hidden>
       <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="extinguish-old-title">
-        <h2 id="extinguish-old-title">Extinguish Old?</h2>
-        <p>Extinguish currently held party lights before lighting this one?</p>
+        <h2 id="extinguish-old-title" title="ShadowDark uses a torch timer which tracks real time. Each lantern oil or torch lasts 1 hour.">Reset Torch Timer?</h2>
         <div class="modal-actions">
-          <button id="extinguish-old-yes-btn" type="button">Yes</button>
-          <button id="extinguish-old-no-btn" type="button">No</button>
+          <button id="extinguish-old-yes-btn" type="button">Yes. (Reset timer)</button>
+          <button id="extinguish-old-no-btn" type="button">No. (Use old timer)</button>
         </div>
+      </section>
+    </div>
+
+    <div id="steal-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="steal-title">
+        <h2 id="steal-title" class="party-heading">Steal One Item</h2>
+        <div id="steal-items" class="steal-items"></div>
+        <button id="steal-cancel" type="button">Cancel</button>
+      </section>
+    </div>
+
+    <div id="party-attack-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="party-attack-title">
+        <h2 id="party-attack-title"></h2>
+        <div class="modal-actions"><button id="party-attack-yes" type="button">Yes</button><button id="party-attack-no" type="button">No</button></div>
       </section>
     </div>
 
@@ -236,6 +269,16 @@
           <button id="character-sheet-close" type="button" aria-label="Close character sheet">&#x00D7;</button>
         </div>
         <div id="character-sheet-content" class="character-sheet-content"></div>
+      </section>
+    </div>
+
+    <div id="spellcasting-modal" class="modal-backdrop" hidden>
+      <section class="modal-card spellcasting-modal" role="dialog" aria-modal="true" aria-labelledby="spellcasting-title">
+        <div class="spellcasting-header">
+          <h2 id="spellcasting-title">Spellcasting</h2>
+          <button id="spellcasting-close" type="button" aria-label="Close spellcasting">&#x00D7;</button>
+        </div>
+        <div id="spellcasting-list" class="spellcasting-list"></div>
       </section>
     </div>
 
@@ -254,6 +297,69 @@
       </section>
     </div>
 
+    <div id="rest-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="rest-title">
+        <h2 id="rest-title">Rest</h2>
+        <p id="rest-description"></p>
+        <div id="rest-alarm" class="rest-alarm" hidden></div>
+        <p id="rest-watch-current" hidden></p>
+        <div id="rest-watch-schedule" class="rest-watch-schedule" hidden></div>
+        <div id="rest-results" class="rest-results" role="status" hidden></div>
+        <p id="rest-warning" class="rest-warning" hidden>Resting outside the starting room is extremely likely to attract wandering monsters.</p>
+        <div class="spell-detail-actions">
+          <button id="rest-confirm" type="button">Rest</button>
+          <button id="rest-cancel" type="button" hidden>Cancel Rest</button>
+          <button id="rest-close" type="button">Close</button>
+        </div>
+      </section>
+    </div>
+    <div id="spell-critical-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="spell-critical-title">
+        <h2 id="spell-critical-title">Cure Wounds: Critical Success</h2>
+        <p id="spell-critical-target"></p>
+        <div class="spell-detail-actions">
+          <button type="button" data-healing-choice="double-dice">Double Healing Dice</button>
+          <button type="button" data-healing-choice="double-total">Double Healing Total</button>
+        </div>
+      </section>
+    </div>
+    <div id="missile-critical-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="missile-critical-title">
+        <h2 id="missile-critical-title">Magic Missile: Critical Success</h2>
+        <div class="spell-detail-actions">
+          <button type="button" data-missile-choice="two-missiles">A: Two Missiles, 1d4 Each</button>
+          <button type="button" data-missile-choice="one-d8">B: One Missile, 1d8</button>
+        </div>
+      </section>
+    </div>
+    <div id="burning-critical-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="burning-critical-title">
+        <h2 id="burning-critical-title">Burning Hands: Critical Success</h2>
+        <div class="spell-detail-actions">
+          <button type="button" data-burning-choice="two-d6">2d6 Damage</button>
+          <button type="button" data-burning-choice="one-d12">1d12 Damage</button>
+          <button type="button" data-burning-choice="double-radius">Double Radius</button>
+        </div>
+      </section>
+    </div>
+    <div id="faith-critical-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="faith-critical-title">
+        <h2 id="faith-critical-title"></h2>
+        <div id="faith-critical-choices" class="spell-detail-actions"></div>
+      </section>
+    </div>
+    <div id="reaction-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reaction-question">
+        <h2 id="reaction-question"></h2><p id="reaction-speaker"></p>
+        <div class="spell-detail-actions"><button id="reaction-yes" type="button">Yes</button><button id="reaction-no" type="button">No</button></div>
+      </section>
+    </div>
+    <div id="treasure-attack-modal" class="modal-backdrop" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="treasure-attack-title">
+        <h2 id="treasure-attack-title">That does nothing.</h2>
+        <button id="treasure-attack-close" type="button">Close</button>
+      </section>
+    </div>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

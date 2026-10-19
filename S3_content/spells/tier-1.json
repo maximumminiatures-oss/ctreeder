@@ -6,12 +6,12 @@
     "classes": [
       "wizard"
     ],
-    "duration": "1 day",
+    "duration": "One unfinished rest",
     "range": "Close",
     "rangeBand": "close",
-    "description": "You touch one object, such as a door threshold, setting a magical alarm on it. If any creature you do not designate while casting the spell touches or crosses past the object, a magical bell sounds in your head.",
+    "description": "Cast while preparing rest. The party cannot be surprised during that unfinished rest. Wandering monster chance during rest is halved, or quartered on a natural 20.",
     "paragraphs": [
-      "You touch one object, such as a door threshold, setting a magical alarm on it. If any creature you do not designate while casting the spell touches or crosses past the object, a magical bell sounds in your head."
+      "Cast while preparing rest. The party cannot be surprised during that unfinished rest. Wandering monster chance during rest is halved, or quartered on a natural 20."
     ],
     "damage": []
   },
@@ -109,39 +109,17 @@
   },
   {
     "slug": "floating-disk",
-    "name": "Floating Disk",
+    "name": "Floating Disc",
     "tier": 1,
     "classes": [
       "wizard"
     ],
-    "duration": "10 rounds",
+    "duration": "1 hour",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You create a floating, circular disk of force with a concave center. It can carry up to 20 gear slots. It hovers at waist level and automatically stays within near of you. It can’t cross over drop- offs or pits taller than a human.",
+    "description": "A Floating Disc joins the party if a slot is available, counting toward the maximum of 16. It has 20 gear slots and can equip only lanterns. It cannot move independently or block creatures. It stays still during combat, then follows its caster even through darkness. It lasts one hour of game time, including rest. It vanishes if its caster is dying or dead, dropping its contents. A natural 20 offers two discs or a two-hour duration.",
     "paragraphs": [
-      "You create a floating, circular disk of force with a concave center. It can carry up to 20 gear slots. It hovers at waist level and automatically stays within near of you. It can’t cross over drop- offs or pits taller than a human."
-    ],
-    "damage": []
-  },
-  {
-    "slug": "from-evil",
-    "name": "From Evil",
-    "tier": 1,
-    "classes": [
-      "priest",
-      "wizard"
-    ],
-    "duration": "Focus",
-    "range": "Close",
-    "rangeBand": "close",
-    "description": "For the spell's duration, chaotic beings have disadvantage on attack rolls and hostile spellcasting checks against the target. These beings also can’t possess, compel, or beguile it.\n\nWhen cast on an already- possessed target, the possessing entity makes a CHA check vs.\n\nthe last spellcasting check. On a failure, the entity is expelled.\n\nTier 3, wizard Duration: Focus Range: Close One creature you touch becomes impervious to the wild fury of the elements.\n\nChoose fire, cold, or electricity.\n\nFor the spell's duration, the target is immune to harm from energy of the chosen type.",
-    "paragraphs": [
-      "For the spell's duration, chaotic beings have disadvantage on attack rolls and hostile spellcasting checks against the target. These beings also can’t possess, compel, or beguile it.",
-      "When cast on an already- possessed target, the possessing entity makes a CHA check vs.",
-      "the last spellcasting check. On a failure, the entity is expelled.",
-      "Tier 3, wizard Duration: Focus Range: Close One creature you touch becomes impervious to the wild fury of the elements.",
-      "Choose fire, cold, or electricity.",
-      "For the spell's duration, the target is immune to harm from energy of the chosen type."
+      "A Floating Disc joins the party if a slot is available, counting toward the maximum of 16. It has 20 gear slots and can equip only lanterns. It cannot move independently or block creatures. It stays still during combat, then follows its caster even through darkness. It lasts one hour of game time, including rest. It vanishes if its caster is dying or dead, dropping its contents. A natural 20 offers two discs or a two-hour duration."
     ],
     "damage": []
   },
@@ -260,11 +238,24 @@
     "duration": "Instant",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You weave a lulling spell that fills a near-sized cube extending from you. Living creatures in the area of effect fall into a deep sleep if they are LV 2 or less.\n\nVigorous shaking or being injured wakes them.",
+    "description": "Living creatures of level 2 or less in a 7 by 7 square centered on the caster fall asleep. The caster is immune; eligible allies are affected. Walls and closed doors block the effect. Sleeping creatures are prone, cannot move or act, and have no line of sight. Injury or an adjacent creature spending an action wakes them.\n\nA natural 20 offers level 4 or less, or a 13 by 13 square.",
     "paragraphs": [
-      "You weave a lulling spell that fills a near-sized cube extending from you. Living creatures in the area of effect fall into a deep sleep if they are LV 2 or less.",
-      "Vigorous shaking or being injured wakes them."
+      "Living creatures of level 2 or less within a 7 by 7 square centered on the caster fall asleep. The caster is immune; eligible allies are affected. Walls and closed doors block the effect.",
+      "Sleeping creatures are prone, cannot act or move, and have no line of sight. Injury or an adjacent creature spending an action wakes them. Standing afterward costs half their movement.",
+      "A natural 20 offers level 4 or less, or a 13 by 13 square."
     ],
+    "damage": []
+  },
+  {
+    "slug": "protection-from-evil",
+    "name": "Protection from Evil",
+    "tier": 1,
+    "classes": ["priest", "wizard"],
+    "duration": "Focus",
+    "range": "Close",
+    "rangeBand": "close",
+    "description": "While you maintain focus, a protective aura surrounds you. Chaotic beings within it have disadvantage on attacks and spellcasting; you are exempt. Creatures within the aura cannot be charmed, beguiled, possessed, compelled, or mind-controlled. A chaotic priest instead casts Protection from Good, affecting lawful and neutral beings. A critical success doubles the aura to 10 feet.",
+    "paragraphs": ["Maintain focus with a free spellcasting check each subsequent round, and immediately after damage or a distracting effect. An ordinary failed focus check ends the aura without losing the spell. A natural 1 applies normal critical failure rules."],
     "damage": []
   },
   {

@@ -12,9 +12,21 @@ import {
 import { CRYPT_ASSET_KEYS } from "./crypts.js";
 import { REVIEWED_ASSET_KEYS } from "./reviewed-layouts.js";
 import { visualTilePoint } from "./tile-positions.js";
-import { getReviewedTileRule } from "./reviewed-tile-rules.js";
+import { getReviewedTileRule, STATUE_ASSET_KEYS } from "./reviewed-tile-rules.js";
 import { doorRotationAngle, isClosedSecretDoor, secretFoundMarkerRect } from './door-geometry.js';
 import { canMoveBetweenTiles } from './interactions.js';
+import { hasWizardEffect, suppressionZones } from './wizard-mishaps.js';
+import { shredZones } from './arcane-effects.js';
+import { rangeRadius, canTargetAtRange } from './targeting.js';
+import { isSlowWaterTile } from './terrain-movement.js';
+import { protectionAuras } from './faith-spells.js';
+import { isInvisible } from './concealment.js';
+import { isIncorporeal } from './conditions.js';
+import { FLOATING_DISC_COLOR, isFloatingDisc } from './floating-disc.js';
+import { pitIsOpen, pitArt, PIT_ASSET_KEYS } from './pits.js';
+import { isMonsterCurrentlyVisible } from './monster-perception.js';
+import { restTourFrame } from './rest-scene.js';
+import { routeOf, routeExistsAt, UNDERPASS_ASSETS, UNDERPASS_OPACITY } from './underpasses.js';
 
 const USE_WATABOU_INK_OVERLAY = true;
 const INK_WALL_COLOR = "#111111";
@@ -190,11 +202,14 @@ const rendererAssets = {
     junk: {},
     wells: {},
     crypts: {},
-    stealth: null
+    stealth: null,
+    campfire: null,
+    alarm: null
   }
 };
 const organicShellUnderlayCache = new Map();
 const terrainFrames = new WeakMap();
+const objectFrames = new WeakMap();
 const imageLoads = new Map();
 const imageLoadQueue = [];
 let activeImageLoads = 0;
@@ -307,6 +322,8 @@ export async function preloadRendererAssets() {
     pillars: Promise.all(PILLAR_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),
     blockPillars: Promise.all(PILLAR_BLOCK_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),
     floorTraps: Promise.all(FLOOR_TRAP_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`, { quiet: true }))),
+    pits: loadAssetImageMap(PIT_ASSET_KEYS),
+    underpasses: loadAssetImageMap(UNDERPASS_ASSETS),
     stairsDown: Promise.all(STAIR_DOWN_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),
     stairsUp: resolveAssetGroups(Object.fromEntries(["n", "e", "s", "w"].map((side) => [side, loadOptionalImage(`./assets/u-stair-${side}.png`)]))),
     waterCenter: loadOptionalImage("./assets/water-c.png"),
@@ -322,8 +339,10 @@ export async function preloadRendererAssets() {
     junk: loadAssetImageMap(JUNK_KEYS),
     wells: loadAssetImageMap(WELL_KEYS),
     crypts: loadAssetImageMap(CRYPT_ASSET_KEYS),
-    reviewed: loadAssetImageMap(REVIEWED_ASSET_KEYS),
-    stealth: loadOptionalImage("./assets/stealth.png", { quiet: true })
+    reviewed: loadAssetImageMap([...REVIEWED_ASSET_KEYS, ...STATUE_ASSET_KEYS]),
+    stealth: loadOptionalImage("./assets/stealth.png", { quiet: true }),
+    campfire: loadOptionalImage('./assets/campfire.png', { quiet: true }),
+    alarm: loadOptionalImage('./assets/alarm.png', { quiet: true })
   });
   Object.assign(rendererAssets, await resolveAssetGroups({ images, doors, decor }));
   rendererAssets.ready = true;
@@ -380,6 +399,7 @@ function isRoomSideOpening(state, room, side, offset) {
   if (isDoorOnRoomSide(state, room, side, offset)) {
     return true;
   }
+  if (!routeExistsAt(state, x, y, '')) return false;
   let outside = null;
   if (side === "north") outside = getTileAt(state, room.x + offset, room.y - 1);
   if (side === "south") outside = getTileAt(state, room.x + offset, room.y + room.height);
@@ -1522,6 +1542,9 @@ function drawHandDrawnTopology(state, ctx) {
     drawWatabouInspiredWallOverlay(state, ctx, wallRuns);
   }
   drawColumnDecor(state, ctx);
+  drawNativePlacedDecorList(state, ctx, (state.underpasses || []).flatMap(route => route.art.map(item => ({
+    ...item, rotationTurns: item.turn, gridWidthTiles: item.w, gridHeightTiles: item.h
+  }))), rendererAssets.decor.underpasses);
 }
 
 function getDoorBoundaryCenter(entity) {
@@ -1779,7 +1802,7 @@ function drawFloorTrapSprite(state, entity, ctx) {
 
 function drawEntity(entity, ctx, state) {
   const [cx,cy]=visualTilePoint(state,entity.x,entity.y).map(value=>value*TILE_SIZE_PX);
-  const radius = TILE_SIZE_PX * 0.24;
+  const radius = TILE_SIZE_PX * (entity.impersonatedCharacter ? 0.27 : 0.24);
 
   if (entity.subtype === "door") {
     if(entity.hiddenStairSprite)return;
@@ -1861,7 +1884,8 @@ function drawEntity(entity, ctx, state) {
 
   switch (entity.type) {
     case ENTITY_TYPES.MONSTER:
-      ctx.fillStyle = "#be2d2d";
+      ctx.fillStyle = entity.mimicDisguise && !entity.disguiseRevealed ? '#e0bc2f' :
+        entity.impersonatedCharacter?.colorValue || (entity.hostile || ['combat','hostile'].includes(entity.attitude) ? '#be2d2d' : '#df9696');
       break;
     case ENTITY_TYPES.TREASURE:
       ctx.fillStyle = "#e0bc2f";
@@ -1876,11 +1900,34 @@ function drawEntity(entity, ctx, state) {
 
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fill();
+  if (entity.type === ENTITY_TYPES.MONSTER && isInvisible(entity)) {
+    ctx.strokeStyle=ctx.fillStyle;ctx.lineWidth=3;ctx.stroke();
+  } else ctx.fill();
 }
 
 function drawObjects(state, ctx, options = {}) {
+  for (const pit of state.entities.filter(pitIsOpen)) {
+    for (const cell of pitArt(state, pit)) {
+      const x = cell.x * TILE_SIZE_PX, y = cell.y * TILE_SIZE_PX, size = TILE_SIZE_PX;
+      const image = cell.asset && rendererAssets.decor.pits?.[cell.asset];
+      if (image) ctx.drawImage(image, x, y, size, size);
+      else {
+        ctx.fillStyle = '#000000'; ctx.fillRect(x, y, size, size);
+        for (const side of cell.sides) {
+          const edge = rendererAssets.decor.pits?.[`pit-${side}`];
+          if (!edge) continue;
+          ctx.save(); ctx.beginPath();
+          ctx.rect(x + (side === 'e' ? size * .68 : 0), y + (side === 's' ? size * .68 : 0),
+            ['e', 'w'].includes(side) ? size * .32 : size, ['n', 's'].includes(side) ? size * .32 : size);
+          ctx.clip(); ctx.clearRect(x, y, size, size); ctx.drawImage(edge, x, y, size, size); ctx.restore();
+        }
+      }
+    }
+  }
   for (const entity of state.entities) {
+    if (pitIsOpen(entity)) continue;
+    if (entity.subtype === 'arcane-shred' || entity.closed && entity.subtype === 'arcane-gate') continue;
+    if (entity.type === ENTITY_TYPES.MONSTER && (options.darkness === true || !options.visibleMonsterIds.has(entity.id))) continue;
     if (entity.visible === false) {
       continue;
     }
@@ -1901,11 +1948,17 @@ function drawObjects(state, ctx, options = {}) {
     if (entity.type === ENTITY_TYPES.FEATURE && entity.collected) {
       continue;
     }
+    ctx.save();
+    if (isIncorporeal(entity)) ctx.globalAlpha *= .5;
+    if (routeOf(state, entity)) ctx.globalAlpha *= UNDERPASS_OPACITY;
     drawEntity(entity, ctx, state);
+    ctx.restore();
   }
 }
 
 function drawPlayer(state, ctx) {
+  ctx.save();
+  if (routeOf(state, state.player)) ctx.globalAlpha *= UNDERPASS_OPACITY;
   const [cx,cy]=visualTilePoint(state,state.player.x,state.player.y).map(value=>value*TILE_SIZE_PX);
   const radius = TILE_SIZE_PX * 0.27;
   ctx.fillStyle = "#3a7bd5";
@@ -1915,17 +1968,42 @@ function drawPlayer(state, ctx) {
   ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 3;
   ctx.stroke();
+  ctx.restore();
 }
 
 function drawCharacterDot(character, ctx, isActive, state) {
+  ctx.save();
+  if (isIncorporeal(character)) ctx.globalAlpha *= .5;
+  if (character.visualRouteId ?? routeOf(state, character)) ctx.globalAlpha *= UNDERPASS_OPACITY;
   const [cx,cy]=visualTilePoint(state,character.visualX ?? character.x,character.visualY ?? character.y).map(value=>value*TILE_SIZE_PX);
   const radius = TILE_SIZE_PX * 0.27;
   ctx.fillStyle = character.colorValue || "#174a9c";
+  if (isFloatingDisc(character)) {
+    const caster = state.characters.find(member => member.id === character.summon.casterId);
+    ctx.fillStyle = FLOATING_DISC_COLOR;
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = isActive ? '#fff' : caster?.colorValue || '#fff'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.restore();
+    return;
+  }
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fill();
+  if (isInvisible(character)) {
+    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.arc(cx, cy, radius - 1.5, 0, Math.PI * 2); ctx.stroke();
+  }
+  else ctx.fill();
 
-  if (character.guarding) {
+  if (hasWizardEffect(character, 'purple-glow')) {
+    ctx.save();
+    ctx.strokeStyle = '#d342f5';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (character.guarding && !isInvisible(character)) {
     ctx.strokeStyle = "#000000";
     ctx.lineWidth = 5;
     ctx.stroke();
@@ -1933,14 +2011,15 @@ function drawCharacterDot(character, ctx, isActive, state) {
   if (isActive) {
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.stroke();
   }
-  if (character.stealthed === true) {
+  if (character.stealthed === true && !isInvisible(character)) {
     const image = rendererAssets.decor.stealth;
     const size = TILE_SIZE_PX * 0.74;
     if (image) {
       ctx.save();
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha *= 0.9;
       ctx.drawImage(image, cx - size / 2, cy - size / 2, size, size);
       ctx.restore();
     } else {
@@ -1953,6 +2032,34 @@ function drawCharacterDot(character, ctx, isActive, state) {
       ctx.setLineDash([]);
     }
   }
+  ctx.restore();
+}
+
+function drawRestScene(state, ctx, options) {
+  const rest = state.rest, scene = rest?.scene;
+  if (!scene || !rest.suppliesPaid || !(['sleeping', 'interrupted', 'voting'].includes(rest.phase) || options.restSceneVisible)) return;
+  if (options.restSceneVisible) {
+    // Keep the camp visible even when every character is asleep, without
+    // granting sleeping characters sight or revealing unexplored tiles.
+    const polygon = computeLightPolygon(state, { x: scene.x, y: scene.y, radius: 6 });
+    if (polygon.length) {
+      ctx.save();
+      clipToFloorTiles(ctx, state, tile => tile.roomId === rest.roomId && state.visibility.exploredEver.has(tileKey(tile.x, tile.y)));
+      addShadowPolygonPath(ctx, polygon); ctx.clip();
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.restore();
+    }
+  }
+  const stamp = (image, point, rotation = 0) => {
+    if (!image) return;
+    ctx.save();
+    ctx.translate((point.x + .5) * TILE_SIZE_PX, (point.y + .5) * TILE_SIZE_PX);
+    ctx.rotate(rotation * Math.PI / 2);
+    ctx.drawImage(image, -TILE_SIZE_PX / 2, -TILE_SIZE_PX / 2, TILE_SIZE_PX, TILE_SIZE_PX);
+    ctx.restore();
+  };
+  stamp(rendererAssets.decor.campfire, scene);
+  for (const marker of restTourFrame(scene, options.restNow).markers) stamp(rendererAssets.decor.alarm, marker, marker.rotation);
 }
 
 function drawCharacters(state, ctx) {
@@ -1971,6 +2078,8 @@ function drawCharacters(state, ctx) {
     return;
   }
   for (const character of characters) {
+    if (state.underpasses?.length && state.viewerCharacterIds instanceof Set && !state.viewerCharacterIds.has(character.id) &&
+        !state.visibility.routeVisible?.[routeOf(state, character)]?.has(tileKey(character.x, character.y))) continue;
     drawCharacterDot(character, ctx, character.id === state.activeCharacterId, state);
   }
 }
@@ -1997,6 +2106,19 @@ function drawFog(state, ctx, widthPx, heightPx, forceBlackout) {
   drawAngledShadowWedges(state, ctx);
   drawVisibleBlockingDecorFogCutouts(state, ctx);
   drawClosedDoorFogBisectors(state, ctx);
+  for (const zone of suppressionZones(state)) {
+    const [cx, cy] = visualTilePoint(state, zone.x, zone.y).map(value => value * TILE_SIZE_PX);
+    ctx.save();
+    if (state.underpasses?.length) clipToFloorTiles(ctx, state, tile => routeExistsAt(state, tile.x, tile.y, zone.routeId) &&
+      !Object.entries(state.visibility.routeVisible || {}).some(([id, cells]) => id !== zone.routeId && cells.has(tileKey(tile.x, tile.y))));
+    ctx.beginPath();
+    ctx.arc(cx, cy, (zone.radius + 0.5) * TILE_SIZE_PX, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, widthPx, heightPx);
+    drawExploredFog(state, ctx);
+    ctx.restore();
+  }
 }
 
 function wasExploredBeforeCurrentLight(state, x, y) {
@@ -2463,16 +2585,18 @@ function drawClosedDoorFogBisectors(state, ctx) {
   }
 }
 
-function drawCombatMovement(state, ctx) {
+function drawCombatMovement(state, ctx, targeting = null) {
   const combat = state.combat;
   const entry = combat?.active ? combat.turnOrder?.[combat.turnIndex] : null;
-  if (entry?.type !== 'character' || !(combat.movementRemaining > 0)) return;
-  const actor = state.characters.find(character => character.id === entry.id);
+  if (!targeting && (entry?.type !== 'character' || !(combat.movementRemaining > 0))) return;
+  const actor = targeting?.actor || (targeting?.monsterId ? state.entities.find(entity => entity.id === targeting.monsterId) :
+    state.characters.find(character => character.id === (targeting?.characterId || entry?.id)));
   if (!actor) return;
   const sources = collectLightSources(state);
   ctx.save();
   ctx.beginPath();
   for (const source of sources) {
+    if (routeOf(state, source) !== routeOf(state, actor)) continue;
     const polygon = computeLightPolygon(state, source);
     if (!polygon.length) continue;
     ctx.moveTo(...polygon[0]);
@@ -2480,15 +2604,54 @@ function drawCombatMovement(state, ctx) {
     ctx.closePath();
   }
   ctx.clip();
-  clipToFloorTiles(ctx, state, tile => state.visibility.visibleNow.has(tileKey(tile.x, tile.y)) &&
-    !isOrganicMovementBlockingTile(tile) && !tile.meta?.layoutBlocks &&
-    canMoveBetweenTiles(state, tile.x, tile.y, tile.x, tile.y).ok);
   const center = visualTilePoint(state, Number(actor.visualX ?? actor.x), Number(actor.visualY ?? actor.y));
   ctx.globalAlpha = .2;
   ctx.fillStyle = actor.colorValue || '#397ed9';
-  ctx.beginPath();
-  ctx.arc(center[0] * TILE_SIZE_PX, center[1] * TILE_SIZE_PX, combat.movementRemaining * TILE_SIZE_PX, 0, Math.PI * 2);
-  ctx.fill();
+  for (const water of targeting ? [null] : [false, true]) {
+    ctx.save();
+    clipToFloorTiles(ctx, state, tile => routeExistsAt(state, tile.x, tile.y, routeOf(state, actor)) &&
+      (state.underpasses?.length ? state.visibility.routeVisible?.[routeOf(state, actor)] : state.visibility.visibleNow)?.has(tileKey(tile.x, tile.y)) &&
+      !isOrganicMovementBlockingTile(tile) && (!tile.meta?.layoutBlocks || isSlowWaterTile(state,tile.x,tile.y)) &&
+      (water === null || isSlowWaterTile(state,tile.x,tile.y) === water) &&
+      canMoveBetweenTiles(state, tile.x, tile.y, tile.x, tile.y, { routeId: routeOf(state, actor) }).ok);
+    const radius = targeting ? rangeRadius(targeting.range) : combat.movementRemaining / (water ? 2 : 1);
+    ctx.beginPath();
+    ctx.arc(center[0] * TILE_SIZE_PX, center[1] * TILE_SIZE_PX, radius * TILE_SIZE_PX, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+  if (targeting) {
+    ctx.save();
+    ctx.strokeStyle = ['weapon','monster'].includes(targeting.kind) ? '#d62727' : targeting.kind === 'steal' ? '#777777' : '#fff4d4';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(center[0] * TILE_SIZE_PX, center[1] * TILE_SIZE_PX, rangeRadius(targeting.range) * TILE_SIZE_PX, 0, Math.PI * 2);
+    ctx.stroke();
+    for (const monster of state.entities || []) {
+      if (monster.type !== 'monster' || monster.visible === false || monster.defeated || monster.leftPeacefully ||
+          !canTargetAtRange(state, actor, monster, targeting.range,{directAttack:targeting.kind==='weapon'||targeting.spellKey==='magic missile'})) continue;
+      const point = visualTilePoint(state, monster.x, monster.y).map(value => value * TILE_SIZE_PX);
+      ctx.beginPath();
+      ctx.arc(point[0], point[1], TILE_SIZE_PX * .3, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function drawProtectionAuras(state,ctx) {
+  ctx.save(); ctx.strokeStyle='#b9e8ff'; ctx.lineWidth=1.5;
+  for (const {center:target,radius} of protectionAuras(state)) {
+    if (!state.visibility.visibleNow.has(tileKey(target.x,target.y))) continue;
+    const center=visualTilePoint(state,Number(target.visualX??target.x),Number(target.visualY??target.y));
+    ctx.beginPath();ctx.arc(center[0]*TILE_SIZE_PX,center[1]*TILE_SIZE_PX,rangeRadius(radius)*TILE_SIZE_PX,0,Math.PI*2);ctx.stroke();
+  }
+  ctx.strokeStyle = '#fff4d4'; ctx.lineWidth = 1;
+  for (const caster of state.characters || []) if (caster.focusSpell?.spell === 'detect magic' && !caster.dead && !caster.slain) {
+    const center = visualTilePoint(state, Number(caster.visualX ?? caster.x), Number(caster.visualY ?? caster.y));
+    ctx.beginPath(); ctx.arc(center[0] * TILE_SIZE_PX, center[1] * TILE_SIZE_PX, caster.focusSpell.radius * TILE_SIZE_PX, 0, Math.PI * 2); ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -2514,21 +2677,42 @@ function drawDungeonFrame(state, layers, options) {
     if (!previousTerrain || previousTerrain.secretWallKey !== secretWallKey || previousTerrain.tiles !== state.tiles || previousTerrain.decor !== state.decor ||
         previousTerrain.rooms !== state.rooms || previousTerrain.ready !== rendererAssets.ready ||
         previousTerrain.entities !== state.entities || previousTerrain.seed !== state.seed ||
-        previousTerrain.generation !== state.generation ||
+        previousTerrain.generation !== state.generation || previousTerrain.underpasses !== state.underpasses ||
         previousTerrain.width !== widthPx || previousTerrain.height !== heightPx) {
       drawHandDrawnBackground(backgroundCtx, widthPx, heightPx);
       topologyCtx.clearRect(0, 0, widthPx, heightPx);
       drawHandDrawnTopology(state, topologyCtx);
       terrainFrames.set(topologyCtx, { secretWallKey, tiles: state.tiles, decor: state.decor, rooms: state.rooms,
-        entities: state.entities, seed: state.seed, generation: state.generation,
+        entities: state.entities, seed: state.seed, generation: state.generation, underpasses: state.underpasses,
         ready: rendererAssets.ready, width: widthPx, height: heightPx });
     }
-    objectsCtx.clearRect(0, 0, widthPx, heightPx);
-    objectsCtx.__doorNow = now;
-    drawObjects(state, objectsCtx, { darkness: options.forceBlackout === true });
+  }
+  if (objectsCtx) {
+    const monsters = options.forceBlackout ? [] : state.entities.filter(entity => entity.type === ENTITY_TYPES.MONSTER && isMonsterCurrentlyVisible(state, entity));
+    const monsterKey = monsters.map(monster => `${monster.id}:${monster.x},${monster.y}`).join('|');
+    const previousObjects = objectFrames.get(objectsCtx);
+    if (options.motionOnly !== true || !previousObjects || previousObjects.monsterKey !== monsterKey ||
+        previousObjects.entities !== state.entities || previousObjects.blackout !== Boolean(options.forceBlackout)) {
+      objectsCtx.clearRect(0, 0, widthPx, heightPx);
+      objectsCtx.__doorNow = now;
+      drawObjects(state, objectsCtx, { darkness: options.forceBlackout === true, visibleMonsterIds: new Set(monsters.map(monster => monster.id)) });
+      objectFrames.set(objectsCtx, { monsterKey, entities: state.entities, blackout: Boolean(options.forceBlackout) });
+    }
   }
   fogCtx.clearRect(0, 0, widthPx, heightPx);
   drawFog(state, fogCtx, widthPx, heightPx, options.forceBlackout === true);
-  if (!options.forceBlackout) drawCombatMovement(state, fogCtx);
+  if (!options.forceBlackout || options.targeting) drawCombatMovement(state, fogCtx, options.targeting);
+  drawProtectionAuras(state,fogCtx);
+  drawRestScene(state, fogCtx, options);
+  fogCtx.save(); fogCtx.fillStyle = '#000';
+  for (const shred of shredZones(state)) {
+    fogCtx.save();
+    if (state.underpasses?.length) clipToFloorTiles(fogCtx, state, tile => routeExistsAt(state, tile.x, tile.y, routeOf(state, shred)) &&
+      !Object.entries(state.visibility.routeVisible || {}).some(([id, cells]) => id !== routeOf(state, shred) && cells.has(tileKey(tile.x, tile.y))));
+    const center = visualTilePoint(state, shred.x, shred.y);
+    fogCtx.beginPath(); fogCtx.arc(center[0] * TILE_SIZE_PX, center[1] * TILE_SIZE_PX, shred.radius * TILE_SIZE_PX, 0, Math.PI * 2); fogCtx.fill();
+    fogCtx.restore();
+  }
+  fogCtx.restore();
   drawCharacters(state, fogCtx);
 }

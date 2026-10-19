@@ -6,8 +6,12 @@ import { getOrganicTileData, isOrganicMovementBlockingTile } from "./organic-til
 import { getInnerWallTileData, isInnerWallBlockingTile } from "./inner-walls.js";
 import { isAngledWallLightBlockingTile, isAngledWallMovementBlockingTile } from "./angled-walls.js";
 import { visualTilePoint } from "./tile-positions.js";
+import { isLightSuppressedAt, suppressionZones } from './wizard-mishaps.js';
+import { isShrouded } from './arcane-effects.js';
+import { isPit, pitContains } from './pits.js';
+import { routeAt, routeOf, routeExistsAt, routeLineClear, sameRoute } from './underpasses.js';
 
-const LIGHT_GEOMETRY_VERSION = 12;
+const LIGHT_GEOMETRY_VERSION = 13;
 
 function isWithinRadius(x1, y1, x2, y2, radius) {
   return Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2)) <= radius;
@@ -234,13 +238,16 @@ function revealLitClosedDoorSides(state, lightPolygons) {
     for (const side of sides) {
       const [sampleX, sampleY] = getDoorSideSamplePoint(door, side);
       const point = [sampleX * TILE_SIZE_PX, sampleY * TILE_SIZE_PX];
-      const lit = lightPolygons.some(({ polygon }) => isPointInPolygon(point, polygon));
+      const lit = !isLightSuppressedAt(state, sampleX - 0.5, sampleY - 0.5) && lightPolygons.some(({ source, polygon }) => sameRoute(state, source, door) && isPointInPolygon(point, polygon));
       if (lit) {
         addDoorSide(state.visibility.closedDoorVisibleSides, door, side);
         addDoorSide(state.visibility.closedDoorExploredSides, door, side);
         const key = tileKey(door.x, door.y);
         state.visibility.visibleNow.add(key);
         state.visibility.exploredEver.add(key);
+        const route = routeOf(state, door);
+        (state.visibility.routeVisible[route] ||= new Set()).add(key);
+        (state.visibility.routeExplored[route] ||= new Set()).add(key);
       }
     }
   }
@@ -269,11 +276,11 @@ function segmentIntersectionRatio(a, b, c, d) {
   return rayRatio;
 }
 
-function isAcrossClosedDoor(state, px, py, tx, ty) {
+function isAcrossClosedDoor(state, px, py, tx, ty, source = { x: px, y: py }) {
   const origin = getTileCenterPoint(px, py);
   const target = getTileCenterPoint(tx, ty);
   for (const door of state.entities) {
-    if (door.subtype !== "door" || door.doorState === DOOR_STATES.OPEN || isPortcullisDoor(door)) {
+    if (door.subtype !== "door" || !sameRoute(state, source, door) || door.doorState === DOOR_STATES.OPEN || isPortcullisDoor(door)) {
       continue;
     }
     const [start, end] = getClosedDoorSegment(door).map(([x, y]) => [x / TILE_SIZE_PX, y / TILE_SIZE_PX]);
@@ -314,8 +321,11 @@ function getLineBetween(x0, y0, x1, y1) {
   return points;
 }
 
-export function hasLineOfSightFrom(state, originX, originY, x, y) {
-  if (reviewedBlocksLine(state,originX,originY,x,y)) return false;
+export function hasLineOfSightFrom(state, originX, originY, x, y, options = {}) {
+  const routeSource = { x: originX, y: originY, routeId: options.source ? routeOf(state, options.source) : options.routeId ?? routeAt(state, originX, originY) };
+  const routeTarget = { x, y, routeId: options.target ? routeOf(state, options.target) : options.targetRouteId ?? routeAt(state, x, y, routeSource.routeId) };
+  if (!routeLineClear(state, routeSource, routeTarget)) return false;
+  if (reviewedBlocksLine(state,originX,originY,x,y,routeSource)) return false;
   const points = getLineBetween(originX, originY, x, y);
   const from = visualTilePoint(state,originX,originY).map(value=>value*TILE_SIZE_PX);
   const to = visualTilePoint(state,x,y).map(value=>value*TILE_SIZE_PX);
@@ -330,20 +340,22 @@ export function hasLineOfSightFrom(state, originX, originY, x, y) {
       return false;
     }
     const door = getDoorBetween(state, prev.x, prev.y, curr.x, curr.y);
-    if (door && door.doorState !== DOOR_STATES.OPEN && !isPortcullisDoor(door)) {
+    if (door && sameRoute(state, routeSource, door) && door.doorState !== DOOR_STATES.OPEN && !isPortcullisDoor(door)) {
       return i === points.length - 1 && isClosedDoorHallTarget(state, x, y);
     }
   }
 
-  return !isAcrossClosedDoor(state, originX, originY, x, y) || isClosedDoorHallTarget(state, x, y);
+  return !isAcrossClosedDoor(state, originX, originY, x, y, routeSource) || isClosedDoorHallTarget(state, x, y);
 }
 
 export function hasLineOfSight(state, x, y) {
-  return hasLineOfSightFrom(state, state.player.x, state.player.y, x, y);
+  return hasLineOfSightFrom(state, state.player.x, state.player.y, x, y, { source: state.player });
 }
 
-export function isTileVisible(state, x, y) {
-  return state.visibility.visibleNow.has(tileKey(x, y));
+export function isTileVisible(state, x, y, options = null) {
+  const route = typeof options === 'string' ? options : options ? routeOf(state, options) : null;
+  const cells = state.underpasses?.length && route !== null ? state.visibility.routeVisible?.[route] : state.visibility.visibleNow;
+  return !isShrouded(state, x, y, options && typeof options === 'object' ? options : { x, y, routeId: route ?? routeAt(state, x, y) }) && Boolean(cells?.has(tileKey(x, y)));
 }
 
 function cloneLightPolygon(polygon) {
@@ -471,6 +483,8 @@ function updateVisibility(state) {
   state.visibility.exploredLightPolygonsBeforeNow = exploredLightPolygons.slice();
   state.visibility.exploredLightPolygonKeys = new Set(exploredLightPolygons.map(getLightPolygonKey));
   state.visibility.visibleNow.clear();
+  state.visibility.routeVisible = {};
+  state.visibility.routeExplored ||= {};
   state.visibility.closedDoorExploredSides = cloneDoorSideMap(state.visibility.closedDoorExploredSides);
   state.visibility.closedDoorVisibleSides = new Map();
   const lightSources = collectLightSources(state);
@@ -482,9 +496,8 @@ function updateVisibility(state) {
     source,
     polygon: computeLightPolygon(state, source)
   }));
-  for (const { polygon } of lightPolygons) {
-    appendExploredLightPolygon(state, polygon);
-  }
+  const suppressed = suppressionZones(state).length > 0;
+  if (!suppressed) for (const { polygon } of lightPolygons) appendExploredLightPolygon(state, polygon);
 
   for (const tile of state.tiles) {
     if (tile?.meta?.neverExplore === true || tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID) {
@@ -501,10 +514,15 @@ function updateVisibility(state) {
     }
     let lit = false;
     for (const { source, polygon } of lightPolygons) {
+      const route = routeOf(state, source);
+      if (suppressed && isLightSuppressedAt(state, tile.x, tile.y, { ...tile, routeId: route })) continue;
+      if (!routeExistsAt(state, tile.x, tile.y, route)) continue;
       if (!isTileTouchedByLightPolygon(tile, polygon)) {
         continue;
       }
       lit = true;
+      (state.visibility.routeVisible[route] ||= new Set()).add(tileKey(tile.x, tile.y));
+      (state.visibility.routeExplored[route] ||= new Set()).add(tileKey(tile.x, tile.y));
     }
     if (lit) {
       const key = tileKey(tile.x, tile.y);
@@ -522,6 +540,13 @@ function updateVisibility(state) {
 
   revealTouchedBlockingDecor(state);
   revealLitClosedDoorSides(state, lightPolygons);
+  if (suppressed) {
+    for (const key of [...state.visibility.visibleNow]) {
+      const [x, y] = key.split(',').map(Number);
+      if (state.underpasses?.length ? !Object.values(state.visibility.routeVisible).some(cells => cells.has(key)) : isLightSuppressedAt(state, x, y)) state.visibility.visibleNow.delete(key);
+      else appendExploredLightPolygon(state, [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]].map(point => point.map(value => value * TILE_SIZE_PX)));
+    }
+  }
   return lightPolygons;
 }
 
@@ -535,7 +560,7 @@ export function revealTrapAtPlayer(state) {
     ) {
       continue;
     }
-    if (entity.x === state.player.x && entity.y === state.player.y) {
+    if (sameRoute(state, entity, state.player) && (isPit(entity) ? pitContains(entity, state.player.x, state.player.y) : entity.x === state.player.x && entity.y === state.player.y)) {
       entity.revealed = true;
       entity.visible = true;
       entity.triggered = true;

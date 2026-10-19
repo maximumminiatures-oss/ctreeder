@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ensureEquipment, equipItem, hasOccupiedOffHand } from '../../S3_content/src/equipment.js';
+import { ensureEquipment, equipItem, hasOccupiedOffHand, ensureArmorEquipment, equipArmor, handItemKind } from '../../S3_content/src/equipment.js';
+import { reorderGear } from '../../S3_content/src/gear-order.js';
 import { rollUnarmedAttack, rollDamageExpression } from '../../S3_content/src/damage.js';
 import { ensureTimers, syncElapsedTime, hasLiveTimedLight } from '../../S3_content/src/timers.js';
 import { hydrateDungeonState, serializeDungeonState } from '../../S3_content/src/persistence.js';
@@ -13,6 +14,28 @@ function hero() {
   ]};
 }
 const held = character => character.gear.flatMap((item, index) => item.equipped ? [index] : []);
+
+test('weapon copies split independently without splitting crossbow ammunition',()=>{
+  const character={equipmentInitialized:true,gear:[{name:'Shortsword',type:'weapon',quantity:2,totalUnits:2},{name:'Crossbow bolts',type:'sundry',quantity:1,totalUnits:20}]};
+  ensureEquipment(character);
+  assert.equal(character.gear.length,3);assert.equal(character.gear.filter(item=>item.name==='Shortsword').length,2);
+  assert.equal(character.gear.find(item=>item.name==='Crossbow bolts').totalUnits,20);assert.equal(handItemKind(character.gear[1]),'');
+});
+
+test('armor migrates once, can be removed, and two-handed weapons never remove it',()=>{
+  const character={equipmentInitialized:true,gear:[{name:'Plate armor'},{name:'Greatsword'}]};
+  const isArmor=item=>/armor/.test(item.name);
+  ensureArmorEquipment(character,{isArmor,canEquip:()=>true,score:()=>15});
+  equipItem(character,1,true);ensureEquipment(character);assert.equal(character.gear[0].equipped,true);
+  equipArmor(character,0,false,isArmor);ensureArmorEquipment(character,{isArmor,canEquip:()=>true,score:()=>15});
+  assert.equal(character.gear[0].equipped,false);
+});
+
+test('reordering preserves item metadata and protects backpacks and invalid indices',()=>{
+  const character={gear:[{name:'A',lit:true},{name:'B',equipped:true},{name:'Backpack'}]};
+  reorderGear(character,1,0);assert.equal(character.gear[0].equipped,true);assert.equal(character.gear[1].lit,true);
+  assert.throws(()=>reorderGear(character,2,0),/backpack/);assert.throws(()=>reorderGear(character,5,0),/existing gear/);
+});
 
 test('hand combinations follow the requested replacement priorities', () => {
   const character = hero();

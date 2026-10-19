@@ -366,6 +366,21 @@ function buildCoinTreasure(state, rng) {
   };
 }
 
+export function matchesTreasureTypeName(name, type) {
+  const text = String(name || '').toLowerCase().replace(/\s+x\d+$/, '').trim();
+  return (TREASURE_TYPES.find(category => category.key === type)?.nouns || [])
+    .some(noun => text === noun || text.endsWith(' ' + noun));
+}
+
+export function treasureArmorBases(rules) {
+  const kinds = { leather: ['leather armor', 11], chainmail: ['chainmail', 13], platemail: ['plate mail', 15], shield: ['shield', null] };
+  return Object.entries(kinds).flatMap(([kind, [baseName, ac]]) => {
+    const base = rules?.armor?.find(item => item.name.toLowerCase() === baseName) || { name: baseName, costGp: 10, slots: 1 };
+    const names = TREASURE_TYPES.find(type => type.key === kind)?.nouns || [baseName];
+    return names.map(name => ({ ...base, name, ...(ac ? { ac } : {}), type: kind === 'shield' ? 'shield' : 'armor', treasureKind: kind }));
+  });
+}
+
 export function createTreasureDetails(state, rng) {
   if (rng.nextFloat() < 0.18) {
     return buildCoinTreasure(state, rng);

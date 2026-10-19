@@ -74,4 +74,78 @@ def validate_state(value, *, require_map=False):
             raise ValueError("Dungeon tiles do not match its dimensions.")
         if any(not isinstance(tile, dict) for tile in tiles):
             raise ValueError("Each tile must be an object.")
+        validate_underpasses(value.get("underpasses", []), width, height, value.get("entities", []))
     return value
+
+
+def validate_underpasses(routes, width, height, entities=()):
+    if not isinstance(routes, list) or len(routes) > 64:
+        raise ValueError("Invalid dungeon underpasses.")
+    seen_ids, occupied = set(), set()
+
+    def point(item):
+        if not isinstance(item, dict) or any(type(item.get(key)) is not int for key in ("x", "y")):
+            raise ValueError("Invalid underpass coordinates.")
+        x, y = item["x"], item["y"]
+        if not 0 <= x < width or not 0 <= y < height:
+            raise ValueError("Invalid underpass coordinates.")
+        return x, y
+
+    for route in routes:
+        if not isinstance(route, dict):
+            raise ValueError("Invalid dungeon underpass.")
+        route_id = route.get("id")
+        if not isinstance(route_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", route_id) or route_id in seen_ids or route_id in {"__proto__", "constructor", "prototype"}:
+            raise ValueError("Invalid underpass route ID.")
+        seen_ids.add(route_id)
+        cells = route.get("lowerCells")
+        pit_tunnel = route.get("kind") == "pit-tunnel"
+        if not isinstance(cells, list) or not (1 if pit_tunnel else 5) <= len(cells) <= 256:
+            raise ValueError("Invalid underpass cells.")
+        points = [point(cell) for cell in cells]
+        unique = set(points)
+        axis = route.get("axis")
+        if len(unique) != len(points) or occupied.intersection(unique) or (not pit_tunnel and (axis not in {"horizontal", "vertical"} or any(
+                b != (a[0] + (axis == "horizontal"), a[1] + (axis == "vertical")) for a, b in zip(points, points[1:])))):
+            raise ValueError("Underpass routes must be separate, straight passages.")
+        occupied.update(unique)
+        crossings = route.get("upperCrossings")
+        if not isinstance(crossings, list) or (len(crossings) != 1 if not pit_tunnel else len(crossings) > 256) or any(point(crossing) not in unique for crossing in crossings):
+            raise ValueError("Invalid underpass crossing.")
+        walls = route.get("wallCrossings", [])
+        if not isinstance(walls, list) or len(walls) > 256 or any(point(wall) not in unique for wall in walls):
+            raise ValueError("Invalid underpass wall crossing.")
+        portals = route.get("portals")
+        if pit_tunnel:
+            if axis != "free" or portals != []:
+                raise ValueError("Invalid pit underpass entrances.")
+            reached, pending = {points[0]}, [points[0]]
+            for x, y in pending:
+                for next_point in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                    if next_point in unique and next_point not in reached:
+                        reached.add(next_point)
+                        pending.append(next_point)
+            if reached != unique:
+                raise ValueError("Pit underpass must be connected.")
+            pit_ids = route.get("pitIds")
+            if not isinstance(pit_ids, list) or not 2 <= len(pit_ids) <= 32 or any(not isinstance(pit_id, str) for pit_id in pit_ids) or len(set(pit_ids)) != len(pit_ids):
+                raise ValueError("Invalid pit underpass links.")
+            for pit_id in pit_ids:
+                pit = next((entity for entity in entities if isinstance(entity, dict) and entity.get("id") == pit_id), None)
+                if not pit or pit.get("subtype") != "pit" or pit.get("lowerRouteId") != route_id or not isinstance(pit.get("cells"), list) or not pit["cells"] or any(point(cell) not in unique or point(cell) not in {point(crossing) for crossing in crossings} for cell in pit["cells"]):
+                    raise ValueError("Invalid pit underpass link.")
+        elif not isinstance(portals, list) or len(portals) != 2:
+            raise ValueError("Underpasses require two stair entrances.")
+        for portal, end in zip(portals, (points[0], points[-1])):
+            if not isinstance(portal, dict):
+                raise ValueError("Invalid underpass entrance.")
+            upper, lower = point(portal.get("upper")), point(portal.get("lower"))
+            if lower != end or upper in unique or abs(upper[0] - lower[0]) + abs(upper[1] - lower[1]) != 1:
+                raise ValueError("Invalid underpass entrance.")
+        art = route.get("art", [])
+        if not isinstance(art, list) or len(art) > 256:
+            raise ValueError("Invalid underpass artwork.")
+        for item in art:
+            point(item)
+            if item.get("asset") not in {"stairs-down-w-to-e", "stairs-down-e-to-w", "stairs-down-straight-1x1", "stairs-down-straight-1x2", "tunnel-below", "tunnel-below-wall"} or item.get("turn") not in range(4) or item.get("w") not in (1, 2) or item.get("h") != 1:
+                raise ValueError("Invalid underpass artwork.")

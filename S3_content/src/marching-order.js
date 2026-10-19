@@ -1,32 +1,31 @@
+import { routeOf, routeAt, routeStep, routeKey, sameRoute } from './underpasses.js';
 const DIRECTIONS = [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]];
-const key = (x, y) => `${x},${y}`;
 const distance = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 
-function nextStep(character, target, canStep, allowed) {
-  const start = { x: Number(character.x), y: Number(character.y), first: null };
-  const queue = [start], seen = new Set([key(start.x, start.y)]);
-  let best = start, score = distance(start, target);
+function nextStep(state, character, target, canStep, allowed) {
+  const start = { x: Number(character.x), y: Number(character.y), routeId: routeOf(state, character), first: null };
+  const queue = [start], seen = new Set([routeKey(start)]);
+  const scoreAt = point => distance(point, target) + (sameRoute(state, point, target) ? 0 : 24);
+  let best = start, score = scoreAt(start);
   const reverse = [...character.id].reduce((sum, letter) => sum + letter.charCodeAt(0), 0) % 2;
   const directions = reverse ? [...DIRECTIONS].reverse() : DIRECTIONS;
-  const direct = directions.map(([dx, dy]) => ({ dx, dy, x: start.x + dx, y: start.y + dy }))
-    .filter(point => distance(point, target) < score && allowed(point.x, point.y) && canStep(start.x, start.y, point.x, point.y))
-    .sort((a, b) => distance(a, target) - distance(b, target));
-  if (direct.length) return [direct[0].dx, direct[0].dy];
-  for (let index = 0; index < queue.length && index < 320; index += 1) {
+  for (let index = 0; index < queue.length && index < 625; index += 1) {
     const current = queue[index];
-    if (distance(current, target) < score) { best = current; score = distance(current, target); }
+    if (scoreAt(current) < score) { best = current; score = scoreAt(current); }
     if (!score) break;
     for (const [dx, dy] of directions) {
-      const x = current.x + dx, y = current.y + dy, id = key(x, y);
-      if (seen.has(id) || distance(start, { x, y }) > 12 || !allowed(x, y) || !canStep(current.x, current.y, x, y)) continue;
+      const x = current.x + dx, y = current.y + dy, next = routeStep(state, current, { x, y });
+      if (!next) continue;
+      const id = routeKey(next);
+      if (seen.has(id) || distance(start, { x, y }) > 12 || !allowed(x, y, next) || !canStep(current.x, current.y, x, y, current)) continue;
       seen.add(id);
-      queue.push({ x, y, first: current.first || [dx, dy] });
+      queue.push({ ...next, first: current.first || [dx, dy] });
     }
   }
   return best.first;
 }
 
-export function planMarchingSteps(state, anchorId, config, { canStep, isLit }) {
+export function planMarchingSteps(state, anchorId, config, { canStep }) {
   if (state.combat?.active) return [];
   const characters = new Map((state.characters || []).filter(character => !character.dead && !character.slain && Number(character.hp) > 0).map(character => [character.id, character]));
   const order = [...new Set(config.order || [])].filter(id => characters.has(id));
@@ -36,13 +35,14 @@ export function planMarchingSteps(state, anchorId, config, { canStep, isLit }) {
   const direction = config.direction || [0, 1];
   const tile = state.tiles[Number(anchor.y) * state.map.width + Number(anchor.x)];
   const spacing = tile?.roomId ? 2 : 1;
-  const occupied = new Set([...characters.values()].map(character => key(character.x, character.y)));
+  const occupied = new Set([...characters.values()].map(character => routeKey({ ...character, routeId: routeOf(state, character) })));
   for (const entity of state.entities || []) if ((entity.type === 'monster' && !entity.defeated) ||
-      (entity.type === 'trap' && entity.revealed && !entity.disarmed && !entity.triggered)) occupied.add(key(entity.x, entity.y));
+      (entity.type === 'trap' && entity.revealed && !entity.disarmed && !entity.triggered)) occupied.add(routeKey({ ...entity, routeId: routeOf(state, entity) }));
   const result = [];
   for (let index = 0; index < order.length; index += 1) {
     const character = characters.get(order[index]);
     if (character.id === anchorId || !following.has(character.id)) continue;
+    if(Math.hypot(character.x-anchor.x,character.y-anchor.y)>=12)continue;
     const offset = (rank - index) * spacing;
     const behind = index > rank;
     const trailIndex = (index - rank) * spacing;
@@ -51,13 +51,16 @@ export function planMarchingSteps(state, anchorId, config, { canStep, isLit }) {
       y: config.trail.at(-1).y - direction[1] * (trailIndex - config.trail.length + 1)
     } : null;
     const target = trailPoint || { x: Number(anchor.x) + direction[0] * offset, y: Number(anchor.y) + direction[1] * offset };
-    if (distance(character, target) === 0) continue;
-    occupied.delete(key(character.x, character.y));
-    const step = nextStep(character, target, canStep, (x, y) => !occupied.has(key(x, y)) && isLit(x, y));
-    occupied.add(key(character.x, character.y));
+    target.routeId ??= routeAt(state, target.x, target.y, routeOf(state, anchor));
+    if (distance(character, target) === 0 && sameRoute(state, character, target)) continue;
+    const currentKey = routeKey({ ...character, routeId: routeOf(state, character) });
+    occupied.delete(currentKey);
+    const step = nextStep(state, character, target, canStep, (x, y, point) => x>=0&&y>=0&&x<state.map.width&&y<state.map.height&&
+      Math.hypot(x-anchor.x,y-anchor.y)<12&&!occupied.has(routeKey(point)));
+    occupied.add(currentKey);
     if (!step) continue;
-    occupied.delete(key(character.x, character.y));
-    occupied.add(key(Number(character.x) + step[0], Number(character.y) + step[1]));
+    occupied.delete(currentKey);
+    occupied.add(routeKey(routeStep(state, character, { x: Number(character.x) + step[0], y: Number(character.y) + step[1] })));
     result.push({ characterId: character.id, dx: step[0], dy: step[1] });
   }
   return result;

@@ -3,8 +3,11 @@ import { doorLightSegments, isClosedSecretDoor, doorBoundaryCenter } from './doo
 import { getOrganicBlockedSides, getOrganicTileData, isOrganicMovementBlockingTile, isOrganicPillarTile } from "./organic-tiles.js";
 import { getInnerWallConnectedSides, getInnerWallTileData } from "./inner-walls.js";
 import { isAngledWallLightBlockingTile, isAngledWallMovementBlockingTile } from "./angled-walls.js";
-import { reviewedTileLightSegments } from "./reviewed-tile-rules.js";
+import { reviewedTileLightSegments, isStatueAsset } from "./reviewed-tile-rules.js";
 import { visualTilePoint } from "./tile-positions.js";
+import { isLightSuppressedAt } from './wizard-mishaps.js';
+import { isSleeping } from './conditions.js';
+import { routeOf, sameRoute, routeLightSegments } from './underpasses.js';
 
 const ANGLE_EPSILON = 0.00008;
 const RADIUS_RAY_COUNT = 96;
@@ -124,16 +127,16 @@ export function getDoorTiles(door) {
   };
 }
 
-function addLightSource(sources, seen, x, y, radius) {
+function addLightSource(sources, seen, x, y, radius, routeId = '') {
   const source = {
     x: Number(x),
     y: Number(y),
-    radius: Math.max(1, Number(radius) || 6)
+    radius: Math.max(1, Number(radius) || 6), routeId
   };
   if (!Number.isFinite(source.x) || !Number.isFinite(source.y)) {
     return;
   }
-  const key = `${source.x},${source.y},${source.radius}`;
+  const key = `${source.routeId}:${source.x},${source.y},${source.radius}`;
   if (seen.has(key)) {
     return;
   }
@@ -146,7 +149,7 @@ function lightReachesViewer(state, source, viewers) {
     return false;
   }
   const polygon = computeLightPolygon(state, source);
-  return viewers.some((character) => isPointInPolygon(visualTilePoint(state,character.visualX ?? character.x,character.visualY ?? character.y)
+  return viewers.some((character) => sameRoute(state, character, source) && isPointInPolygon(visualTilePoint(state,character.visualX ?? character.x,character.visualY ?? character.y)
     .map(value=>value*TILE_SIZE_PX),polygon));
 }
 
@@ -154,21 +157,28 @@ export function collectLightSources(state) {
   const sources = [];
   const seen = new Set();
   const viewerIds = state.viewerCharacterIds instanceof Set ? state.viewerCharacterIds : null;
+  const observers = (state.characters || []).filter(character => (!viewerIds || viewerIds.has(character.id)) && !character.dead && !character.slain && !isSleeping(character, state));
+  if ((state.characters || []).length && !observers.length) return [];
   const viewers = viewerIds
     ? (state.characters || []).filter((character) => (
       viewerIds.has(character.id) &&
       character.dead !== true &&
       character.slain !== true &&
+      !isSleeping(character, state) &&
       Number.isFinite(Number(character.x)) &&
       Number.isFinite(Number(character.y))
     ))
     : [];
   for (const character of state.characters || []) {
+    if(character.companion?.kind==='doppelganger'&&!character.dead&&!character.slain&&
+       (!viewerIds?state.activeCharacterId===character.id:viewerIds.has(character.id))) {
+      addLightSource(sources,seen,Number(character.visualX??character.x),Number(character.visualY??character.y),12,routeOf(state,character));
+    }
     if (Number(character?.lightRadius) > 0) {
       const source = {
         x: Number(character.visualX ?? character.x),
         y: Number(character.visualY ?? character.y),
-        radius: Number(character.lightRadius)
+        radius: Number(character.lightRadius), routeId: character.visualRouteId ?? routeOf(state, character)
       };
       if (viewerIds && !viewerIds.has(character.id) && !lightReachesViewer(state, source, viewers)) {
         continue;
@@ -178,12 +188,12 @@ export function collectLightSources(state) {
         seen,
         source.x,
         source.y,
-        character.lightRadius
+        character.lightRadius, source.routeId
       );
     }
   }
   if (state.player?.torchLit && state.sharedRoom !== true) {
-    addLightSource(sources, seen, state.player.x, state.player.y, state.player.lightRadius);
+    addLightSource(sources, seen, state.player.x, state.player.y, state.player.lightRadius, routeOf(state, state.player));
   }
   for (const entity of state.entities || []) {
     if (
@@ -192,14 +202,30 @@ export function collectLightSources(state) {
       entity.visible !== false &&
       Number(entity.lightRadius) > 0
     ) {
-      const source = { x: entity.x, y: entity.y, radius: entity.lightRadius };
+      const source = { x: entity.x, y: entity.y, radius: entity.lightRadius, routeId: routeOf(state, entity) };
       if (viewerIds && !lightReachesViewer(state, source, viewers)) {
         continue;
       }
-      addLightSource(sources, seen, entity.x, entity.y, entity.lightRadius);
+      addLightSource(sources, seen, entity.x, entity.y, entity.lightRadius, source.routeId);
     }
   }
-  return sources;
+  if (state.rest?.suppliesPaid && ['sleeping', 'interrupted', 'voting'].includes(state.rest.phase)) {
+    const source = { x: state.rest.x, y: state.rest.y, radius: 6, routeId: routeOf(state, state.rest) };
+    if (!viewerIds || lightReachesViewer(state, source, viewers)) addLightSource(sources, seen, source.x, source.y, source.radius, source.routeId);
+  }
+  const visible = sources.filter(source => !isLightSuppressedAt(state, source.x, source.y, source));
+  const transition = state.lightTransition;
+  if (Number.isFinite(state.lightVisualTime) && transition) {
+    const elapsed = state.lightVisualTime - transition.startedAt;
+    if (elapsed >= 0 && elapsed < 1000) return [];
+    if (elapsed >= 1000 && elapsed < 3000) {
+      const character = state.characters?.find(member => member.id === transition.characterId);
+      const growth = (elapsed - 1000) / 2000;
+      return visible.map(source => character && Math.abs(source.x - (character.visualX ?? character.x)) < .01 && Math.abs(source.y - (character.visualY ?? character.y)) < .01
+        ? { ...source, radius: .27 + (source.radius - .27) * growth } : source);
+    }
+  }
+  return visible;
 }
 
 function tileEdgeSegment(x, y, side) {
@@ -318,7 +344,7 @@ function organicBlockingSegments(tile) {
 }
 
 function collectBlockingSegments(state, source, sourcePoint, radiusPx, options = {}) {
-  const segments = [];
+  const segments = routeLightSegments(state, source).filter(segment => segmentNearSource(segment, sourcePoint, radiusPx));
   const radiusTiles = Math.ceil(Math.max(1, Number(source.radius) || 6)) + 2;
   const originX = Math.round(Number(source.x));
   const originY = Math.round(Number(source.y));
@@ -360,7 +386,7 @@ function collectBlockingSegments(state, source, sourcePoint, radiusPx, options =
     }
   }
 
-  for (const column of options.ignorePillars ? [] : state.decor?.columns || []) {
+  for (const column of options.ignorePillars || routeOf(state, source) ? [] : state.decor?.columns || []) {
     for (const segment of columnBlockingSegments(column)) {
       if (segmentNearSource(segment, sourcePoint, radiusPx)) {
         segments.push(segment);
@@ -369,7 +395,7 @@ function collectBlockingSegments(state, source, sourcePoint, radiusPx, options =
   }
 
   for (const entity of state.entities || []) {
-    if (entity.subtype !== "door" || isPortcullisDoor(entity)) {
+    if (entity.subtype !== "door" || isPortcullisDoor(entity) || !sameRoute(state, source, entity)) {
       continue;
     }
     const reviewed = doorLightSegments(entity);
@@ -379,7 +405,10 @@ function collectBlockingSegments(state, source, sourcePoint, radiusPx, options =
     }
   }
 
-  for (const line of state.decor?.reviewedLight || []) {
+  for (const placement of state.decor?.reviewed || []) if (isStatueAsset(placement.assetKey) && sameRoute(state, source, placement)) {
+    for (const segment of columnBlockingSegments(placement)) if (segmentNearSource(segment, sourcePoint, radiusPx)) segments.push(segment);
+  }
+  for (const line of routeOf(state, source) ? [] : state.decor?.reviewedLight || []) {
     let segment=reviewedSegmentCache.get(line);
     if(!segment) { segment=line.map(point=>point.map(value=>value*TILE_SIZE_PX));reviewedSegmentCache.set(line,segment); }
     if(segmentNearSource(segment,sourcePoint,radiusPx))segments.push(segment);
@@ -470,7 +499,7 @@ export function organicTileBlocksLine(tile, from, to) {
   });
 }
 
-const lightPolygonKey = (source, options = {}) => `${source.x},${source.y},${source.radius}:${options.ignorePillars === true}`;
+const lightPolygonKey = (source, options = {}) => `${source.routeId || ''}:${source.x},${source.y},${source.radius}:${options.ignorePillars === true}`;
 
 export function withLightPolygonCache(state, draw, knownPolygons = []) {
   const previous = lightPolygonPasses.get(state);

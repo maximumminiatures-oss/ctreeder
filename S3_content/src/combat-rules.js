@@ -1,29 +1,78 @@
+import { movementStepCost } from './terrain-movement.js';
+import { isFloatingDisc } from './floating-disc.js';
+import { petrifiedLegs, isRaving } from './arcane-effects.js';
+import { routeOf, routeStep } from './underpasses.js';
+
 export function characterMovementBudget(character) {
   const value = Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
-  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 6;
+  if (isRaving(character) || character?.conditions?.sinkhole) return 0;
+  return Math.max(0, Math.floor((Number.isFinite(value) ? value : 6) / 2 ** petrifiedLegs(character)));
 }
 
-export function characterOccupant(state, x, y, exceptId) {
-  return (state.characters || []).find(character => character.id !== exceptId && !character.dead && !character.slain && Number(character.x) === x && Number(character.y) === y);
+export function characterOccupant(state, x, y, exceptId, options = {}) {
+  const actor = state.characters?.find(character => character.id === exceptId);
+  const route = options.routeId ?? (actor ? routeStep(state, actor, { x, y })?.routeId ?? routeOf(state, actor) : routeOf(state, { x, y }));
+  return (state.characters || []).find(character => !isFloatingDisc(character) && character.id !== exceptId && !character.dead && !character.slain &&
+    routeOf(state, character) === route && Number(character.x) === x && Number(character.y) === y);
 }
 
 export function combatStepBlock(state, character, x, y) {
-  const monster = (state.entities || []).find(entity => entity.type === 'monster' && !entity.defeated && Number(entity.x) === x && Number(entity.y) === y);
+  const route = routeStep(state, character, { x, y })?.routeId ?? routeOf(state, character);
+  const monster = (state.entities || []).find(entity => entity.type === 'monster' && !entity.defeated && routeOf(state, entity) === route && Number(entity.x) === x && Number(entity.y) === y);
   if (monster) return `${monster.name || 'Monster'} blocks the way.`;
   const occupant = characterOccupant(state, x, y, character.id);
-  if (occupant && state.combat.movementRemaining <= 1) return `${character.name} can't end turn on ${occupant.name}'s token.`;
+  const remaining = state.combat.movementRemaining - movementStepCost(state, Number(character.x), Number(character.y));
+  if (occupant && remaining < movementStepCost(state, x, y)) return `${character.name} can't end turn on ${occupant.name}'s token.`;
   return '';
 }
 
-export function attackNarrative({ character, monster, weapon, roll, ability, abilityModifier, hit, damage }) {
+export function attackRollSegments({ character, monster, weapon, roll, ability, abilityModifier, hit, damage, damageRoll, magic = 0, hiddenMagic = 0, backstab = false, advantageReason = '' }) {
   const modifier = Number(abilityModifier) || 0;
-  const other = (Number(roll.modifier) || 0) - modifier;
+  const other = (Number(roll.modifier) || 0) - modifier - magic - hiddenMagic;
   const signed = number => `${number < 0 ? '-' : '+'}${Math.abs(number)}`;
-  const dice = roll.rolls?.length > 1 ? roll.rolls.join(', ') : roll.roll;
-  return `${character.name} attacks the ${(monster.name || 'monster').toLowerCase()} with a ${(weapon || 'unarmed strike').toLowerCase()} and ${hit ? 'hits' : 'misses'}. ` +
-    `1d20 = (${dice}) ${signed(modifier)} ${ability.toUpperCase()}${other ? ` ${signed(other)} other` : ''} = To hit: ${roll.total} vs ${monster.name || 'Monster'} AC ${Number.isFinite(Number(monster.ac)) ? Number(monster.ac) : 10}: ${hit ? 'hit' : 'miss'}` +
-    (damage != null ? `. Damage: ${damage}.` : '');
+  const mode = ['advantage', 'disadvantage'].includes(roll.checkMode) ? ` at ${roll.checkMode}` : '';
+  const parts = [{ text: character.name, bold: true, characterId: character.id },
+    { text: ` ${backstab ? 'backstabs' : 'attacks'} ${monster.name === 'nothing' ? 'nothing' : monster.partyMember ? monster.name : 'the ' + (monster.name || 'monster').toLowerCase()}${backstab ? '' : mode} with a ${(weapon || 'unarmed strike').toLowerCase()}.\n` }];
+  const values = Number.isFinite(roll.secondaryRoll) ? [roll.firstRoll, roll.secondaryRoll] : [roll.roll];
+  const tooltip = [];
+  if (advantageReason) tooltip.push({ text: `${roll.checkMode === 'advantage' ? 'Advantage from ' : 'Unaware from '}${advantageReason}; ` });
+  tooltip.push({ text: `${values.length}d20 = ` });
+  let chosen = false;
+  for (const value of values) {
+    const bold = !chosen && value === roll.roll;
+    if (bold) chosen = true;
+    if (values.length > 1) tooltip.push({ text: '(' });
+    tooltip.push({ text: String(value), bold, die: true, maximum: value === 20, minimum: value === 1 });
+    if (values.length > 1) tooltip.push({ text: ')' });
+  }
+  tooltip.push({ text: ` ${signed(modifier)} ${String(ability || 'attack').toUpperCase()}${magic ? ` ${signed(magic)} magic` : ''}${other ? ` ${signed(other)} other` : ''} = To hit: ` },
+    { text: String(roll.total), bold: true });
+  parts.push({ text: String(roll.total), bold: true, tooltip }, { text: ` ${hit ? 'Hits!' : 'Miss!'}` });
+  if (damage != null) {
+    const dice = damageRoll?.terms?.filter(term => term.type === 'die') || [];
+    const damageTip = [{ text: `${(weapon || 'unarmed').toLowerCase()}: ` }];
+    if (!backstab && dice.length === 1 && !(damageRoll.terms || []).some(term => term.type === 'flat') &&
+      !(damageRoll.multiplier > 1) && !damageRoll.resistance) {
+      damageTip.push({ text: `1-${dice[0].label.replace(/^1d/, '')} (` },
+        { text: String(dice[0].value), bold: true, maximum: dice[0].isMaximum, minimum: dice[0].isMinimum }, { text: ')' });
+    } else {
+      for (const [index, term] of (damageRoll?.terms || []).entries()) {
+        if (index || term.sign < 0) damageTip.push({ text: term.sign < 0 ? ' - ' : ' + ' });
+        damageTip.push({ text: term.type === 'die' ? `${term.label}${term.element ? ` ${term.element}` : ''} = (` : '' },
+          { text: String(term.value), bold: term.type === 'die', maximum: term.isMaximum, minimum: term.isMinimum },
+          { text: term.type === 'die' ? ')' : '' });
+      }
+      if (damageRoll?.multiplier > 1) damageTip.push({ text: ` x${damageRoll.multiplier}` });
+      if (damageRoll?.resistance) damageTip.push({ text: ` / 2 (${damageRoll.resistance} resistance)` });
+      damageTip.push({ text: backstab ? ' backstab = ' : ' = ' }, { text: String(damage), bold: true }, { text: ' damage' });
+    }
+    parts.push({ text: ' Damage: ' }, { text: String(damage), bold: true, tooltip: damageTip,
+      maximum: dice.length > 0 && dice.every(term => term.isMaximum), minimum: dice.length > 0 && dice.every(term => term.isMinimum) });
+  }
+  return parts;
 }
+
+export const attackNarrative = options => attackRollSegments(options).map(part => part.text).join('');
 
 export function colorChannels(value) {
   if (/^#[0-9a-f]{6}$/i.test(value)) return [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16));

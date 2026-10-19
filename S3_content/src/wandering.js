@@ -2,6 +2,7 @@ import { ENTITY_TYPES, TILE_TYPES } from "./constants.js";
 import { getTile, tileKey } from "./state-schema.js";
 import { SeededRng } from "./rng.js";
 import { isUndeadMonster } from "./crypts.js";
+import { canMoveBetweenTiles } from './interactions.js';
 
 export const DEFAULT_WANDERING_NUMERATOR = 1;
 export const DEFAULT_WANDERING_DENOMINATOR = 6;
@@ -63,6 +64,22 @@ function visibleEdgeCandidates(state) {
   return candidates;
 }
 
+function unlitEdgeCandidates(state, origin) {
+  const start = { x: Number(origin.x), y: Number(origin.y) };
+  const seen = new Set([tileKey(start.x, start.y)]), queue = [start], candidates = [];
+  for (let i = 0; i < queue.length; i += 1) {
+    const point = queue[i];
+    const distance = Math.max(Math.abs(point.x - start.x), Math.abs(point.y - start.y));
+    if (distance >= 4 && !isOccupied(state, point.x, point.y)) candidates.push(getTile(state, point.x, point.y));
+    if (distance >= 6) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = point.x + dx, y = point.y + dy, key = tileKey(x, y);
+      if (!seen.has(key) && canMoveBetweenTiles(state, point.x, point.y, x, y).ok) { seen.add(key); queue.push({ x, y }); }
+    }
+  }
+  return candidates.filter(Boolean);
+}
+
 function monsterDetails(rng, monsterTable) {
   const validMonsters = monsterTable.filter((monster) => monster?.["Monster Name"] || monster?.name);
   const monster = rng.pick(validMonsters);
@@ -80,29 +97,44 @@ function monsterDetails(rng, monsterTable) {
     level: monster["**LV**"] ?? monster.level ?? null,
     ac: monster["**AC**"] ?? monster.ac ?? null,
     hp: monster["**HP**"] ?? monster.hp ?? null,
+    maxHp: Number.parseInt(monster.hp ?? monster['**HP**'],10)||1,
     attack: monster["**ATK**"] ?? monster.attack ?? null,
     movement: monster["**MV**"] || monster.movement || null,
     D: monster["**D**"] || monster.D || "",
+    S: monster.S ?? monster['**S**'] ?? '',
+    C: monster.C ?? monster['**C**'] ?? '',
+    I: monster.I ?? monster['**I**'] ?? '',
+    W: monster.W ?? monster['**W**'] ?? '',
+    Ch: monster.Ch ?? monster['**CH**'] ?? '',
+    languages: monster.languages ?? '',
+    alignment: monster.alignment ?? monster.AL ?? monster["**AL**"] ?? "",
+    chaModifier: Number(monster.chaModifier ?? monster.Ch ?? monster.CH ?? monster["**CH**"]) || 0,
     abilities: monster.abilities || {},
     tags: monster.tags || [],
     diplomacy: monster.diplomacy || monster.Diplomacy || monster["Diplomacy"] || ""
   };
 }
 
-export function maybeSpawnWanderingMonster(state, monsterTable = []) {
-  if (!wanderingEnabled(state) || !state.player.torchLit) {
+export function wanderingCheckDenominator(state,origin=state.player) {
+  return state.wanderingMonsters.denominator*(origin?.roomId&&origin.roomId===state.generation?.entranceRoomId?2:1);
+}
+
+export function maybeSpawnWanderingMonster(state, monsterTable = [], options = {}) {
+  if (!wanderingEnabled(state) || (!state.player.torchLit && !options.ignoreDarkness)) {
     return { spawned: false, message: "" };
   }
 
   const chance = state.wanderingMonsters;
-  const seed = (Number(state.seed) || 0) + Math.floor(state.timers?.torchElapsedMs || 0) + chance.spawnedCount;
+  const seed = (Number(state.seed) || 0) + Math.floor(state.timers?.torchElapsedMs || 0) + chance.spawnedCount + (Number(options.seedOffset) || 0);
   const rng = new SeededRng(seed);
-  const roll = rng.nextInt(1, chance.denominator);
+  const denominator=wanderingCheckDenominator(state,options.origin||state.player) * (options.chanceDivisor === 4 ? 4 : options.chanceDivisor === 2 ? 2 : 1);
+  const roll = rng.nextInt(1, denominator);
   if (roll > chance.numerator) {
-    return { spawned: false, message: `Wandering monster check: ${roll} in ${chance.denominator}. No monster appears.` };
+    return { spawned: false, message: `Wandering monster check: ${roll} in ${denominator}. No monster appears.` };
   }
 
-  const candidates = visibleEdgeCandidates(state);
+  const candidates = (options.allowUnlit ? unlitEdgeCandidates(state, options.origin || state.player) : visibleEdgeCandidates(state))
+    .filter(tile => !state.characters?.some(character => character.x === tile.x && character.y === tile.y));
   const tile = rng.pick(candidates);
   if (!tile) {
     return { spawned: false, message: "Wandering monster check passed, but no visible edge square was available." };
