@@ -120,16 +120,16 @@ export function wanderingCheckDenominator(state,origin=state.player) {
 }
 
 export function maybeSpawnWanderingMonster(state, monsterTable = [], options = {}) {
-  if (!wanderingEnabled(state) || (!state.player.torchLit && !options.ignoreDarkness)) {
+  if ((!options.forceEncounter && !wanderingEnabled(state)) || (!state.player.torchLit && !options.ignoreDarkness)) {
     return { spawned: false, message: "" };
   }
 
-  const chance = state.wanderingMonsters;
+  const chance = state.wanderingMonsters ||= { numerator: 1, denominator: 6, spawnedCount: 0 };
   const seed = (Number(state.seed) || 0) + Math.floor(state.timers?.torchElapsedMs || 0) + chance.spawnedCount + (Number(options.seedOffset) || 0);
   const rng = new SeededRng(seed);
-  const denominator=wanderingCheckDenominator(state,options.origin||state.player) * (options.chanceDivisor === 4 ? 4 : options.chanceDivisor === 2 ? 2 : 1);
+  const denominator=options.forceEncounter ? 1 : wanderingCheckDenominator(state,options.origin||state.player) * (options.chanceDivisor === 4 ? 4 : options.chanceDivisor === 2 ? 2 : 1);
   const roll = rng.nextInt(1, denominator);
-  if (roll > chance.numerator) {
+  if (!options.forceEncounter && roll > chance.numerator) {
     return { spawned: false, message: `Wandering monster check: ${roll} in ${denominator}. No monster appears.` };
   }
 

@@ -34,6 +34,7 @@ from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from room_models import GameRoom, RoomMember, RoomInvite, RoomCommand, SaveCheckpoint
 from validation import validate_json, validate_state
 from storage_limits import storage_available, STORAGE_FULL
+from party_persistence import SavedParty, register_party_routes, with_lineage, character_lineage
 from import_capacity import ImportBusyError, import_slot
 from shadowdarklings_import import fetch_shadowdarklings_character_json
 
@@ -1165,6 +1166,7 @@ def create_saved_character():
 
     try:
         validate_json(character_json, max_bytes=128 * 1024)
+        character_json = with_lineage(character_json)
     except ValueError as exc:
         return {"error": "invalid_character", "message": str(exc)}, 400
     db = get_db_session()
@@ -1214,6 +1216,7 @@ def api_list_saved_characters():
                 "id": character.id,
                 "revision": character.revision,
                 "name": character.name,
+                "lineageId": character_lineage(with_lineage(character.character_json, fallback=f"saved-character-{character.id}")),
                 "created_at": character.created_at.isoformat() if character.created_at else None,
                 "updated_at": character.updated_at.isoformat() if character.updated_at else None,
                 "links": {"self": f"/api/characters/{character.id}"}
@@ -1237,7 +1240,7 @@ def get_saved_character(character_id):
         "id": saved.id,
         "revision": saved.revision,
         "name": saved.name,
-        "character_json": saved.character_json,
+        "character_json": with_lineage(saved.character_json, fallback=f"saved-character-{saved.id}"),
         "created_at": saved.created_at.isoformat() if saved.created_at else None,
         "updated_at": saved.updated_at.isoformat() if saved.updated_at else None
     }, 200
@@ -1676,6 +1679,7 @@ def get_random_tables():
 
 from rooms import register_room_routes
 register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit)
+register_party_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit)
 from account_security import register_account_routes
 register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit)
 

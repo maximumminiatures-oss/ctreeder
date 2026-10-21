@@ -12,6 +12,7 @@ from room_models import GameRoom, RoomMember, RecoveryCode, SaveCheckpoint, utcn
 from rooms import digest
 from storage_limits import STORAGE_FULL, storage_available
 from validation import validate_json, validate_state
+from party_persistence import SavedParty, MAX_PARTIES, with_lineage, character_lineage
 
 
 def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit):
@@ -73,6 +74,7 @@ def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_li
                                 checkpoint.roster_json = [{**row, "user_id": None, "display_name": "Deleted player"} if row.get("user_id") == user.id else row for row in checkpoint.roster_json]
                                 db.add(checkpoint)
                     db.exec(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
+                    db.exec(delete(SavedParty).where(SavedParty.user_id == user.id))
                     db.delete(user)
                     db.commit()
                     logout_user()
@@ -117,9 +119,11 @@ def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_li
             user = db.get(User, current_user.id)
             runs = db.exec(select(SavedRun).where(SavedRun.user_id == user.id)).all()
             characters = db.exec(select(SavedCharacter).where(SavedCharacter.user_id == user.id)).all()
+            parties = db.exec(select(SavedParty).where(SavedParty.user_id == user.id)).all()
             response = jsonify({"schema_version": 1, "account": {"username": user.username, "email": user.email},
                 "saved_games": [run.model_dump(mode="json") for run in runs],
-                "characters": [char.model_dump(mode="json") for char in characters]})
+                "characters": [char.model_dump(mode="json") for char in characters],
+                "parties": [party.model_dump(mode="json") for party in parties]})
             response.headers["Content-Disposition"] = 'attachment; filename="shadowspawner-account.json"'
             return response
 
@@ -133,6 +137,10 @@ def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_li
             if not saved or saved.user_id != current_user.id or saved.deleted_at:
                 return {"error": "not_found"}, 404
             data = request.get_json(silent=True) or {}
+            try:
+                validate_json(data)
+            except ValueError as exc:
+                return {"error": "invalid_json", "message": str(exc)}, 400
             if type(data.get("revision")) is not int or data["revision"] != saved.revision:
                 return {"error": "revision_conflict", "message": "Reload the character before changing this save."}, 409
             values = {"revision": saved.revision + 1, "updated_at": utcnow()}
@@ -141,6 +149,8 @@ def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_li
             else:
                 try:
                     values["character_json"] = validate_json(data.get("character_json"), max_bytes=128 * 1024)
+                    original = with_lineage(saved.character_json, fallback=f"saved-character-{saved.id}")
+                    values["character_json"] = {**values["character_json"], "lineageId": character_lineage(original)}
                 except ValueError as exc:
                     return {"error": "invalid_character", "message": str(exc)}, 400
                 name = data.get("name", saved.name)
@@ -162,15 +172,15 @@ def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_li
         cutoff = utcnow() - timedelta(days=30)
         with Session(engine) as db:
             return {"results": [{"id": item.id, "kind": kind, "revision": item.revision,
-                "name": item.name if kind == "character" else item.state_json.get("run", {}).get("name", "Dungeon")}
-                for kind, model in (("run", SavedRun), ("character", SavedCharacter))
+                "name": item.state_json.get("run", {}).get("name", "Dungeon") if kind == "run" else item.name}
+                for kind, model in (("run", SavedRun), ("character", SavedCharacter), ("party", SavedParty))
                 for item in db.exec(select(model).where(model.user_id == current_user.id, model.deleted_at >= cutoff)).all()]}
 
     @app.post("/api/recovery/<kind>/<int:save_id>")
     @login_required
     @rate_limit("10 per minute")
     def restore_deleted_save(kind, save_id):
-        model = {"run": SavedRun, "character": SavedCharacter}.get(kind)
+        model = {"run": SavedRun, "character": SavedCharacter, "party": SavedParty}.get(kind)
         if not model:
             return {"error": "not_found"}, 404
         with Session(engine) as db:
@@ -181,7 +191,7 @@ def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_li
             from rooms import aware
             if aware(item.deleted_at) < utcnow() - timedelta(days=30):
                 return {"error": "expired"}, 410
-            if len(db.exec(select(model.id).where(model.user_id == current_user.id, model.deleted_at == None)).all()) >= (10 if kind == "run" else 50):
+            if len(db.exec(select(model.id).where(model.user_id == current_user.id, model.deleted_at == None)).all()) >= {"run": 10, "character": 50, "party": MAX_PARTIES}[kind]:
                 return {"error": "save_limit"}, 409
             item.deleted_at = None
             item.revision += 1

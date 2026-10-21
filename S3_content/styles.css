@@ -2859,13 +2859,13 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 }
 .save-load-menu { max-width: 360px; }
 .dungeon-config-row { align-items: center; }
-.dungeon-config-row #level-input { width: 4ch; }
+.dungeon-config-row #level-input { width: 5.5ch; min-width: 5.5ch; padding-left: 5px; padding-right: 4px; }
 .dungeon-config-row #seed-input { width: 10ch; }
 .damage-context { margin: 4px 0; }
 #holy-weapon-panel { top: auto; bottom: 12px; }
 #reaction-modal .spell-detail-actions { display: flex; gap: 8px; }
 
-/* The paper sheet keeps fixed fields; narrow viewports scroll the same sheet. */
+/* The paper sheet keeps fixed fields; viewport fitting belongs to the sheet controller. */
 .character-sheet-modal { border: 0; border-radius: 0; background: transparent; box-shadow: none; touch-action: auto; }
 .character-sheet--popout {
   grid-template-columns: 220px 235px 375px;
@@ -2986,7 +2986,21 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .turn-card-layer .character-card, .turn-card-layer .monster-card { margin: 0; box-shadow: 0 3px 12px #0008; }
 .turn-card-layer .combat-actions { align-self: center; }
 .turn-card-layer #end-turn-btn { background: white; color: black; border: 2px solid black; }
-.character-card.is-on-map { display: none; }
+.turn-card-layer .character-card, .turn-card-layer .monster-card { font-size: 1.15em; }
+.turn-card-layer .character-card .character-mini-header { font-size: 1.15rem; }
+.turn-card-layer .character-mini-stats { font-size: 1.035rem; }
+.turn-card-layer .character-mini-abilities button { font-size: 1.15rem; }
+.turn-card-layer .character-mini-header :is(.mini-sheet-open, .character-reorder-handle), .turn-card-layer .character-mini-header img { width: 28.75px; height: 28.75px; flex-basis: 28.75px; }
+.turn-card-layer { touch-action: none; }
+.tier-two-dialog { box-sizing: border-box; width: min(440px, calc(100% - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 12px; border: 2px solid #111; border-radius: 0; background: #fff; color: #111; font: 16px/1.3 "Times New Roman", Georgia, serif; }
+.tier-two-dialog::backdrop { background: #0009; }
+.tier-two-dialog h2, .tier-two-target-panel h2 { margin: -12px -12px 10px; padding: 6px 12px; background: #000; color: #fff; font: 20px/1.3 "Tagesschrift", Georgia, serif; }
+.tier-two-dialog button, .tier-two-target-panel button { margin: 4px; padding: 6px 10px; border: 1px solid #111; border-radius: 0; background: #fff; color: #111; font: inherit; cursor: pointer; }
+.tier-two-dialog button:disabled, .tier-two-target-panel button:disabled { opacity: .5; cursor: default; }
+.tier-two-dialog > button { display: block; width: 100%; margin: 6px 0; text-align: left; }
+.tier-two-target-panel { position: absolute; right: 12px; bottom: 12px; z-index: 25; box-sizing: border-box; width: min(320px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; padding: 12px; border: 2px solid #111; background: #fff; color: #111; font: 16px/1.3 "Times New Roman", Georgia, serif; }
+.tier-two-target-panel p { margin: 0 0 8px; }
+.character-mini-header .luck-token-button { flex: 0 0 16px; width: 16px; height: 16px; min-height: 0; padding: 0; margin: 0 2px; border: 2px solid #000; border-radius: 50%; background: #b5ccd8; }
 .character-mini-header { cursor: pointer; }
 .character-mini-header .character-color-control { display: contents; }
 .character-mini-header .mini-sheet-open { flex: 0 0 25px; display: grid; place-items: center; width: 25px; height: 25px; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; appearance: none; }
@@ -3039,3 +3053,224 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
   .turn-card-layer .character-mini-stats { font-size: .85rem; }
 }
 @media (prefers-reduced-motion: reduce) { .turn-character-card { animation: none; } }
+
+/* Final command treatment; image controls and semantic swatches are not commands. */
+body :is(.controls-panel, .map-panel, .modal-card, .turn-card-layer, .tier-two-dialog, .tier-two-target-panel, .sd-save-menus)
+  :is(button, .toolbar-button):not(:is(.mini-sheet-open, .character-reorder-handle, .sd-sheet-icon,
+    .character-color-dot, .character-color-choice, .luck-token-button, .magic-missile-dot,
+    .spell-link-button, .spellcasting-name, .advancement-spell-name, .sd-save-menus-close)) {
+  border: 1px solid #111 !important;
+  border-radius: 0 !important;
+  background: #fff !important;
+  color: #111 !important;
+  box-shadow: none !important;
+  text-shadow: none;
+  transform: none;
+  text-decoration: none;
+}
+
+body :is(.controls-panel, .map-panel, .modal-card, .turn-card-layer, .tier-two-dialog, .tier-two-target-panel, .sd-save-menus)
+  :is(button, .toolbar-button):not(:is(.mini-sheet-open, .character-reorder-handle, .sd-sheet-icon,
+    .character-color-dot, .character-color-choice, .luck-token-button, .magic-missile-dot,
+    .spell-link-button, .spellcasting-name, .advancement-spell-name, .sd-save-menus-close)):is(:hover, :focus-visible) {
+  outline: 1px solid #000;
+  outline-offset: 1px;
+  transform: none;
+}
+
+body :is(.controls-panel, .map-panel, .modal-card, .turn-card-layer, .tier-two-dialog, .tier-two-target-panel, .sd-save-menus)
+  button:not(:is(.mini-sheet-open, .character-reorder-handle, .sd-sheet-icon, .character-color-dot,
+    .character-color-choice, .luck-token-button, .magic-missile-dot, .spell-link-button,
+    .spellcasting-name, .advancement-spell-name, .sd-save-menus-close)):disabled {
+  color: #777 !important;
+  cursor: not-allowed;
+}
+
+.character-mini-header :is(.mini-sheet-open, .character-reorder-handle),
+.character-mini-header :is(.mini-sheet-open, .character-reorder-handle):is(:hover, :active, :focus-visible) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.character-sheet--popout .sd-sheet-icon,
+#character-sheet-close.sd-sheet-icon,
+.sd-shop-popover .sd-sheet-icon {
+  border: 0;
+  border-radius: 0;
+  background: #000;
+  color: #fff;
+  box-shadow: none;
+  transform: none;
+}
+
+.character-sheet--popout .sd-sheet-icon:is(:hover, :active, :focus-visible),
+#character-sheet-close.sd-sheet-icon:is(:hover, :active, :focus-visible),
+.sd-shop-popover .sd-sheet-icon:is(:hover, :active, :focus-visible) {
+  border: 0;
+  background: #000;
+  color: #fff;
+  box-shadow: none;
+  transform: none;
+}
+
+#character-sheet-modal .character-sheet-modal {
+  max-height: none;
+  overflow: hidden;
+}
+
+#character-sheet-modal .character-sheet-content {
+  max-height: none;
+  overflow: visible;
+}
+
+.character-sheet--popout .sd-talents-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.character-sheet--popout .sd-talents-panel > h3 {
+  flex: 0 0 24px;
+  margin-bottom: 0;
+}
+
+.character-sheet--popout .sd-talents-content {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px 10px 6px;
+  overflow: hidden;
+  font: .76rem/1.15 "Times New Roman", Georgia, serif;
+  letter-spacing: 0;
+  white-space: normal;
+}
+
+.character-sheet--popout .sd-talents-content > *,
+.character-sheet--popout .sd-talents-content :is(.sd-talents-list, .sd-spell-summary-line, .sd-spell-tier,
+  .sd-spell-tier-label, .sd-spell-names, .sd-sheet-languages) {
+  min-width: 0;
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.character-sheet--popout .sd-talents-content :is(.sd-talents-list, .sd-spell-summary-line) {
+  display: block;
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  white-space: normal;
+}
+
+.character-sheet--popout .sd-talents-content :is(.sd-talents-list, .sd-spell-summary-line) > strong {
+  display: block;
+  font-size: inherit;
+  font-weight: 700;
+}
+
+.character-sheet--popout .sd-talents-list > div,
+.character-sheet--popout .sd-spell-names {
+  display: block;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding-left: 12px;
+  border: 0;
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.character-sheet--popout .sd-spell-summary-line .sd-spell-tier {
+  display: block;
+  margin: 2px 0 0 12px;
+}
+
+.character-sheet--popout .sd-spell-tier-label {
+  display: block;
+  margin: 0;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.character-sheet--popout .sd-talents-content .spell-link-button,
+.character-sheet--popout .sd-talents-content .spell-link-button:is(:visited, :hover, :focus-visible, .is-spell-ready) {
+  display: inline;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #111;
+  box-shadow: none;
+  font: inherit;
+  text-decoration: none;
+  outline: none;
+  cursor: pointer;
+}
+
+.character-sheet--popout .sd-talents-content .spell-link-button.is-spell-lost,
+.character-sheet--popout .sd-talents-content .spell-link-button.is-spell-lost:is(:visited, :hover, :focus-visible) {
+  color: #777;
+}
+
+.character-sheet--popout .sd-talents-content .sd-sheet-languages {
+  display: block;
+  flex-shrink: 0;
+  height: auto;
+  min-height: 0;
+  margin-top: auto;
+  padding-top: 4px;
+  border: 0;
+  border-top: 1px solid #111;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.character-sheet--popout :is(.attack-roll-button, .sd-sheet-spellcasting-button) {
+  display: inline-block;
+  min-height: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 2px;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  vertical-align: baseline;
+}
+
+/* These legacy hover declarations were important and more specific than commands. */
+.character-sheet--popout .sd-gear-row-has-drop .sd-gear-drop-button,
+.character-sheet--popout .sd-gear-row-has-drop:is(:hover, :focus, :focus-within, .is-drop-open) .sd-gear-drop-button {
+  border-radius: 0 !important;
+  background: #fff !important;
+  color: #111 !important;
+  box-shadow: none;
+}
+.character-sheet--popout .sd-gear-row-has-drop .sd-gear-drop-button:disabled {
+  color: #777 !important;
+}
+
+body :is(.character-color-dot, .character-color-choice, .luck-token-button, .magic-missile-dot) {
+  border-radius: 50% !important;
+}
+body button:is(.character-color-dot, .character-color-choice) {
+  flex: 0 0 1.05rem;
+  width: 1.05rem;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  min-height: 1.05rem;
+  margin: 0;
+  padding: 0;
+  border: 2px solid #000;
+}

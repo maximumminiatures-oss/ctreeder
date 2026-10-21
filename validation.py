@@ -55,6 +55,7 @@ def validate_state(value, *, require_map=False):
     if not isinstance(characters, list) or len(characters) > 16:
         raise ValueError("A dungeon can contain at most 16 characters.")
     seen = set()
+    lineages = set()
     for character in characters:
         if not isinstance(character, dict):
             raise ValueError("Each character must be an object.")
@@ -62,6 +63,10 @@ def validate_state(value, *, require_map=False):
         if not isinstance(character_id, str) or not 1 <= len(character_id) <= 120 or character_id in seen:
             raise ValueError("Character IDs must be unique, nonempty strings.")
         seen.add(character_id)
+        lineage = character.get("lineageId", character_id)
+        if not isinstance(lineage, str) or not 1 <= len(lineage) <= 120 or lineage in lineages:
+            raise ValueError("Only one version of each character can be loaded.")
+        lineages.add(lineage)
     if require_map or "map" in value:
         map_data = value.get("map")
         if not isinstance(map_data, dict):

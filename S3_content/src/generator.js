@@ -14,8 +14,9 @@ import {
 } from "./state-schema.js";
 import { createTreasureDetails } from "./treasure.js";
 import { placeMagicTreasure } from './magic-items.js';
-import { addUnderpasses } from './underpasses.js';
+import { addUnderpasses, routeOf, routeExistsAt, routeStep, routeKey, pitTraversalNeighbors } from './underpasses.js';
 import { addPitFeatures } from './pit-tunnels.js';
+import { isPit, pitContains } from './pits.js';
 import { addCryptHallways, CRYPT_RULES, isUndeadMonster } from "./crypts.js";
 import { enforceSecretDoorApproaches } from "./secret-door-placement.js";
 import { pickReviewedLayout, applyReviewedLayout, canCrossReviewedGeometry, hasRangedMonsterAttack } from "./reviewed-layouts.js";
@@ -48,6 +49,7 @@ const RECT_GRAPH_DIRECTIONS = Object.freeze({
   west: Object.freeze({ x: -1, y: 0 }),
   east: Object.freeze({ x: 1, y: 0 })
 });
+export const DEEPEST_DUNGEON_LEVEL = 10;
 const RECT_GRAPH_SIDES = Object.freeze(["north", "south", "west", "east"]);
 const RECT_GRAPH_OPPOSITE = Object.freeze({
   north: "south",
@@ -1676,7 +1678,7 @@ function getRoomDoorInteriorKeys(state, room) {
       for (const side of RECT_GRAPH_SIDES) {
         const { dx, dy } = getOrganicNeighborDelta(side);
         const neighbor = getTile(state, x + dx, y + dy);
-        if (neighbor?.type === TILE_TYPES.FLOOR && neighbor.hallId && neighbor.roomId !== room.id) {
+        if (neighbor?.type === TILE_TYPES.FLOOR && neighbor.roomId !== room.id) {
           keys.add(`${x},${y}`);
           keys.add(`${neighbor.x},${neighbor.y}`);
           for (const adjacentSide of RECT_GRAPH_SIDES) {
@@ -3886,7 +3888,14 @@ function getDoorInteriorTile(room, side, doorTile) {
 function isDoorInteriorFloor(room, side, doorTile) {
   const interior = getDoorInteriorTile(room, side, doorTile);
   if (room.reviewedPorts && !room.reviewedPorts.some(([s,x,y])=>s===side && room.x+x===interior.x && room.y+y===interior.y)) return false;
-  return isRoomFloorTile(room, interior.x, interior.y);
+  if (!isRoomFloorTile(room, interior.x, interior.y)) return false;
+  // A doorway needs a flat wall, not the last floor cell along a diagonal corner.
+  if (room.reviewedPorts || room.rotunda || room.organic || Math.min(room.width, room.height) < 3) return true;
+  const normal = RECT_GRAPH_DIRECTIONS[side];
+  return [[-normal.y, normal.x], [normal.y, -normal.x], [-normal.x, -normal.y]].every(([dx, dy]) => {
+    const x = interior.x + dx, y = interior.y + dy;
+    return x >= room.x && x < room.x + room.width && y >= room.y && y < room.y + room.height && isRoomFloorTile(room, x, y);
+  });
 }
 
 function fitCornerSizeToDoors(room, doorPlacements) {
@@ -5239,10 +5248,20 @@ function applyOrganicCaveFreeArt(state, rng, catalog, protectedKeys) {
     if (!organicTileNeedsEdgeArt(state, tile, sides) || isAllOrganicSides(sides, "o")) {
       continue;
     }
+    const hallCorners = {};
+    if (tile.roomId) for (const side of RECT_GRAPH_SIDES) {
+      const delta = RECT_GRAPH_DIRECTIONS[side];
+      const neighbor = getTile(state, tile.x + delta.x, tile.y + delta.y);
+      if (neighbor?.type === TILE_TYPES.FLOOR && !neighbor.roomId && neighbor.hallId) {
+        for (const corner of ORGANIC_SIDE_CORNERS[side]) hallCorners[corner] = 'o';
+      }
+    }
     const placement = pickOrganicPlacement(catalog, "free", sides, rng, {
       state,
       tile,
+      strictCorners: Object.keys(hallCorners).length > 0,
       corners: Object.fromEntries(["nw", "ne", "se", "sw"].map((corner) => {
+        if (hallCorners[corner]) return [corner, hallCorners[corner]];
         const { dx, dy } = getOrganicCornerNeighborDeltas(corner)[2];
         const neighbor = getTile(state, tile.x + dx, tile.y + dy);
         const facing = { nw: "se", ne: "sw", se: "nw", sw: "ne" }[corner];
@@ -6853,10 +6872,12 @@ export function generateDungeon(seed = Date.now(), level = 1, options = {}) {
     fallback.generation.reviewedLayoutFallback=true;
     placeMagicTreasure(fallback, new SeededRng(Number(seed) + 7291), options.spells || []);
     finishUnderpasses(fallback, seed, options);
+    placeDungeonDownstairs(fallback);
     return fallback;
   }
   placeMagicTreasure(state, new SeededRng(Number(seed) + 7291), options.spells || []);
   finishUnderpasses(state, seed, options);
+  placeDungeonDownstairs(state);
   return state;
 }
 
@@ -6933,5 +6954,127 @@ export function generateClassicDungeon(seed = Date.now(), level = 1, options = {
   balanceTreasureSpawns(state, rng, options.trapTable || [], options.contentCatalog?.loot || {});
   balanceTreasureValue(state, rng, options.trapTable || [], options.contentCatalog?.loot || {});
   ensureVisibleGroundTreasure(state, rng, options.contentCatalog?.loot || {});
+  createEntranceStairs(state, entranceRoom, rng);
+  finishUnderpasses(state, seed, options);
+  placeDungeonDownstairs(state);
   return state;
+}
+
+// Generation treats doors as openable and pit climbs as deliberate physical paths.
+// It never merges crossing routes or treats falling through a floor as ordinary walking.
+export function isDungeonTraversalCell(state, point) {
+  const routeId = routeOf(state, point), tile = getTile(state, point.x, point.y);
+  if (!tile || !routeExistsAt(state, point.x, point.y, routeId)) return false;
+  if (routeId) return true;
+  return isWalkableForValidation(state, tile) && canCrossReviewedGeometry(state, point.x, point.y, point.x, point.y, point) &&
+    !(state.entities || []).some(entity => isPit(entity) && routeOf(state, entity) === routeId && pitContains(entity, point.x, point.y));
+}
+
+function canTraverseDungeonStep(state, from, to) {
+  if (!isDungeonTraversalCell(state, to)) return false;
+  const dx = to.x - from.x, dy = to.y - from.y;
+  if (dx && dy && [[from.x, to.y], [to.x, from.y]].some(([x, y]) =>
+    !isDungeonTraversalCell(state, { x, y, routeId: from.routeId }))) return false;
+  if (from.routeId || to.routeId) return true;
+  return canCrossReviewedGeometry(state, from.x, from.y, to.x, to.y, from) &&
+    canCrossOrganicEdge(getTile(state, from.x, from.y), getTile(state, to.x, to.y), dx, dy);
+}
+
+export function dungeonEntrancePoint(state) {
+  const upstairs = state.entities.find(entity => entity.doorKind === 'stairs-up');
+  const room = state.rooms.find(candidate => candidate.id === upstairs?.roomId);
+  if (upstairs && !isDungeonTraversalCell(state, upstairs) && room && upstairs.wallSide) {
+    return { ...getDoorInteriorTile(room, upstairs.wallSide, upstairs), routeId: routeOf(state, upstairs) };
+  }
+  return upstairs || state.player;
+}
+
+export function dungeonTraversalDistances(state, start = dungeonEntrancePoint(state)) {
+  const first = { x: start.x, y: start.y, routeId: routeOf(state, start) };
+  const distances = new Map(), queue = [];
+  if (!isDungeonTraversalCell(state, first)) return distances;
+  distances.set(routeKey(first), 0); queue.push(first);
+  for (let i = 0; i < queue.length; i++) {
+    const from = queue[i], distance = distances.get(routeKey(from)) + 1;
+    const neighbors = [];
+    for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]]) {
+      const to = routeStep(state, from, { x: from.x + dx, y: from.y + dy });
+      if (to && canTraverseDungeonStep(state, from, to)) neighbors.push(to);
+    }
+    neighbors.push(...pitTraversalNeighbors(state, from).filter(to => {
+      if (!isDungeonTraversalCell(state, to)) return false;
+      const upper = from.routeId ? to : from;
+      return canCrossReviewedGeometry(state, from.x, from.y, to.x, to.y, upper) &&
+        canCrossOrganicEdge(getTile(state, from.x, from.y), getTile(state, to.x, to.y), to.x - from.x, to.y - from.y);
+    }));
+    for (const to of neighbors) if (!distances.has(routeKey(to))) {
+      distances.set(routeKey(to), distance); queue.push(to);
+    }
+  }
+  return distances;
+}
+
+export function isSafeDungeonArrival(state, point, { allowWater = false, ignoreOccupants = false } = {}) {
+  if (!isDungeonTraversalCell(state, point)) return false;
+  const tile = getTile(state, point.x, point.y);
+  if ((!allowWater && (tile.meta?.water || tile.meta?.canal)) || tile.meta?.hazard) return false;
+  if (Object.values(state.decor || {}).some(items => Array.isArray(items) && items.some(item =>
+    decorPlacementCoversTile(item, point.x, point.y) && (item.blocksMovement || !allowWater && /water|canal/i.test(item.assetKey || item.asset || ''))))) return false;
+  return !(state.entities || []).some(entity => routeOf(state, entity) === routeOf(state, point) &&
+    (isPit(entity) && pitContains(entity, point.x, point.y) || entity.x === point.x && entity.y === point.y &&
+      !(entity.defeated || entity.collected || entity.disarmed) &&
+      (entity.subtype === 'door' || entity.blocksMovement || !ignoreOccupants &&
+        (entity.type === ENTITY_TYPES.MONSTER || entity.type === ENTITY_TYPES.TRAP))));
+}
+
+function reserveDownstairsCell(state, points, distances) {
+  const clear = points.find(point => isSafeDungeonArrival(state, point, { allowWater: true }));
+  if (clear) return clear;
+  // Tiny crypts can have all their floor cells populated. Relocate those spawns,
+  // not the stairs, so the physical farthest room remains the destination.
+  for (const point of points) {
+    const occupants = state.entities.filter(entity => entity.x === point.x && entity.y === point.y &&
+      routeOf(state, entity) === point.routeId && !entity.defeated && !entity.disarmed &&
+      [ENTITY_TYPES.MONSTER, ENTITY_TYPES.TRAP].includes(entity.type));
+    const cells = state.tiles.map(tile => ({ x: tile.x, y: tile.y, routeId: point.routeId }))
+      .filter(cell => routeKey(cell) !== routeKey(point) && distances.has(routeKey(cell)) &&
+        isSafeDungeonArrival(state, cell, { allowWater: true }))
+      .sort((a, b) => Number(getTile(state, b.x, b.y).roomId === getTile(state, point.x, point.y).roomId) -
+        Number(getTile(state, a.x, a.y).roomId === getTile(state, point.x, point.y).roomId) ||
+        Math.hypot(a.x - point.x, a.y - point.y) - Math.hypot(b.x - point.x, b.y - point.y) || a.y - b.y || a.x - b.x);
+    if (cells.length < occupants.length) continue;
+    occupants.forEach((entity, index) => {
+      const cell = cells[index], tile = getTile(state, cell.x, cell.y);
+      Object.assign(entity, cell, { roomId: tile.roomId, hallId: tile.hallId });
+    });
+    if (isSafeDungeonArrival(state, point, { allowWater: true })) return point;
+  }
+  return null;
+}
+
+export function placeDungeonDownstairs(state) {
+  state.entities = state.entities.filter(entity => entity.doorKind !== 'stairs-down');
+  delete state.generation.downstairs;
+  if (Number(state.level) >= DEEPEST_DUNGEON_LEVEL) return null;
+  const distances = dungeonTraversalDistances(state);
+  const candidates = state.rooms.filter(room => room.id !== state.generation.entranceRoomId).map(room => {
+    const points = state.tiles.filter(tile => tile.roomId === room.id).map(tile => ({ x: tile.x, y: tile.y, routeId: room.routeId || '' }))
+      .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point, { allowWater: true, ignoreOccupants: true }));
+    const reachable = state.tiles.filter(tile => tile.roomId === room.id).map(tile => distances.get(routeKey({ ...tile, routeId: room.routeId || '' })))
+      .filter(Number.isFinite);
+    return { room, points, distance: reachable.length ? Math.min(...reachable) : -1 };
+  }).filter(candidate => candidate.points.length && candidate.distance >= 0)
+    .sort((a, b) => b.distance - a.distance || a.room.id.localeCompare(b.room.id));
+  const chosen = candidates[0];
+  if (!chosen) return null;
+  chosen.points.sort((a, b) => distances.get(routeKey(b)) - distances.get(routeKey(a)) || a.y - b.y || a.x - b.x);
+  const point = reserveDownstairsCell(state, chosen.points, distances);
+  if (!point) return null;
+  // Keep the existing renderer's feature/door contract; north/south centers art in this cell.
+  const stairs = { id: `stairs-down-${state.level}`, type: ENTITY_TYPES.FEATURE, subtype: 'door', doorKind: 'stairs-down',
+    ...point, roomId: chosen.room.id, hallId: null, doorState: DOOR_STATES.OPEN, visible: true,
+    orientation: 'horizontal', wallSide: 'north', hallDirection: 'south', highestStep: 'north', watabouDoorType: 8 };
+  state.entities.push(stairs);
+  state.generation.downstairs = { entityId: stairs.id, roomId: chosen.room.id, routeId: point.routeId, distance: chosen.distance };
+  return stairs;
 }

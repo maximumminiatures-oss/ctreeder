@@ -93,9 +93,15 @@ test('full barriers stop sensing; invisible targets sensed by the caster become 
   for(let y=0;y<8;y++)state.tiles[y*16+3].type='wall';refreshMagicDetection(state);
   assert.equal(caster.magicDetectedIds.length,0);
 });
-test('Focus failure ends detection without losing the spell; first focus natural 20 offers a choice', () => {
+test('Detect Magic Focus twenties never offer a choice; initial critical persists until Focus ends', () => {
   const state=scene(),caster=state.characters[0];castWizardTierOne(state,caster,'detect magic',{checkRoll:roll(12)});
-  maintainDetectMagic(state,caster,{reason:'next round',checkRoll:roll(20)});resolveWizardTierOne(state,caster,{choice:'range'});
+  maintainDetectMagic(state,caster,{reason:'next round',checkRoll:roll(20)});
+  assert.equal(caster.pendingSpell,undefined);assert.equal(caster.focusSpell.radius,6);
+  assert.equal(caster.focusSpell.critical,false);
+  castWizardTierOne(state,caster,'detect magic',{checkRoll:roll(20)});
+  resolveWizardTierOne(state,caster,{choice:'range'});
+  maintainDetectMagic(state,caster,{reason:'next round',checkRoll:roll(20)});
+  assert.equal(caster.pendingSpell,null);
   assert.equal(caster.focusSpell.radius,12);maintainDetectMagic(state,caster,{checkRoll:roll(2)});
   assert.equal(caster.focusSpell,null);assert.ok(!caster.failedSpellKeys.includes('detect magic'));
 });

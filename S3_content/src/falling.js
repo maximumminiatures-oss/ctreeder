@@ -1,6 +1,7 @@
 import { setCharacterHp } from './characters.js';
 import { castWizardTierOne } from './wizard-tier-one.js';
 import { blocksSpellTier, forgottenSpells } from './arcane-effects.js';
+import { continueLuckSave } from './luck-runtime.js';
 
 function knownFeatherFall(character) {
   return String(character.spellsKnown || '').split(/,\s*/).some(name => /^feather fall$/i.test(name)) &&
@@ -18,6 +19,9 @@ export function queueFallingDamage(character, { sourceId, damage = null, manual 
   return character.pendingFall;
 }
 export function resolveFallingDamage(state, character, attempt, options = {}) {
+  return continueLuckSave(state, character, () => resolvePendingFallingDamage(state, character, attempt, options));
+}
+function resolvePendingFallingDamage(state, character, attempt, options = {}) {
   const event = character.pendingFall;
   if (!event) throw new Error('This character is not falling.');
   if (typeof attempt !== 'boolean') throw new Error('Choose yes or no for Feather Fall.');

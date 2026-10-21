@@ -52,6 +52,10 @@ For utility-spell testing, append `&utility-test=one` instead. This grants Badzo
 Alarm, Floating Disc, Mage Armor, Hold Portal and Sleep, three party rations, a lantern and oil in a
 derived copy.
 
+For Tier 2 Wizard testing, append `&tier-two-test=one` instead. Badzog receives
+the implemented Tier 2 list at level 4; the derived party receives 60 HP and one
+Luck Token each. This loopback-only fixture does not change the original exports.
+
 Append `&initial-choices=one` to test the fresh-import spell/mastery/Grit pickers
 with the same local fixture, without contacting ShadowDarklings. This flag also
 uses a derived copy and never changes the original fixture or production imports.

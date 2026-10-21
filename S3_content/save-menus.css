@@ -1,0 +1,63 @@
+.sd-save-menus {
+  box-sizing: border-box;
+  width: min(560px, calc(100% - 24px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 2px solid #111;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  font: 16px/1.3 "Times New Roman", Georgia, serif;
+  letter-spacing: 0;
+}
+.sd-save-menus::backdrop { background: rgb(0 0 0 / 65%); }
+.sd-save-menus *, .sd-save-menus *::before, .sd-save-menus *::after { box-sizing: border-box; }
+.sd-save-menus [hidden] { display: none !important; }
+.sd-save-menus header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #111; color: #fff; }
+.sd-save-menus h2 { flex: 1; margin: 0; font: 20px/1.2 "Tagesschrift", Georgia, serif; overflow-wrap: anywhere; }
+.sd-simple-dialog { padding: 16px; }
+.sd-simple-dialog h2 { margin-bottom: 12px; padding: 6px; background: #000; color: #fff; }
+.sd-simple-dialog > button { margin-right: 8px; }
+.sd-save-menus fieldset { min-width: 0; padding: 16px; margin: 0; border: 0; }
+.sd-save-menus button, .sd-save-menus input { font: inherit; letter-spacing: 0; }
+.sd-save-menus button { min-height: 32px; padding: 4px 10px; border: 1px solid #111; border-radius: 0; background: #fff; color: #111; cursor: pointer; white-space: normal; }
+.sd-save-menus button:hover:enabled { background: #e6f5f5; }
+.sd-save-menus button:disabled { color: #666; border-color: #aaa; background: #eee; cursor: default; }
+.sd-save-menus button:focus-visible, .sd-save-menus input:focus-visible { outline: 2px solid #167a9d; outline-offset: 2px; }
+.sd-save-menus .sd-save-menus-close { flex: 0 0 28px; width: 28px; min-height: 28px; padding: 0; border-color: #fff; background: #111; color: #fff; }
+.sd-save-menus .sd-save-menus-close:hover:enabled { background: #333; }
+.sd-save-menus p { margin: 0 0 12px; overflow-wrap: anywhere; }
+.sd-save-menus label { display: block; }
+.sd-save-menus input[type="text"] { display: block; width: 100%; min-width: 0; margin-top: 6px; padding: 6px; border: 1px solid #111; background: #fff; color: #111; border-radius: 0; }
+.sd-save-menus input[type="checkbox"] { width: 18px; height: 18px; margin: 0 8px 0 0; flex-shrink: 0; accent-color: #167a9d; }
+.sd-save-menus footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.sd-save-menus-list { display: grid; gap: 0; max-height: min(52dvh, 460px); overflow-y: auto; }
+.sd-save-menus-row { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 8px 0; border-bottom: 1px solid #ccc; }
+.sd-save-menus-row > label, .sd-save-menus-row > div { flex: 1; min-width: 0; }
+.sd-save-menus-row > label { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; align-items: start; }
+.sd-save-menus-row > label input[type="checkbox"] { margin: 0; }
+.sd-save-menus-name { min-width: 0; overflow-wrap: anywhere; }
+.sd-save-menus-note { display: block; width: 100%; color: #555; font-size: 14px; }
+.sd-save-menus-row > label .sd-save-menus-note { grid-column: 2; }
+.sd-save-menus .sd-save-menus-error { margin-top: 12px; color: #a00000; }
+@media (max-width: 400px) {
+  .sd-save-menus fieldset { padding: 12px; }
+  .sd-save-menus-row { gap: 6px; }
+  .sd-save-menus-row > button { padding: 4px 6px; }
+}
+
+.sd-save-menus button:not(.sd-save-menus-close):is(:hover, :focus-visible) {
+  background: #fff;
+  outline: 1px solid #000;
+  outline-offset: 1px;
+}
+.sd-save-menus .sd-save-menus-close,
+.sd-save-menus .sd-save-menus-close:is(:hover, :focus-visible) {
+  border: 0;
+  border-radius: 0;
+  background: #111;
+  color: #fff;
+  box-shadow: none;
+}

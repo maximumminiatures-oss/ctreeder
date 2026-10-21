@@ -71,10 +71,13 @@ test('protection applies alignment penalties, exempts caster, blocks mind contro
   assert.equal(protectionDisadvantage(state,{...chaotic,alignment:'Neutral'}),true);
 });
 
-test('ordinary focus failure loses only the effect; critical persists, can first arise later and is reset by recasting',()=>{
+test('Focus twenties never upgrade Protection; initial critical persists and ordinary failure only ends the effect',()=>{
   const state=scene(),priest=state.characters[0];
   castFaithSpell(state,priest,'protection from evil',{checkRoll:roll(12)});
-  maintainFocus(state,priest,{checkRoll:roll(20)});assert.equal(priest.focusSpell.radius,2);
+  maintainFocus(state,priest,{checkRoll:roll(20)});assert.equal(priest.focusSpell.radius,1);
+  assert.equal(priest.focusSpell.critical,false);
+  castFaithSpell(state,priest,'protection from evil',{checkRoll:roll(20)});
+  assert.equal(priest.focusSpell.radius,2);
   maintainFocus(state,priest,{checkRoll:roll(12)});assert.equal(priest.focusSpell.radius,2);
   maintainFocus(state,priest,{checkRoll:roll(2)});assert.equal(priest.focusSpell,null);
   assert.ok(!priest.failedSpellKeys?.includes('protection from evil'));

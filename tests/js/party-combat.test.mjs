@@ -43,24 +43,30 @@ function formation() {
     characters: [{ id: 'a', x: 6, y: 6, hp: 10 }, { id: 'b', x: 6, y: 7, hp: 10 }], entities: [] };
 }
 
-test('followers spread out in rooms, cluster in halls and stop in combat', () => {
+test('followers stay one tile behind in rooms and halls and stop in combat', () => {
   const state = formation(), config = { order: ['a', 'b'], followingIds: ['b'], direction: [0, -1] };
   const rules = { canStep: () => true, isLit: (x, y) => x >= 0 && y >= 0 && x < 12 && y < 12 };
-  assert.deepEqual(planMarchingSteps(state, 'a', config, rules), [{ characterId: 'b', dx: 0, dy: 1 }]);
+  assert.deepEqual(planMarchingSteps(state, 'a', config, rules), []);
+  state.characters[1].y = 8;
+  assert.deepEqual(planMarchingSteps(state, 'a', config, rules), [{ characterId: 'b', dx: 0, dy: -1 }]);
   state.tiles[6 * 12 + 6].roomId = null;
+  assert.deepEqual(planMarchingSteps(state, 'a', config, rules), [{ characterId: 'b', dx: 0, dy: -1 }]);
+  state.characters[1].y = 7;
   assert.deepEqual(planMarchingSteps(state, 'a', config, rules), []);
   state.combat = { active: true };
+  state.characters[1].y = 8;
   assert.deepEqual(planMarchingSteps(state, 'a', config, rules), []);
 });
 
 test('followers avoid occupied squares and revealed traps but can catch up through darkness', () => {
   const state = formation(), config = { order: ['a', 'b'], followingIds: ['b'], direction: [0, -1] };
-  state.entities.push({ type: 'trap', x: 6, y: 8, revealed: true });
+  state.characters[1].y = 8;
+  state.entities.push({ type: 'trap', x: 6, y: 7, revealed: true });
   const step = planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => true })[0];
-  assert.ok(!step || step.dx !== 0 || step.dy !== 1);
+  assert.ok(!step || step.dx !== 0 || step.dy !== -1);
   state.entities[0].revealed = false;
-  assert.deepEqual(planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => true })[0], { characterId: 'b', dx: 0, dy: 1 });
-  assert.deepEqual(planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => false })[0], {characterId:'b',dx:0,dy:1});
+  assert.deepEqual(planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => true })[0], { characterId: 'b', dx: 0, dy: -1 });
+  assert.deepEqual(planMarchingSteps(state, 'a', config, { canStep: () => true, isLit: () => false })[0], {characterId:'b',dx:0,dy:-1});
   assert.deepEqual(planMarchingSteps(state, 'a', { ...config, followingIds: [] }, { canStep: () => true, isLit: () => true }), []);
 });
 

@@ -84,9 +84,10 @@
     "duration": "Focus",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You can sense the presence of magic within near range for the spell's duration. If you focus for two rounds, you discern its general properties. Full barriers block this spell.",
+    "description": "You can sense the presence of magic within near range for the spell's duration. If you focus for two rounds, you discern its general properties. Full barriers block this spell.\n\nOn a natural 20 on the initial casting check, choose double range (12 squares) or immediately discern general properties. The chosen critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
     "paragraphs": [
-      "You can sense the presence of magic within near range for the spell's duration. If you focus for two rounds, you discern its general properties. Full barriers block this spell."
+      "You can sense the presence of magic within near range for the spell's duration. If you focus for two rounds, you discern its general properties. Full barriers block this spell.",
+      "On a natural 20 on the initial casting check, choose double range (12 squares) or immediately discern general properties. The chosen critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects."
     ],
     "damage": []
   },
@@ -254,8 +255,12 @@
     "duration": "Focus",
     "range": "Close",
     "rangeBand": "close",
-    "description": "While you maintain focus, a protective aura surrounds you. Chaotic beings within it have disadvantage on attacks and spellcasting; you are exempt. Creatures within the aura cannot be charmed, beguiled, possessed, compelled, or mind-controlled. A chaotic priest instead casts Protection from Good, affecting lawful and neutral beings. A critical success doubles the aura to 10 feet.",
-    "paragraphs": ["Maintain focus with a free spellcasting check each subsequent round, and immediately after damage or a distracting effect. An ordinary failed focus check ends the aura without losing the spell. A natural 1 applies normal critical failure rules."],
+    "description": "While you maintain focus, a protective aura surrounds you. Chaotic beings within it have disadvantage on attacks and spellcasting; you are exempt. Creatures within the aura cannot be charmed, beguiled, possessed, compelled, or mind-controlled. A chaotic priest instead casts Protection from Good, affecting lawful and neutral beings.\n\nMaintain focus with a free spellcasting check each subsequent round, and immediately after damage or a distracting effect. An ordinary failed focus check ends the aura without losing the spell. A natural 1 applies normal critical failure rules.\n\nA natural 20 on the initial casting check doubles the aura to 10 feet while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
+    "paragraphs": [
+      "While you maintain focus, a protective aura surrounds you. Chaotic beings within it have disadvantage on attacks and spellcasting; you are exempt. Creatures within the aura cannot be charmed, beguiled, possessed, compelled, or mind-controlled. A chaotic priest instead casts Protection from Good, affecting lawful and neutral beings.",
+      "Maintain focus with a free spellcasting check each subsequent round, and immediately after damage or a distracting effect. An ordinary failed focus check ends the aura without losing the spell. A natural 1 applies normal critical failure rules.",
+      "A natural 20 on the initial casting check doubles the aura to 10 feet while you maintain Focus. Later Focus checks cannot grant or change critical effects."
+    ],
     "damage": []
   },
   {

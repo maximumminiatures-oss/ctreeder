@@ -47,15 +47,19 @@ test('dwarves roll twice for HP; minimum gain is one; level ten preserves extra 
   const capped=hero();capped.level=10;awardExperience(capped,1000);assert.equal(capped.XP,1000);assert.equal(canLevelUp(capped),false);
 });
 
-test('priests have four tier-one spells at level two, not counting Turn Undead',()=>{
-  const character=hero('Priest'),event=earnLevel(character,12);
-  assert.equal(event.tasks.length,2);
+test('priests gain exactly one tier-one spell at level two without counting Turn Undead',()=>{
+  const character=hero('Priest');
+  character.spellsKnown = 'Turn Undead, Light, Cure Wounds';
+  const event=earnLevel(character,12);
+  assert.equal(event.tasks.length,1);
   for(const task of event.tasks) {
     const choices=advancementOptions(character,event,task,{spells});
-    assert.ok(!choices.some(option=>['Turn Undead','Light','Magic Missile'].includes(option.value)));
+    assert.ok(!choices.some(option=>['Turn Undead','Light','Cure Wounds','Magic Missile'].includes(option.value)));
     resolveAdvancement(character,event.id,task.id,choices[0].value,{spells});
   }
-  assert.equal(character.spellsKnown.split(', ').length,4);assert.equal(event.completed,true);
+  const known = character.spellsKnown.split(', ');
+  assert.equal(known.length,4);assert.equal(known.filter(name=>name!=='Turn Undead').length,3);
+  assert.equal(event.completed,true);
   assert.throws(()=>resolveAdvancement(character,event.id,'spell','Light',{spells}),/valid pending/);
 });
 
@@ -63,7 +67,7 @@ test('wizard and priest new spell tasks use exactly the requested tier at each l
   for(const className of ['Wizard','Priest'])for(let level=2;level<=10;level++) {
     const character=hero(className);character.level=level-1;character.XP=xpTarget(character);
     const event=beginLevelUp(character,{random:()=>.5});
-    const tasks=event.tasks.filter(task=>task.type==='spell');assert.equal(tasks.length,className==='Priest'&&level===2?2:1);
+    const tasks=event.tasks.filter(task=>task.type==='spell');assert.equal(tasks.length,1);
     for(const task of tasks) {
       assert.equal(task.tier,Math.floor((level+1)/2));
       for(const option of advancementOptions(character,event,task,{spells}))assert.equal(spells.find(spell=>spell.name===option.value).tier,task.tier);

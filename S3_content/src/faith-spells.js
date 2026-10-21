@@ -164,7 +164,6 @@ export function maintainFocus(state,caster,{reason='next round',advantage=false,
     if(check.roll===1) mishaps=loseSpell(state,caster,focus.spell,true);
   } else {
     focus.lastCheck=check.total;
-    if(check.roll===20&&!focus.critical) {focus.critical=true;focus.radius=2;}
   }
   return {check,succeeded,mishaps,message:`${caster.name} focus (${reason}): ${check.total} vs DC 11; ${succeeded?'maintained':'lost'}${check.roll===1?'; critical failure':''}.`};
 }

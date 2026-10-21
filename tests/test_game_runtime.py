@@ -188,7 +188,8 @@ def test_attack_history_is_shared_with_raw_roll_and_ability_breakdown():
     hover = "".join(part["text"] for segment in result["state_json"]["rollHistory"][0]["segments"] for part in segment.get("tooltip", []))
     assert "1d20 = " in hover
     assert "STR" in hover
-    assert result["state_json"]["rollHistory"][0]["detail"] == result["message"]
+    # Status formatting supplies final sentence punctuation without changing history.
+    assert result["state_json"]["rollHistory"][0]["detail"].removesuffix(".") == result["message"].removesuffix(".")
     assert result["state_json"]["rollHistory"][0]["segments"]
 
 

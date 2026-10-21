@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withinTargetRange, pendingSpellAllowsCommand, planClickMovement } from '../../S3_content/src/targeting.js';
-import { recomputeVisibility } from '../../S3_content/src/visibility.js';
+import { withinTargetRange, canAimAtSquare, canTargetAtRange, pendingSpellAllowsCommand, planClickMovement } from '../../S3_content/src/targeting.js';
+import { recomputeVisibility, isTilePerceived, isTileVisible } from '../../S3_content/src/visibility.js';
 
 function scene() {
   const character = { id: 'hero', name: 'Hero', x: 3, y: 3, hp: 10, lightRadius: 12, gear: [] };
@@ -44,4 +44,69 @@ test('click paths fit the remaining movement, avoid monsters and revealed traps,
   assert.deepEqual(planClickMovement(state, character, 6, 3, 6), []);
   state.visibility.visibleNow.clear();
   assert.deepEqual(planClickMovement(state, character, 5, 3, 6), []);
+});
+
+test('square aiming needs physical line of sight and range but never illumination or knowledge of an occupant', () => {
+  const state = scene(), character = state.characters[0];
+  state.visibility.visibleNow.clear(); state.visibility.exploredEver.clear();
+  state.entities.push({ id: 'hidden', type: 'monster', x: 6, y: 3, hp: 20, stealthed: true });
+  assert.equal(canAimAtSquare(state, character, { x: 6, y: 3 }, 6), true);
+  assert.equal(canAimAtSquare(state, character, { x: 7, y: 3 }, 6), true);
+  assert.equal(canAimAtSquare(state, character, { x: 4, y: 4 }, 1), true);
+  assert.equal(canAimAtSquare(state, character, { x: 5, y: 3 }, 1), false);
+  assert.equal(canAimAtSquare(state, character, { x: 6, y: 3, routeId: 'other' }, 6), false);
+  state.tiles[3 * 15 + 5].type = 'wall';
+  assert.equal(canAimAtSquare(state, character, { x: 6, y: 3 }, 6), false);
+});
+
+function darkvisionScene() {
+  const state = scene(), human = state.characters[0]; human.lightRadius = 0; human.routeId = '';
+  const companion = { id: 'companion', name: 'Orc', x: 3, y: 4, routeId: '', hp: 10,
+    lightRadius: 0, gear: [], companion: { kind: 'friendly' } };
+  const monster = { id: 'monster', type: 'monster', name: 'Rat', x: 6, y: 3, routeId: '', hp: 10 };
+  const treasure = { id: 'treasure', type: 'treasure', name: 'Coins', x: 6, y: 4, routeId: '', visible: true };
+  state.characters.push(companion); state.entities.push(monster, treasure);
+  state.player.torchLit = false; recomputeVisibility(state);
+  return { state, human, companion, monster, treasure };
+}
+
+test('shared companion darkvision permits direct monster and feature targeting without physical illumination', () => {
+  const { state, human, monster, treasure } = darkvisionScene();
+  assert.equal(isTileVisible(state, monster.x, monster.y, monster), false);
+  assert.equal(isTilePerceived(state, monster.x, monster.y, monster), true);
+  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), true);
+  assert.equal(canTargetAtRange(state, human, treasure, 6), true);
+  assert.equal(human.lightRadius, 0, 'target selection does not grant illumination or change attack penalties');
+  monster.stealthState = { attempted: true, revealed: false };
+  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), false);
+});
+
+test('perceived targets still require the acting character range and own physical line of sight', () => {
+  const { state, human, companion, monster } = darkvisionScene();
+  assert.equal(canTargetAtRange(state, human, monster, 1, { directAttack: true }), false);
+  Object.assign(companion, { x: 6, y: 4 }); state.tiles[3 * 15 + 4].type = 'wall';
+  recomputeVisibility(state);
+  assert.equal(isTilePerceived(state, monster.x, monster.y, monster), true);
+  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), false);
+});
+
+test('direct targeting respects global viewer ownership rather than forcing the human attacker to possess darkvision', () => {
+  const { state, human, companion, monster, treasure } = darkvisionScene();
+  state.viewerCharacterIds = new Set([human.id]); recomputeVisibility(state);
+  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), false);
+  assert.equal(canTargetAtRange(state, human, treasure, 6), false);
+  state.viewerCharacterIds.add(companion.id); recomputeVisibility(state);
+  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), true);
+  assert.equal(canTargetAtRange(state, human, treasure, 6), true);
+});
+
+test('only darkvision companions can click-path across perceived but unlit squares', () => {
+  const { state, human, companion } = darkvisionScene(); state.entities = [];
+  recomputeVisibility(state);
+  assert.equal(planClickMovement(state, companion, 6, 4, 3).length, 3);
+  assert.deepEqual(planClickMovement(state, human, 6, 3, 3), []);
+  state.visibility.visibleNow.add('6,3');
+  assert.deepEqual(planClickMovement(state, human, 6, 3, 3), [], 'a lit destination does not allow an unlit path');
+  state.viewerCharacterIds = new Set([human.id]); recomputeVisibility(state);
+  assert.deepEqual(planClickMovement(state, companion, 6, 4, 3), []);
 });

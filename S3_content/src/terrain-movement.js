@@ -58,6 +58,10 @@ export function isLegacyWaterMovementSegment(state, segment) {
   return terrainIndex(state).segments.has(segmentKey(segment));
 }
 
-export const movementStepCost = (state, x, y) => isSlowWaterTile(state, x, y) ? 2 : 1;
+export const movementStepCost = (state, x, y, creature = null) => {
+  const ignoresWater = creature?.transformationEffects?.some(effect => effect.spell === 'levitate' ||
+    effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('gills'));
+  return !ignoresWater && isSlowWaterTile(state, x, y) ? 2 : 1;
+};
 export const WATER_STEP_DURATION_MS = 320;
-export const movementOverlayRadius = (state, x, y, points) => points / movementStepCost(state, x, y);
+export const movementOverlayRadius = (state, x, y, points, creature = null) => points / movementStepCost(state, x, y, creature);

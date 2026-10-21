@@ -156,10 +156,6 @@ export function maintainDetectMagic(state, caster, options = {}) {
   } else {
     caster.focusSpell = focus;
     if (options.reason === 'next round') focus.focusedRounds++;
-    if (result.check.roll === 20 && !focus.critical) {
-      focus.critical = true;
-      caster.pendingSpell = { spell: 'detect magic', phase: 'critical' };
-    }
   }
   refreshMagicDetection(state);
   return { ...result, message: `${caster.name} Detect Magic focus (${options.reason || 'next round'}): ${result.check.total} vs DC 11; ${result.succeeded ? 'maintained' : 'lost'}.` };

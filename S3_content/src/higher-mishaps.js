@@ -8,6 +8,7 @@ import { forgottenSpells } from './arcane-effects.js';
 import { applyFireToTreasure } from './fire-damage.js';
 import { pitIsOpen, pitContains, resolvePitSave, openPit, pitCells } from './pits.js';
 import { sameRoute, routeOf } from './underpasses.js';
+import { startLuckSave, finishLuckSave } from './luck-runtime.js';
 
 export const HIGHER_MISHAPS = {
   3: ['', 'Devastation', 'Blast radius', 'Duplicate refraction', 'You flubbed the incantation', 'Ethereal bandersnatch',
@@ -86,9 +87,12 @@ export function applyHigherMishap(state, caster, spell, number, context = {}) {
   const { random = Math.random, tier = 3, knownSpells = [], spellTier = () => 1, canSee = () => true } = context;
   const table = tier >= 5 ? 5 : 3;
   const result = { roll: number, tier, name: HIGHER_MISHAPS[table][number] };
+  let luckSave = null;
   const near = () => dungeonCreatures(state).filter(creature => distance(caster, creature) <= 6 && (context.lineOfEffect || canSee)(caster, creature));
   const check = (stat, dc) => {
-    const roll = rollCheck(abilityScoreModifier(caster.stats?.[stat]));
+    const roll = (context.saveCheckRoll || rollCheck)(abilityScoreModifier(caster.stats?.[stat]));
+    luckSave = startLuckSave(state, caster, roll, { dc,
+      context: { saveType: 'higher-mishap', tier, number, spell, stat } });
     result.check = { ...roll, stat, dc }; return roll.total >= dc;
   };
   if (table === 3) switch (number) {
@@ -183,6 +187,7 @@ export function applyHigherMishap(state, caster, spell, number, context = {}) {
       createPhenomenon(state, caster, 'arcane-shred', { name: 'Shred', radius: .27 });
       result.detail = 'A black Shred opens beneath the caster and grows one square in radius each round. Only party tokens remain visible inside it.'; break;
   }
+  if (luckSave) finishLuckSave(state, luckSave, caster, { passed: result.check.total >= result.check.dc });
   return result;
 }
 

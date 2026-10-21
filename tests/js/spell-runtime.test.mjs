@@ -34,6 +34,120 @@ async function withRandom(value, fn) {
 }
 test.after(() => dom.window.close());
 
+function tierTwoScene() {
+  const state = scene(); state.combat.active = false; state.characters = [state.characters[0]];
+  Object.assign(state.characters[0], { className: 'Wizard', level: 4, stats: { INT: 18, CON: 10, WIS: 18 }, hp: 50, maxHitPoints: 50,
+    spellsKnown: 'Acid Arrow, Alter Self, Detect Thoughts, Fixed Object, Hold Person, Invisibility, Knock, Levitate, Mirror Image, Misty Step, Silence, Web', luckTokens: 1 });
+  Object.assign(state.entities[1], { name: 'Bandit', level: 1, W: -4, hostile: false, attitude: 'neutral', stealthState: { attempted: true, revealed: true } });
+  return state;
+}
+async function castTier(state, name, random = .5) {
+  return withRandom(random, () => executeGameCommand(state, { type: 'spell', character_id: 'priest', spell_name: name }));
+}
+async function resolveTier(result, selection) {
+  return withRandom(.5, () => executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', ...selection }));
+}
+test('tier-two runtime Acid Arrow resolves initial and Focus damage and preserves ready targeting after movement', async () => {
+  let result = await castTier(tierTwoScene(), 'Acid Arrow');
+  assert.equal(result.state_json.characters[0].pendingSpell.spell, 'acid arrow');
+  result = await resolveTier(result, { target_id: 'foe' });
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').hp, 96);
+  result = await withRandom(.5, () => executeGameCommand(result.state_json, { type: 'tick', elapsed_ms: 10000 }));
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').hp, 92);
+});
+test('tier-two runtime transformations, teleport and centered area placement survive authoritative commands', async () => {
+  let result = await castTier(tierTwoScene(), 'Alter Self');
+  result = await resolveTier(result, { option: 'goat-legs' });
+  assert.ok(result.state_json.characters[0].transformationEffects.some(effect => effect.features.includes('goat-legs')));
+  result = await castTier(result.state_json, 'Mirror Image');
+  assert.equal(result.state_json.characters[0].transformationEffects.find(effect => effect.spell === 'mirror image').offsets.length, 2);
+  result = await castTier(result.state_json, 'Misty Step');
+  result = await resolveTier(result, { x: 4, y: 4 });
+  assert.equal(result.state_json.characters[0].x, 4);
+  result = await castTier(result.state_json, 'Web');
+  result = await resolveTier(result, { x: 3, y: 3, confirmed: true });
+  assert.deepEqual([result.state_json.areaSpells[0].x, result.state_json.areaSpells[0].y, result.state_json.areaSpells[0].width], [0, 0, 6]);
+  const blocked = await executeGameCommand(result.state_json, { type: 'move', character_id: 'priest', dx: 1, dy: 0 });
+  assert.equal(blocked.state_json.characters[0].x, 4); assert.match(blocked.message, /web/i);
+});
+test('tier-two runtime Silence rejects casting and Hold Person prevents monster actions', async () => {
+  let result = await castTier(tierTwoScene(), 'Silence');
+  result = await resolveTier(result, { x: 3, y: 3, confirmed: true });
+  await assert.rejects(() => castTier(result.state_json, 'Mirror Image'), /Silence/);
+  result = await castTier(tierTwoScene(), 'Hold Person');
+  result = await resolveTier(result, { target_id: 'foe' });
+  assert.ok(result.state_json.entities.find(entity => entity.id === 'foe').conditions.paralyzed);
+});
+
+test('runtime Hold Person Focus natural twenties never offer a critical or change the initial casting benefit', async () => {
+  for (const initial of [.5, .999]) {
+    let result = await castTier(tierTwoScene(), 'Hold Person', initial);
+    if (initial === .999) result = await resolveTier(result, { choice: 'level' });
+    result = await resolveTier(result, { target_id: 'foe' });
+    result = await withRandom(.999, () => executeGameCommand(result.state_json, { type: 'tick', elapsed_ms: 10000 }));
+    const caster = result.state_json.characters[0];
+    assert.equal(caster.pendingSpell, null);
+    assert.equal(caster.focusSpell.spell, 'hold person');
+    assert.equal(caster.focusSpell.maxLevel, initial === .999 ? 8 : 4);
+    assert.equal(caster.focusSpell.critical, initial === .999);
+    assert.ok(result.state_json.entities.find(entity => entity.id === 'foe').conditions.paralyzed);
+  }
+});
+test('Luck runtime restores a failed spell and resolves its successful reroll without another action', async () => {
+  let result = await castTier(tierTwoScene(), 'Mirror Image', .1);
+  assert.ok(result.state_json.characters[0].failedSpellKeys.includes('mirror image'));
+  result = await withRandom(.8, () => executeGameCommand(result.state_json, { type: 'luck', character_id: 'priest' }));
+  assert.ok(!result.state_json.characters[0].failedSpellKeys.includes('mirror image'));
+  assert.ok(result.state_json.characters[0].transformationEffects.some(effect => effect.spell === 'mirror image'));
+  assert.equal(result.state_json.characters[0].luckTokens, 0);
+});
+test('Luck runtime converts an old missed attack into damage at the target current position', async () => {
+  const state = tierTwoScene(), actor = state.characters[0];
+  Object.assign(actor, { className: 'Fighter', stats: { STR: 10, DEX: 10, WIS: 18 }, equipmentInitialized: true, lightSpellLit: true,
+    gear: [{ name: 'Dagger', type: 'weapon', equipped: true }] });
+  Object.assign(state.entities[1], { x: 3, y: 2, ac: 15, hp: 100 });
+  let result = await withRandom(.1, () => executeGameCommand(state, { type: 'attack', character_id: 'priest', monster_id: 'foe', attack_index: 0 }));
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').hp, 100);
+  result.state_json.entities.find(entity => entity.id === 'foe').x = 6;
+  result = await withRandom(.8, () => executeGameCommand(result.state_json, { type: 'luck', character_id: 'priest' }));
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').x, 6);
+  assert.ok(result.state_json.entities.find(entity => entity.id === 'foe').hp < 100);
+});
+test('Luck runtime turns a monster hit into a miss and restores a dying character without changing selection', async () => {
+  const state = tierTwoScene(); state.characters[0].hp = 3;
+  Object.assign(state.entities[1], { x: 3, y: 2, attitude: 'combat', hostile: true });
+  Object.assign(state.combat, { active: true, turnOrder: [{ type: 'character', id: 'priest' }, { type: 'monster', id: 'foe' }], playerOrderIds: ['priest'] });
+  let result = await withRandom(.8, () => executeGameCommand(state, { type: 'end_turn', character_id: 'priest' }));
+  assert.equal(result.state_json.characters[0].hp, 0);
+  assert.ok(result.state_json.characters[0].dyingRounds > 0);
+  result = await withRandom(.05, () => executeGameCommand(result.state_json, { type: 'luck', character_id: 'priest' }));
+  assert.equal(result.state_json.characters[0].hp, 3);
+  assert.equal(result.state_json.characters[0].dyingRounds, 0);
+  assert.equal(result.state_json.activeCharacterId, 'priest');
+});
+test('tier-two runtime Claws allow exactly two attacks and furniture uses AC 10 and HP 10', async () => {
+  const state = tierTwoScene(); state.combat.active = true;
+  Object.assign(state.combat, { actionUsed: false, turnOrder: [{ type: 'character', id: 'priest' }, { type: 'monster', id: 'foe' }], playerOrderIds: ['priest'] });
+  Object.assign(state.entities[1], { x: 3, y: 2 });
+  state.characters[0].transformationEffects = [{ spell: 'alter self', rounds: 5, features: ['claws'] }];
+  let result = await executeGameCommand(state, { type: 'normalize', character_id: 'priest' });
+  const index = result.state_json.characters[0].attacks.length;
+  result = await withRandom(.8, () => executeGameCommand(result.state_json, { type: 'attack', character_id: 'priest', monster_id: 'foe', attack_index: index }));
+  assert.equal(result.state_json.combat.actionUsed, false);
+  result = await withRandom(.8, () => executeGameCommand(result.state_json, { type: 'attack', character_id: 'priest', monster_id: 'foe', attack_index: index }));
+  assert.equal(result.state_json.combat.actionUsed, true);
+  const hp = result.state_json.entities.find(entity => entity.id === 'foe').hp;
+  const third = await executeGameCommand(result.state_json, { type: 'attack', character_id: 'priest', monster_id: 'foe', attack_index: index });
+  assert.equal(third.state_json.entities.find(entity => entity.id === 'foe').hp, hp); assert.match(third.message, /acted|attacks remain/i);
+  const furniture = tierTwoScene(); furniture.entities = furniture.entities.filter(entity => entity.type !== 'monster');
+  furniture.characters[0].equipmentInitialized = true;
+  furniture.characters[0].lightSpellLit = true;
+  furniture.characters[0].gear = [{ name: 'Dagger', type: 'weapon', equipped: true }];
+  furniture.entities.push({ id: 'chair', type: 'feature', subtype: 'furniture', name: 'Chair', x: 3, y: 2, visible: true });
+  const hit = await withRandom(.8, () => executeGameCommand(furniture, { type: 'attack_empty', character_id: 'priest', x: 3, y: 2 }));
+  assert.equal(hit.state_json.entities.find(entity => entity.id === 'chair').hp, 6);
+});
+
 test('authoritative level-up rolls only on request and spell choices persist without rerolls', async()=>{
   const state=scene();state.combat.active=false;state.entities=state.entities.slice(0,1);
   Object.assign(state.characters[0],{className:'Wizard',level:1,XP:12,alignment:'Lawful',spellsKnown:'Light, Sleep, Magic Missile',stats:{INT:12,CON:12}});
@@ -241,14 +355,17 @@ test('player attacks require explicit confirmation, never target self, and damag
   assert.match(result.state_json.rollHistory[0].detail, /attacks Friend/); assert.ok(result.state_json.rollHistory[0].segments.length);
 });
 
-test('empty attacks log a miss and melee door attacks can smash a closed door', async () => {
+test('empty attacks log a miss and melee door attacks deplete AC 10 / HP 15 doors', async () => {
   const state = discScene(); const actor = state.characters[0];
   Object.assign(actor, { className: 'Fighter', stats: { STR: 18 }, equipmentInitialized: true, lightSpellLit: true, gear: [{ name: 'Dagger', type: 'weapon', equipped: true }] });
   let result = await withRandom(.8, () => executeGameCommand(state, { type: 'attack_empty', character_id: actor.id, x: 1, y: 2, attack_index: 0 }));
   assert.match(result.state_json.rollHistory[0].detail, /attacks nothing.*\n17 Miss!/);
   result.state_json.entities.push({ id: 'door', type: 'feature', subtype: 'door', x: 3, y: 2, roomId: 'room', wallSide: 'east', doorState: 'closed', breakDc: 10, visible: true });
   result = await withRandom(.9, () => executeGameCommand(result.state_json, { type: 'attack_door', character_id: actor.id, entity_id: 'door', attack_index: 0 }));
-  assert.equal(result.state_json.entities.some(entity => entity.id === 'door'), false);
+  assert.ok(result.state_json.entities.find(entity => entity.id === 'door').hp < 15);
+  for (let i = 0; i < 4 && result.state_json.entities.find(entity => entity.id === 'door')?.doorState !== 'gone'; i++)
+    result = await withRandom(.9, () => executeGameCommand(result.state_json, { type: 'attack_door', character_id: actor.id, entity_id: 'door', attack_index: 0 }));
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'door')?.doorState, 'gone');
 });
 
 test('adjacent thrown weapons can smash doors, dagger rolls at disadvantage, and bows cannot smash', async () => {
@@ -263,7 +380,7 @@ test('adjacent thrown weapons can smash doors, dagger rolls at disadvantage, and
     }
     const result = await withRandom(.5, () => executeGameCommand(state, { type: 'attack_door', character_id: actor.id, entity_id: 'door', attack_index: 0 }));
     const entry = result.state_json.rollHistory[0];
-    assert.equal(entry.segments.some(part => part.text === '2d20 = '), name === 'Dagger');
+    assert.equal(entry.segments.some(part => part.tooltip?.some?.(segment => /2d20/.test(segment.text))), name === 'Dagger');
   }
 });
 
@@ -829,7 +946,7 @@ test('a queued scroll is studied on the next completed rest and learned spells a
   state.combat.active=false;state.entities=state.entities.slice(0,1);state.characters[1].hp=1;state.characters[1].dyingRounds=0;
   state.characters[0].gear=[scroll,{name:'Rations',quantity:2},{name:'Torch',quantity:3}];
   let result=await executeGameCommand(state,{type:'learn_scroll',character_id:'priest',gear_index:0});
-  assert.equal(result.message,'will attempt on next rest.');
+  assert.equal(result.message,'Will attempt on next rest.');
   result=await executeGameCommand(result.state_json,{type:'rest',character_id:'priest'});result.state_json.rest.nextHourAt=Date.now()-16000;
   result=await withRandom(.6,()=>executeGameCommand(result.state_json,{type:'tick',elapsed_ms:2000}));
   assert.equal(result.state_json.rest.phase,'completed');assert.equal(result.state_json.rest.studyResults[0].message,'Priest learned Burning Hands');

@@ -1,7 +1,7 @@
 """Host-owned dungeons, guest participation and authoritative game commands."""
 
 from copy import deepcopy
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 import hashlib
 import hmac
@@ -18,6 +18,7 @@ from game_runtime import game_runtime, GameRuntimeError
 from room_models import GameRoom, RoomMember, RoomInvite, RoomCommand, SaveCheckpoint, utcnow
 from validation import validate_json, validate_state
 from storage_limits import storage_available, STORAGE_FULL
+from party_persistence import PartyLimitError, create_party, party_name, party_summary, with_lineage, character_lineage
 
 CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 HOST_LEASE = timedelta(seconds=45)
@@ -26,7 +27,9 @@ MAX_ROOMS = 5
 MAX_MEMBERS = 16
 MAX_SAVES = 10
 MAX_CHECKPOINTS = 10
+GROUP_ACTION_LIFETIME = timedelta(minutes=2)
 CHARACTER_COMMANDS = {
+    "luck",
     "mishap_action",
     "pit_action",
     "phase",
@@ -158,13 +161,16 @@ def validate_viewer_visibility(value, state):
                 side not in {"left", "right", "top", "bottom"} for side in sides):
             raise ValueError("Invalid player visibility data.")
         normalized_doors[door_id] = list(dict.fromkeys(sides))
-    route_explored = value.get("routeExplored", {})
     route_ids = {"", *(route["id"] for route in state.get("underpasses", []))}
-    if not isinstance(route_explored, dict) or any(route_id not in route_ids for route_id in route_explored):
-        raise ValueError("Invalid player visibility route.")
+    route_visibility = {}
+    for field in ("routeExplored", "routeDarkvisionExplored"):
+        routes = value.get(field, {})
+        if not isinstance(routes, dict) or any(route_id not in route_ids for route_id in routes):
+            raise ValueError("Invalid player visibility route.")
+        route_visibility[field] = {route_id: coordinates(field, cells) for route_id, cells in routes.items()}
     return {
         "exploredEver": coordinates("exploredEver"),
-        "routeExplored": {route_id: coordinates("routeExplored", cells) for route_id, cells in route_explored.items()},
+        **route_visibility,
         "visitedRoomIds": list(dict.fromkeys(visited)),
         "exploredInnerWallInteriors": coordinates("exploredInnerWallInteriors"),
         "closedDoorExploredSides": normalized_doors,
@@ -188,11 +194,32 @@ def room_view(db, room, member, *, include_state=True):
         "assignments": primary_assignments(room, members),
         "owned_character_ids": [key for key, owner in ownership.items() if owner == member.id],
         "error": None,
+        "group_action": group_action_view(room, online),
     }
     if include_state:
-        view["state_json"] = room.state_json
+        view["state_json"] = {**room.state_json, "groupAction": view["group_action"]}
         view["viewer_visibility"] = member.visibility_json or {}
     return view
+
+
+def group_action_view(room, online):
+    proposal = deepcopy(room.state_json.get("groupAction"))
+    if not isinstance(proposal, dict):
+        return None
+    if proposal.get("status") == "pending":
+        try:
+            expired = aware(datetime.fromisoformat(proposal["expiresAt"])) <= utcnow()
+        except (KeyError, TypeError, ValueError):
+            expired = True
+        if expired or set(proposal.get("requiredMemberIds", [])) != set(online) or room.closed_at:
+            proposal.update(status="cancelled", reason="expired" if expired else "membership_changed")
+    return proposal
+
+
+def cancel_group_action(room, reason):
+    proposal = room.state_json.get("groupAction")
+    if isinstance(proposal, dict) and proposal.get("status") == "pending":
+        room.state_json = {**room.state_json, "groupAction": {**proposal, "status": "cancelled", "reason": reason}}
 
 
 def body():
@@ -280,6 +307,8 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
         def handle(*args, **kwargs):
             try:
                 return view(*args, **kwargs)
+            except PartyLimitError as exc:
+                return {"error": "save_limit", "message": str(exc)}, 409
             except ValueError as exc:
                 return {"error": "invalid_request", "message": str(exc)}, 400
             except GameRuntimeError as exc:
@@ -292,13 +321,31 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
         if request.method != "GET":
             host_id = db.exec(select(GameRoom.host_user_id).where(GameRoom.id == room_id)).first()
             account_ids = {host_id, current_user.id if current_user.is_authenticated else None} - {None}
+            pending_room = db.get(GameRoom, room_id)
+            proposal = (pending_room.state_json.get("groupAction") or {}) if pending_room else {}
+            if proposal.get("status") == "pending" and proposal.get("action") == "save_party":
+                initiator = db.get(RoomMember, proposal.get("initiatorMemberId"))
+                if initiator and initiator.user_id:
+                    account_ids.add(initiator.user_id)
             # Lock storage owners in a stable order before locking the room.
             for account_id in sorted(account_ids):
                 db.exec(update(User).where(User.id == account_id).values(session_version=User.session_version))
+            db.expire_all()
         room = db.get(GameRoom, room_id) if request.method == "GET" else lock_room(db, room_id)
         member = find_member(db, room) if room else None
         if not member or member.status != "active" or (host and member.role != "host"):
             return None, None
+        if request.method != "GET":
+            _, _, online = room_presence(db, room)
+            proposal = group_action_view(room, online)
+            if proposal != room.state_json.get("groupAction"):
+                room.state_json = {**room.state_json, "groupAction": proposal}
+                room.revision += 1
+                db.add(room)
+            if proposal and proposal.get("status") == "pending" and proposal.get("action") == "save_party":
+                initiator = db.get(RoomMember, proposal.get("initiatorMemberId"))
+                if initiator and initiator.user_id not in account_ids:
+                    raise ValueError("The room changed. Please retry your confirmation.")
         return room, member
 
     not_found = ({"error": "not_found", "message": "Dungeon not found."}, 404)
@@ -309,7 +356,8 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
     @checked
     def create_room():
         data = body()
-        state = validate_state(data.get("state_json"), require_map=True)
+        state = deepcopy(validate_state(data.get("state_json"), require_map=True))
+        state.pop("groupAction", None)
         name = data.get("name", "Dungeon")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
             raise ValueError("Dungeon names must contain 1 to 80 characters.")
@@ -364,6 +412,10 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             if not room or room.closed_at or room.joins_locked:
                 return {"error": "invalid_invite", "message": "The invitation is invalid or expired."}, 404
             member = find_member(db, room)
+            _, _, online = room_presence(db, room)
+            if not member or member.id not in online:
+                cancel_group_action(room, "membership_changed")
+                db.add(room)
             if member and member.status == "kicked":
                 return not_found
             if not member:
@@ -378,6 +430,95 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             member.status = "active"
             member.last_seen_at = utcnow()
             db.add(member)
+            db.commit()
+            return room_view(db, room, member)
+
+    @app.post("/api/rooms/<room_id>/group-action")
+    @rate_limit("60 per minute")
+    @checked
+    def room_group_action(room_id):
+        data = body()
+        action = data.get("action")
+        if action not in {"save_party", "descend"}:
+            raise ValueError("Unknown group action.")
+        with Session(engine) as db:
+            room, member = member_room(db, room_id)
+            if not room or room.closed_at:
+                return not_found
+            # Capture presence before renewing this requester's lease: a departed
+            # required voter cannot revive an old vote by returning after expiry.
+            _, _, before_online = room_presence(db, room)
+            prior = group_action_view(room, before_online)
+            member.last_seen_at = utcnow()
+            db.add(member)
+            db.flush()
+            _, _, online = room_presence(db, room)
+            vote_id = data.get("vote_id")
+            if vote_id is not None:
+                if not isinstance(vote_id, str) or type(data.get("accept")) is not bool:
+                    raise ValueError("A vote ID and yes/no response are required.")
+                if not prior or prior.get("id") != vote_id or prior.get("action") != action:
+                    return {"error": "vote_not_found", "message": "This confirmation is no longer available."}, 409
+                if prior.get("status") != "pending":
+                    room.state_json = {**room.state_json, "groupAction": prior}
+                    db.add(room)
+                    db.commit()
+                    return room_view(db, room, member)
+                proposal = prior
+                if member.id not in proposal["requiredMemberIds"]:
+                    return {"error": "vote_not_allowed"}, 403
+                if not data["accept"]:
+                    proposal.update(status="cancelled", reason="declined")
+                else:
+                    proposal["acceptedMemberIds"] = sorted(set(proposal["acceptedMemberIds"]) | {member.id})
+            else:
+                if prior and prior.get("status") == "pending":
+                    return {"error": "group_action_pending", "message": "Answer the current group confirmation first."}, 409
+                if action == "save_party" and not current_user.is_authenticated:
+                    return {"error": "login_required", "message": "Sign in to save a party."}, 401
+                if not room.state_json.get("characters"):
+                    raise ValueError("Add at least one character first.")
+                if action == "descend" and room.state_json.get("level", 1) >= 10:
+                    raise ValueError("This is the deepest dungeon level.")
+                now = utcnow()
+                proposal = {"id": uuid.uuid4().hex, "action": action, "status": "pending",
+                            "initiatorMemberId": member.id, "requiredMemberIds": sorted(online),
+                            "acceptedMemberIds": [member.id], "createdAt": now.isoformat(),
+                            "expiresAt": (now + GROUP_ACTION_LIFETIME).isoformat()}
+                if action == "save_party":
+                    proposal["name"] = party_name(data.get("name", "The Party"))
+            if proposal["status"] == "pending" and set(proposal["acceptedMemberIds"]) == set(proposal["requiredMemberIds"]):
+                if action == "save_party":
+                    initiator = db.get(RoomMember, proposal["initiatorMemberId"])
+                    if not initiator or not initiator.user_id or not db.get(User, initiator.user_id):
+                        proposal.update(status="cancelled", reason="initiator_unavailable")
+                    else:
+                        saved = create_party(db, initiator.user_id, proposal["name"], room.state_json)
+                        if not storage_available(db, initiator.user_id, SavedRun, SavedCharacter):
+                            return STORAGE_FULL
+                        proposal.update(status="completed", result={"party_id": saved.id, **party_summary(saved)})
+                        room.state_json = {**room.state_json, "partyName": saved.name}
+                else:
+                    previous_ownership = dict(room.ownership_json or {})
+                    old_ids = {char["id"] for char in room.state_json.get("characters", [])}
+                    result = game_runtime.apply(room.state_json, {"type": "descend", "confirmed": True})
+                    descended = validate_state(result["state_json"], require_map=True)
+                    if descended["level"] != room.state_json["level"] + 1 or {char["id"] for char in descended.get("characters", [])} != old_ids:
+                        raise ValueError(result.get("message") or "Gather your party before descending deeper.")
+                    room.state_json = descended
+                    room.ownership_json = previous_ownership
+                    reconcile_companion_ownership(db, room, previous_ownership)
+                    for viewer in db.exec(select(RoomMember).where(RoomMember.room_id == room.id)).all():
+                        viewer.visibility_json = {}
+                        db.add(viewer)
+                    room.simulated_at = utcnow()
+                    proposal.update(status="completed", result={"level": descended["level"], "message": result.get("message", "")[:2000]})
+            room.state_json = {**room.state_json, "groupAction": proposal}
+            room.updated_at = utcnow()
+            room.revision += 1
+            db.add(room)
+            if not storage_available(db, room.host_user_id, SavedRun, SavedCharacter):
+                return STORAGE_FULL
             db.commit()
             return room_view(db, room, member)
 
@@ -519,6 +660,10 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
                         return not_found
                     trusted["character_json"] = saved.character_json
                 validate_json(trusted.get("character_json"), max_bytes=128 * 1024)
+                trusted["character_json"] = with_lineage(trusted["character_json"], fallback=f"saved-character-{saved.id}" if "saved_character_id" in command else None)
+                lineage = character_lineage(trusted["character_json"])
+                if any(character_lineage(item) == lineage for item in characters):
+                    return {"error": "duplicate_character", "message": "Only one version of this character can be loaded in the dungeon."}, 409
                 trusted["new_character_id"] = uuid.uuid4().hex
                 ownership[trusted["new_character_id"]] = member.id
                 assignments[member.id] = trusted["new_character_id"]
@@ -543,14 +688,22 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
                     return {"error": "character_not_owned", "message": "You can control only your own characters."}, 403
                 if action == "edit_character":
                     validate_json(command.get("character_json"), max_bytes=128 * 1024)
+                    original = next(item for item in room.state_json["characters"] if item["id"] == character_id)
+                    trusted["character_json"]["lineageId"] = character_lineage(original)
                 if action in {"bury", "dismiss"}:
                     removed_owner = ownership.get(character_id)
                     ownership.pop(character_id, None)
                     if removed_owner and assignments.get(removed_owner) == character_id:
                         assignments[removed_owner] = next((item.get("id") for item in room.state_json.get("characters", [])
                             if item.get("id") != character_id and ownership.get(item.get("id")) == removed_owner), None)
+            proposal = group_action_view(room, online | {member.id})
             result = game_runtime.apply(room.state_json, trusted)
             room.state_json = validate_state(result["state_json"], require_map=True)
+            room.state_json = {**room.state_json, "groupAction": proposal}
+            if action == "import":
+                for imported in room.state_json["characters"]:
+                    if imported["id"] == trusted["new_character_id"]:
+                        imported["lineageId"] = lineage
             room.ownership_json = ownership
             room.primary_assignments_json = assignments
             reconcile_companion_ownership(db, room, previous_ownership)
@@ -667,6 +820,9 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             if "viewer_visibility" in data:
                 member.visibility_json = validate_viewer_visibility(data["viewer_visibility"], room.state_json)
             member.last_seen_at = utcnow() - HOST_LEASE * 2
+            cancel_group_action(room, "membership_changed")
+            room.revision += 1
+            db.add(room)
             db.add(member)
             db.commit()
             return {"ok": True}
@@ -682,6 +838,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             if not check_revision(data, room):
                 return conflict()
             room.closed_at = utcnow()
+            cancel_group_action(room, "room_closed")
             room.revision += 1
             db.exec(delete(RoomInvite).where(RoomInvite.room_id == room.id))
             db.add(room)
@@ -721,6 +878,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             if not room or not target or target.room_id != room.id or target.role == "host":
                 return not_found
             target.status = "kicked"
+            cancel_group_action(room, "membership_changed")
             room.ownership_json = {character_id: host.id if owner_id == target.id else owner_id
                 for character_id, owner_id in (room.ownership_json or {}).items()}
             assignments = dict(room.primary_assignments_json or {})
@@ -802,7 +960,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             db.exec(update(User).where(User.id == current_user.id).values(session_version=User.session_version))
             if len(db.exec(select(SavedCharacter.id).where(SavedCharacter.user_id == current_user.id, SavedCharacter.deleted_at == None)).all()) >= 50:
                 raise ValueError("Your saved-character limit has been reached.")
-            saved = SavedCharacter(user_id=current_user.id, name=str(data.get("name") or character.get("name") or "Character")[:200], character_json=deepcopy(character))
+            saved = SavedCharacter(user_id=current_user.id, name=str(data.get("name") or character.get("name") or "Character")[:200], character_json=with_lineage(character))
             db.add(saved)
             if not storage_available(db, current_user.id, SavedRun, SavedCharacter):
                 return STORAGE_FULL

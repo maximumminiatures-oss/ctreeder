@@ -5,8 +5,11 @@ import { routeOf, routeStep } from './underpasses.js';
 
 export function characterMovementBudget(character) {
   const value = Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
-  if (isRaving(character) || character?.conditions?.sinkhole) return 0;
-  return Math.max(0, Math.floor((Number.isFinite(value) ? value : 6) / 2 ** petrifiedLegs(character)));
+  const effects = character?.transformationEffects || [];
+  const levitating = effects.some(effect => effect.spell === 'levitate');
+  const goatLegs = effects.some(effect => effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('goat-legs'));
+  if (isRaving(character) || character?.conditions?.paralyzed || character?.conditions?.sinkhole && !levitating) return 0;
+  return Math.max(0, Math.floor((Number.isFinite(value) ? value : 6) * (goatLegs ? 2 : 1) / 2 ** petrifiedLegs(character)));
 }
 
 export function characterOccupant(state, x, y, exceptId, options = {}) {
@@ -19,20 +22,33 @@ export function characterOccupant(state, x, y, exceptId, options = {}) {
 export function combatStepBlock(state, character, x, y) {
   const route = routeStep(state, character, { x, y })?.routeId ?? routeOf(state, character);
   const monster = (state.entities || []).find(entity => entity.type === 'monster' && !entity.defeated && routeOf(state, entity) === route && Number(entity.x) === x && Number(entity.y) === y);
-  if (monster) return `${monster.name || 'Monster'} blocks the way.`;
+  const passesCreatures = character.transformationEffects?.some(effect => effect.spell === 'levitate' ||
+    effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('spider-legs'));
+  if (monster && !passesCreatures) return `${monster.name || 'Monster'} blocks the way.`;
   const occupant = characterOccupant(state, x, y, character.id);
-  const remaining = state.combat.movementRemaining - movementStepCost(state, Number(character.x), Number(character.y));
-  if (occupant && remaining < movementStepCost(state, x, y)) return `${character.name} can't end turn on ${occupant.name}'s token.`;
+  const remaining = state.combat.movementRemaining - movementStepCost(state, Number(character.x), Number(character.y), character);
+  if ((occupant || monster) && remaining < movementStepCost(state, x, y, character)) return `${character.name} can't end turn on ${(occupant || monster).name}'s token.`;
   return '';
 }
 
-export function attackRollSegments({ character, monster, weapon, roll, ability, abilityModifier, hit, damage, damageRoll, magic = 0, hiddenMagic = 0, backstab = false, advantageReason = '' }) {
+export function attackCreatureName(creature, { article = false, sentenceStart = false } = {}) {
+  const name = String((typeof creature?.uniqueName === 'string' && creature.uniqueName) ||
+    (typeof creature?.properName === 'string' && creature.properName) || creature?.name || 'monster');
+  const proper = creature?.partyMember || creature?.className || creature?.uniqueName || creature?.properName || creature?.isUnique;
+  if (proper) return name;
+  const commonName = `${article ? 'the ' : ''}${name.toLowerCase()}`;
+  return sentenceStart ? commonName.charAt(0).toUpperCase() + commonName.slice(1) : commonName;
+}
+
+export function attackRollSegments({ character, monster, weapon, spell, roll, ability, abilityModifier, hit, damage, damageRoll, magic = 0, hiddenMagic = 0, backstab = false, advantageReason = '' }) {
   const modifier = Number(abilityModifier) || 0;
   const other = (Number(roll.modifier) || 0) - modifier - magic - hiddenMagic;
   const signed = number => `${number < 0 ? '-' : '+'}${Math.abs(number)}`;
   const mode = ['advantage', 'disadvantage'].includes(roll.checkMode) ? ` at ${roll.checkMode}` : '';
-  const parts = [{ text: character.name, bold: true, characterId: character.id },
-    { text: ` ${backstab ? 'backstabs' : 'attacks'} ${monster.name === 'nothing' ? 'nothing' : monster.partyMember ? monster.name : 'the ' + (monster.name || 'monster').toLowerCase()}${backstab ? '' : mode} with a ${(weapon || 'unarmed strike').toLowerCase()}.\n` }];
+  const attackName = spell || (weapon || 'unarmed strike').toLowerCase();
+  const actorName = character.type === 'monster' ? attackCreatureName(character, { sentenceStart: true }) : character.name;
+  const parts = [{ text: actorName, bold: true, characterId: character.id },
+    { text: ` ${backstab ? 'backstabs' : 'attacks'} ${monster.name === 'nothing' ? 'nothing' : attackCreatureName(monster, { article: true })}${backstab ? '' : mode} with ${spell ? '' : 'a '}${attackName}.\n` }];
   const values = Number.isFinite(roll.secondaryRoll) ? [roll.firstRoll, roll.secondaryRoll] : [roll.roll];
   const tooltip = [];
   if (advantageReason) tooltip.push({ text: `${roll.checkMode === 'advantage' ? 'Advantage from ' : 'Unaware from '}${advantageReason}; ` });
@@ -50,7 +66,7 @@ export function attackRollSegments({ character, monster, weapon, roll, ability, 
   parts.push({ text: String(roll.total), bold: true, tooltip }, { text: ` ${hit ? 'Hits!' : 'Miss!'}` });
   if (damage != null) {
     const dice = damageRoll?.terms?.filter(term => term.type === 'die') || [];
-    const damageTip = [{ text: `${(weapon || 'unarmed').toLowerCase()}: ` }];
+    const damageTip = [{ text: `${spell || (weapon || 'unarmed').toLowerCase()}: ` }];
     if (!backstab && dice.length === 1 && !(damageRoll.terms || []).some(term => term.type === 'flat') &&
       !(damageRoll.multiplier > 1) && !damageRoll.resistance) {
       damageTip.push({ text: `1-${dice[0].label.replace(/^1d/, '')} (` },

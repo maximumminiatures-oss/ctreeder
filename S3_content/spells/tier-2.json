@@ -9,15 +9,17 @@
     "duration": "Focus",
     "range": "Far",
     "rangeBand": "far",
-    "description": "You conjure a corrosive bolt that hits one foe, dealing 1d6 damage a round. The bolt remains in the target for as long as you focus.",
+    "description": "After a successful DC 12 spellcasting check, pick one visible foe within 12 squares and line of sight. An acid arrow automatically hits for 1d6 acid damage.\n\nOn each subsequent turn, a successful DC 12 Focus check deals another 1d6 acid damage to that foe. An ordinary failed Focus check ends the spell without losing it; a natural 1 loses the spell and causes a wizard mishap. Damage also requires an immediate Focus check, but does not trigger extra acid damage.\n\nOn a natural 20 on the initial casting check, choose 2d6 damage for the initial hit and each later round, or two distinct foes taking 1d6 each. The chosen critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
     "paragraphs": [
-      "You conjure a corrosive bolt that hits one foe, dealing 1d6 damage a round. The bolt remains in the target for as long as you focus."
+      "After a successful DC 12 spellcasting check, pick one visible foe within 12 squares and line of sight. An acid arrow automatically hits for 1d6 acid damage.",
+      "On each subsequent turn, a successful DC 12 Focus check deals another 1d6 acid damage to that foe. An ordinary failed Focus check ends the spell without losing it; a natural 1 loses the spell and causes a wizard mishap. Damage also requires an immediate Focus check, but does not trigger extra acid damage.",
+      "On a natural 20 on the initial casting check, choose 2d6 damage for the initial hit and each later round, or two distinct foes taking 1d6 each. The chosen critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects."
     ],
     "damage": [
       {
         "expression": "1d6",
         "display": "1d6",
-        "context": "You conjure a corrosive bolt that hits one foe, dealing 1d6 damage a round."
+        "context": "The acid arrow automatically deals 1d6 acid damage initially and after each successful round of Focus."
       }
     ]
   },
@@ -31,10 +33,11 @@
     "duration": "5 rounds",
     "range": "Self",
     "rangeBand": "self",
-    "description": "You magically change your physical form, gaining one feature that modifies your existing anatomy.\n\nFor example, you can grow functional gills on your neck or bear claws on your fingers. This spell can’t grow wings or limbs.",
+    "description": "For 5 rounds, gain one chosen feature: Spider Legs, Goat Legs, Claws, Gills, Cat Eyes, or Foe Form. This changes your own body rather than creating a separate creature.\n\nSpider Legs cross pits and move through enemies. Goat Legs double movement. Claws allow two attacks per round using INT to hit, dealing 1d6 each. Gills remove water's movement penalty and make you invisible while in water. Cat Eyes grant 60-foot darkvision without illuminating the dungeon. Foe Form copies a visible foe's appearance and strongest attack; that creature type attacks you at disadvantage. Outside combat, the copied foe must be illuminated.\n\nNatural 20: choose a 10-round duration or two different features.",
     "paragraphs": [
-      "You magically change your physical form, gaining one feature that modifies your existing anatomy.",
-      "For example, you can grow functional gills on your neck or bear claws on your fingers. This spell can’t grow wings or limbs."
+      "For 5 rounds, gain one chosen feature: Spider Legs, Goat Legs, Claws, Gills, Cat Eyes, or Foe Form. This changes your own body rather than creating a separate creature.",
+      "Spider Legs cross pits and move through enemies. Goat Legs double movement. Claws allow two attacks per round using INT to hit, dealing 1d6 each. Gills remove water's movement penalty and make you invisible while in water. Cat Eyes grant 60-foot darkvision without illuminating the dungeon. Foe Form copies a visible foe's appearance and strongest attack; that creature type attacks you at disadvantage. Outside combat, the copied foe must be illuminated.",
+      "Natural 20: choose a 10-round duration or two different features."
     ],
     "damage": []
   },
@@ -81,10 +84,11 @@
     "duration": "Focus",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You utter a divine censure, blinding or deafening one creature you can see in range.\n\nThe creature has disadvantage on tasks requiring the lost sense.",
+    "description": "You utter a divine censure, blinding or deafening one creature you can see in range.\n\nThe creature has disadvantage on tasks requiring the lost sense.\n\nCritical effects are determined only by a natural 20 on the initial casting check and persist while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
     "paragraphs": [
       "You utter a divine censure, blinding or deafening one creature you can see in range.",
-      "The creature has disadvantage on tasks requiring the lost sense."
+      "The creature has disadvantage on tasks requiring the lost sense.",
+      "Critical effects are determined only by a natural 20 on the initial casting check and persist while you maintain Focus. Later Focus checks cannot grant or change critical effects."
     ],
     "damage": []
   },
@@ -125,11 +129,13 @@
     "duration": "Focus",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You peer into the mind of one creature you can see within range. Each round, you learn the target’s immediate thoughts.\n\nOn its turn, the target makes a Wisdom check vs. your last spellcasting check. If the target succeeds, it notices your presence in its mind and the spell ends.\n\n“Magic is simply the art of doing and undoing.\" -Creeg, human wizard",
+    "description": "Pick one visible monster within 6 squares and line of sight. Round 1: You peer into the mind of a [monster_name] and learn some interesting stuff.\n\nRound 2: You learn how this [monster_name] fights. While Focus continues, the party gains +1 AC, +1 to hit, and +1 damage against that monster only.\n\nRound 3: You really get this [monster_name]. Gain one luck token per casting.\n\nOn the monster's turn, it rolls WIS against your latest spellcasting total. On success, it notices the intrusion and the spell ends. Maintain Focus with DC 12 spellcasting checks. An ordinary Focus failure ends the effect without losing the spell; a natural 1 loses it and causes a wizard mishap.\n\nOn a natural 20 on the initial casting check, the AC and attack bonuses become +2; the damage bonus remains +1. This critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
     "paragraphs": [
-      "You peer into the mind of one creature you can see within range. Each round, you learn the target’s immediate thoughts.",
-      "On its turn, the target makes a Wisdom check vs. your last spellcasting check. If the target succeeds, it notices your presence in its mind and the spell ends.",
-      "“Magic is simply the art of doing and undoing.\" -Creeg, human wizard"
+      "Pick one visible monster within 6 squares and line of sight. Round 1: You peer into the mind of a [monster_name] and learn some interesting stuff.",
+      "Round 2: You learn how this [monster_name] fights. While Focus continues, the party gains +1 AC, +1 to hit, and +1 damage against that monster only.",
+      "Round 3: You really get this [monster_name]. Gain one luck token per casting.",
+      "On the monster's turn, it rolls WIS against your latest spellcasting total. On success, it notices the intrusion and the spell ends. Maintain Focus with DC 12 spellcasting checks. An ordinary Focus failure ends the effect without losing the spell; a natural 1 loses it and causes a wizard mishap.",
+      "On a natural 20 on the initial casting check, the AC and attack bonuses become +2; the damage bonus remains +1. This critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects."
     ],
     "damage": []
   },
@@ -143,9 +149,10 @@
     "duration": "5 rounds",
     "range": "Close",
     "rangeBand": "close",
-    "description": "An object you touch that weighs no more than 5 pounds becomes fixed in its current location. It can support up to 5,000 pounds of weight for the duration of the spell.",
+    "description": "Touch a carried or floor object weighing no more than 5 pounds. It becomes fixed in place for 5 rounds, can support up to 5,000 pounds, and blocks movement through its square. Carried objects are placed onto a floor square within touch range.\n\nNatural 20: the object remains fixed for 10 rounds.",
     "paragraphs": [
-      "An object you touch that weighs no more than 5 pounds becomes fixed in its current location. It can support up to 5,000 pounds of weight for the duration of the spell."
+      "Touch a carried or floor object weighing no more than 5 pounds. It becomes fixed in place for 5 rounds, can support up to 5,000 pounds, and blocks movement through its square. Carried objects are placed onto a floor square within touch range.",
+      "Natural 20: the object remains fixed for 10 rounds."
     ],
     "damage": []
   },
@@ -159,9 +166,11 @@
     "duration": "Focus",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You magically paralyze one humanoid creature of LV 4 or less you can see within range.",
+    "description": "Paralyze one visible humanoid of level 4 or less within 6 squares and line of sight. It cannot move or act while you maintain Focus. Attacks against a paralyzed creature have advantage, successful hits are automatic criticals, and eligible thieves automatically backstab.\n\nMaintain Focus with DC 12 spellcasting checks on subsequent turns and whenever damaged. An ordinary failed Focus check ends the paralysis without losing the spell; a natural 1 loses the spell and causes a wizard mishap. Casting another Focus spell, dying, or losing Focus ends this paralysis.\n\nOn a natural 20 on the initial casting check, choose two distinct humanoids of level 4 or less, or one humanoid up to level 8. The chosen critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
     "paragraphs": [
-      "You magically paralyze one humanoid creature of LV 4 or less you can see within range."
+      "Paralyze one visible humanoid of level 4 or less within 6 squares and line of sight. It cannot move or act while you maintain Focus. Attacks against a paralyzed creature have advantage, successful hits are automatic criticals, and eligible thieves automatically backstab.",
+      "Maintain Focus with DC 12 spellcasting checks on subsequent turns and whenever damaged. An ordinary failed Focus check ends the paralysis without losing the spell; a natural 1 loses the spell and causes a wizard mishap. Casting another Focus spell, dying, or losing Focus ends this paralysis.",
+      "On a natural 20 on the initial casting check, choose two distinct humanoids of level 4 or less, or one humanoid up to level 8. The chosen critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects."
     ],
     "damage": []
   },
@@ -175,10 +184,11 @@
     "duration": "10 rounds",
     "range": "Close",
     "rangeBand": "close",
-    "description": "A creature you touch becomes invisible for the spell's duration.\n\nThe spell ends if the target attacks or casts a spell.",
+    "description": "A creature within touch range becomes invisible for 10 rounds. Its token becomes a hollow ring. It automatically succeeds at stealth, attacks at advantage, and qualifies for backstab when eligible. Attacks against it have disadvantage, and enemies cannot directly target it with ranged attacks or targeted ranged spells. Area effects can still hit it.\n\nWizard Invisibility ends if the target attacks or casts a spell. The separate halfling ancestry ability does not end on offense.\n\nNatural 20: choose 20 rounds, a target within 10 feet, or two distinct creatures within touch range.",
     "paragraphs": [
-      "A creature you touch becomes invisible for the spell's duration.",
-      "The spell ends if the target attacks or casts a spell."
+      "A creature within touch range becomes invisible for 10 rounds. Its token becomes a hollow ring. It automatically succeeds at stealth, attacks at advantage, and qualifies for backstab when eligible. Attacks against it have disadvantage, and enemies cannot directly target it with ranged attacks or targeted ranged spells. Area effects can still hit it.",
+      "Wizard Invisibility ends if the target attacks or casts a spell. The separate halfling ancestry ability does not end on offense.",
+      "Natural 20: choose 20 rounds, a target within 10 feet, or two distinct creatures within touch range."
     ],
     "damage": []
   },
@@ -192,10 +202,10 @@
     "duration": "Instant",
     "range": "Near",
     "rangeBand": "near",
-    "description": "A door, window, gate, chest, or portal you can see within range instantly opens, defeating all mundane locks and barriers.\n\nThis spell creates a loud knock audible to all within earshot.",
+    "description": "Open the doors and chests in your current room or connected hallway, including secret doors and mundane locks. Reveal traps and disguised mimics in that area. The noise ends the party's ordinary stealth and has a 50% chance to attract a wandering monster.\n\nNatural 20: choose a reduced 25% wandering-monster chance, or also affect objects within 12 squares through walls. The spell does not cross between upper and lower routes.",
     "paragraphs": [
-      "A door, window, gate, chest, or portal you can see within range instantly opens, defeating all mundane locks and barriers.",
-      "This spell creates a loud knock audible to all within earshot."
+      "Open the doors and chests in your current room or connected hallway, including secret doors and mundane locks. Reveal traps and disguised mimics in that area. The noise ends the party's ordinary stealth and has a 50% chance to attract a wandering monster.",
+      "Natural 20: choose a reduced 25% wandering-monster chance, or also affect objects within 12 squares through walls. The spell does not cross between upper and lower routes."
     ],
     "damage": []
   },
@@ -209,10 +219,11 @@
     "duration": "Focus",
     "range": "Self",
     "rangeBand": "self",
-    "description": "You can float a near distance vertically per round on your turn.\n\nYou can also push against solid objects to move horizontally.",
+    "description": "Float above the floor while you maintain Focus. You can cross pits, floor traps, water, creatures, and statues, but not pillars or solid walls. You cannot make melee attacks or pick up floor items while levitating, and melee attacks against you cannot hit. You can rise out of a pit when there is a free upper landing.\n\nMaintain Focus with DC 12 spellcasting checks. An ordinary failure ends the effect without losing the spell; a natural 1 loses the spell and causes a wizard mishap.\n\nOn a natural 20 on the initial casting check, keep the effect on yourself only, or also levitate one other party member within 5 feet. Both effects depend on your Focus, and the chosen critical effect persists while you maintain it. Later Focus checks cannot grant or change critical effects.",
     "paragraphs": [
-      "You can float a near distance vertically per round on your turn.",
-      "You can also push against solid objects to move horizontally."
+      "Float above the floor while you maintain Focus. You can cross pits, floor traps, water, creatures, and statues, but not pillars or solid walls. You cannot make melee attacks or pick up floor items while levitating, and melee attacks against you cannot hit. You can rise out of a pit when there is a free upper landing.",
+      "Maintain Focus with DC 12 spellcasting checks. An ordinary failure ends the effect without losing the spell; a natural 1 loses the spell and causes a wizard mishap.",
+      "On a natural 20 on the initial casting check, keep the effect on yourself only, or also levitate one other party member within 5 feet. Both effects depend on your Focus, and the chosen critical effect persists while you maintain it. Later Focus checks cannot grant or change critical effects."
     ],
     "damage": []
   },
@@ -226,10 +237,11 @@
     "duration": "5 rounds",
     "range": "Self",
     "rangeBand": "self",
-    "description": "You create a number of illusory duplicates of yourself equal to half your level rounded down (minimum 1). The duplicates surround you and mimic you.\n\nEach time a creature attacks you, the attack misses and causes one of the duplicates to evaporate. If all of the illusions have disappeared, the spell ends.",
+    "description": "Create illusory duplicates equal to half your level, rounded down, with a minimum of one. They surround you and mimic you for 5 rounds.\n\nEach attack that would hit you instead removes one duplicate and deals no damage or on-hit effects. The spell ends when no duplicates remain or its duration expires.\n\nNatural 20: choose 10 rounds or a number of duplicates equal to your full level.",
     "paragraphs": [
-      "You create a number of illusory duplicates of yourself equal to half your level rounded down (minimum 1). The duplicates surround you and mimic you.",
-      "Each time a creature attacks you, the attack misses and causes one of the duplicates to evaporate. If all of the illusions have disappeared, the spell ends."
+      "Create illusory duplicates equal to half your level, rounded down, with a minimum of one. They surround you and mimic you for 5 rounds.",
+      "Each attack that would hit you instead removes one duplicate and deals no damage or on-hit effects. The spell ends when no duplicates remain or its duration expires.",
+      "Natural 20: choose 10 rounds or a number of duplicates equal to your full level."
     ],
     "damage": []
   },
@@ -243,9 +255,11 @@
     "duration": "Instant",
     "range": "Self",
     "rangeBand": "self",
-    "description": "In a puff of smoke, you teleport a near distance to an area you can see.",
+    "description": "Teleport yourself up to 6 squares on your current upper or lower route. A successful landing frees you from ropes, webs, grapples, and pits.\n\nTeleporting into solid terrain deals 8d6 damage and returns you to your original square. Teleporting into a monster deals 8d6 to both of you; you only occupy its square if it dies. Known dangerous destinations require confirmation. Teleporting into an undiscovered secret door reveals the opportunity with a luck token.\n\nNatural 20: teleport up to 12 squares.",
     "paragraphs": [
-      "In a puff of smoke, you teleport a near distance to an area you can see."
+      "Teleport yourself up to 6 squares on your current upper or lower route. A successful landing frees you from ropes, webs, grapples, and pits.",
+      "Teleporting into solid terrain deals 8d6 damage and returns you to your original square. Teleporting into a monster deals 8d6 to both of you; you only occupy its square if it dies. Known dangerous destinations require confirmation. Teleporting into an undiscovered secret door reveals the opportunity with a luck token.",
+      "Natural 20: teleport up to 12 squares."
     ],
     "damage": []
   },
@@ -259,9 +273,11 @@
     "duration": "Focus",
     "range": "Far",
     "rangeBand": "far",
-    "description": "You magically mute sound in a near cube within the spell's range. Creatures inside the area are deafened, and any sounds they create cannot be heard.",
+    "description": "Choose and confirm a 6-by-6-square area centered within 12 squares and line of sight on your current route. Sound cannot be made or heard inside it while you maintain Focus. Spellcasting and sound-based monster abilities are blocked there. Thieves automatically succeed at stealth inside the area, and bats relying on hearing are blinded.\n\nMaintain Focus with DC 12 spellcasting checks. An ordinary failed Focus check ends the silence without losing the spell; a natural 1 loses the spell and causes a wizard mishap.\n\nOn a natural 20 on the initial casting check, expand the area to 12-by-12 squares. This critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
     "paragraphs": [
-      "You magically mute sound in a near cube within the spell's range. Creatures inside the area are deafened, and any sounds they create cannot be heard."
+      "Choose and confirm a 6-by-6-square area centered within 12 squares and line of sight on your current route. Sound cannot be made or heard inside it while you maintain Focus. Spellcasting and sound-based monster abilities are blocked there. Thieves automatically succeed at stealth inside the area, and bats relying on hearing are blinded.",
+      "Maintain Focus with DC 12 spellcasting checks. An ordinary failed Focus check ends the silence without losing the spell; a natural 1 loses the spell and causes a wizard mishap.",
+      "On a natural 20 on the initial casting check, expand the area to 12-by-12 squares. This critical effect persists while you maintain Focus. Later Focus checks cannot grant or change critical effects."
     ],
     "damage": []
   },
@@ -297,9 +313,11 @@
     "duration": "5 rounds",
     "range": "Far",
     "rangeBand": "far",
-    "description": "You create a near-sized cube of sticky, dense spider web within the spell's range. A creature stuck in the web can’t move and must succeed on a Strength check vs. your spellcasting check to free itself.",
+    "description": "Choose and confirm a 6-by-6-square web area centered within 12 squares and line of sight on your current route. It lasts 5 rounds. Creatures caught inside cannot move until they spend an action and succeed on a STR check against your casting total. STR Grit grants advantage; incorporeal creatures and Floating Discs are not caught.\n\nFire burns away a web and deals 1d6 fire damage to each creature inside.\n\nNatural 20: create a 12-by-12-square area instead.",
     "paragraphs": [
-      "You create a near-sized cube of sticky, dense spider web within the spell's range. A creature stuck in the web can’t move and must succeed on a Strength check vs. your spellcasting check to free itself."
+      "Choose and confirm a 6-by-6-square web area centered within 12 squares and line of sight on your current route. It lasts 5 rounds. Creatures caught inside cannot move until they spend an action and succeed on a STR check against your casting total. STR Grit grants advantage; incorporeal creatures and Floating Discs are not caught.",
+      "Fire burns away a web and deals 1d6 fire damage to each creature inside.",
+      "Natural 20: create a 12-by-12-square area instead."
     ],
     "damage": []
   },
@@ -313,9 +331,10 @@
     "duration": "Focus",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You compel a creature you can see to speak truth. It can’t utter a deliberate lie while within range.",
+    "description": "You compel a creature you can see to speak truth. It can’t utter a deliberate lie while within range.\n\nCritical effects are determined only by a natural 20 on the initial casting check and persist while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
     "paragraphs": [
-      "You compel a creature you can see to speak truth. It can’t utter a deliberate lie while within range."
+      "You compel a creature you can see to speak truth. It can’t utter a deliberate lie while within range.",
+      "Critical effects are determined only by a natural 20 on the initial casting check and persist while you maintain Focus. Later Focus checks cannot grant or change critical effects."
     ],
     "damage": []
   }

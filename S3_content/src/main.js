@@ -1,6 +1,10 @@
 import { DEFAULT_LIGHT_RADIUS, MAX_SEARCH_MODIFIER, MIN_SEARCH_MODIFIER, TILE_SIZE_PX } from "./constants.js";
 import { loadLocalJson } from './data-loader.js';
+import { formatRulesMessage } from './rules-message.js';
 import { generateDungeon } from "./generator.js";
+import { buildNextLevelState, dungeonArrivalPositions, dungeonDescentStatus, downstairsIn } from './dungeon-descent.js';
+import { createSaveMenus } from './save-menus.js';
+import { isTied, grapplingEscapeOption, escapePitWithGrapplingHook, ropeBridgeOptions, buildRopeBridge, tieTargets, tieWithRope, escapeRope } from './rope-actions.js';
 import { createDoorEntity } from './state-schema.js';
 import { SeededRng } from './rng.js';
 import {
@@ -20,10 +24,11 @@ import {
   getRoomTraps,
   movePlayer,
   rollCheck,
-  searchForTraps
+  searchForTraps, partyCanReachLoot, partyInLootArea
 } from "./interactions.js";
 import { formatTreasureValue } from "./treasure.js";
 import { sheetLore, talentPresentation } from './sheet-lore.js';
+import { fieldLore } from './sheet-field-lore.js';
 import { canCastFeatherFall, queueFallingDamage, resolveFallingDamage } from './falling.js';
 import { magicBonus, revealedMagicBonus, magicSaleValue, drinkPotion, giantStrengthActive, advancePotionRounds, queueScrollLearning,
   enchantedEquipment, magicPotion, magicScroll, magicTreasureCatalog } from './magic-items.js';
@@ -68,12 +73,13 @@ import { setCharacterDamageListener } from './characters.js';
 import { FAITH_SPELLS, FAITH_CRITICAL_CHOICES, castFaithSpell, resolveFaithSpell, maintainFocus, advanceFaithRounds,
   faithArmorBonus, holyWeaponBonus, protectionDisadvantage, protectionName, blocksMindControl, chooseUndeadFleeStep, restoreMonsterSpellStats } from './faith-spells.js';
 import { extractDamageReferences, normalizeDamageExpression, rollDamageExpression, rollUnarmedAttack, getMaximumDamage } from "./damage.js";
-import { collectLightSources } from "./light-geometry.js";
+import { collectLightSources, isTileIlluminated } from "./light-geometry.js";
 import { handItemKind, isTwoHandedWeapon, ensureEquipment, equipItem, equipArmor, ensureArmorEquipment, syncEquipmentLight, hasOccupiedOffHand, equipImportLoadout, normalizeWeaponSpacing } from "./equipment.js";
 import { preloadRendererAssets, renderDungeon } from "./render.js";
 import { loadSpellLibrary, normalizeSpellLookupKey } from "./spells.js";
 import { canReceiveHealing, canTouchCharacter, castCureWounds, resolveCureWounds, validateCureWoundsTarget, castingBonus } from './spell-effects.js';
 import { castMagicMissile, chooseMagicMissile, fireMagicMissile, dismissMagicMissiles } from './magic-missile.js';
+import { castLight, resolveLight, LIGHT_TARGET_PROMPT } from './light-spell.js';
 import { applyBurningHands, castBurningHands, chooseBurningHands, releaseBurningHands } from './burning-hands.js';
 import { ATTACK_RANGES, OFFENSIVE_SPELLS, canTargetAtRange, withinTargetRange, hasReadyOffensiveSpell, pendingSpellAllowsCommand, planClickMovement } from './targeting.js';
 import { movementStepCost, WATER_STEP_DURATION_MS } from './terrain-movement.js';
@@ -81,13 +87,21 @@ import { isFloatingDisc, FLOATING_DISC_COLOR, floatingDiscSlotsAvailable, follow
 import { isInvisible, isStealthed, isHiddenMonster, neverSurprised, activateHalflingInvisibility, revealAfterOffense,
   advanceConcealmentRounds, updateMonsterStealth, surpriseParticipants } from './concealment.js';
 import { castInvisibility, resolveInvisibility } from './invisibility.js';
+import { TIER_TWO_SPELLS, TIER_TWO_CHOICES, castTierTwoSpell, resolveTierTwoSpell, tierTwoPresentation } from './tier-two-spells.js';
+import { createTierTwoUi } from './tier-two-ui.js';
+import { beginLuckEvent, captureLuckChange, finishLuckEvent, checkLuckEvent, consumeLuck, grantLuckToken, isLuckResolution } from './luck.js';
+import { isTierTwoFocus, maintainTierTwoFocus, cleanupWizardTierTwoFocus, resolveDetectThoughtsResistance, detectThoughtsModifiers } from './wizard-tier-two-focus.js';
+import { syncTransformationEffects, advanceTransformationRounds, maintainLevitationFocus, transformationAttackOptions, transformationAttackDisadvantage, transformationMovementRules, interceptMirrorImageHit, hasAlterSelfFeature, validateMistyStepDestination, spendClawAttack, remainingClawAttacks } from './transformation-spells.js';
+import { syncAreaSpellConditions, advanceAreaSpells, areaSpellPlacement, silenceBlocksAction, silenceStealthSuccess, noiseIsSilenced, isRestrainedByWeb, escapeWeb, igniteWebsAt } from './area-spells.js';
 import { initializeDisguises, concealedMimic, isDoppelganger, displayMonsterName, buildMonsterCompanion,
-  recordCompanionDamage, companionLeaves, archiveSlainCharacter, dropCompanionGear } from './companions.js';
+  recordCompanionDamage, companionLeaves, archiveSlainCharacter, dropCompanionGear, concealedAnimatedArmor,
+  updateAnimatedArmorDisguises, shouldAnimatedArmorWait, animatedArmorCanEnter, planWanderingArmorRetreat, nativeGear } from './companions.js';
 import { initializeMorale, processMorale, automaticallyHostile, reactionSpeaker, resolveReaction, suspiciousProvoked, monsterScore, isAnimalMonster, creatureLanguages } from './encounters.js';
 import { advanceWizardTime, hasWizardEffect, isLightSuppressedAt, processWizardTurn, spellLockRemaining, SPELL_ROUND_MS, wizardCastingMode, rollWizardMishaps } from './wizard-mishaps.js';
 import { isRaving, availableHands, blocksSpellTier, forgottenSpells, attackDamageMultiplier } from './arcane-effects.js';
 import { applyHigherMishap, queueForcedSpell, ordBalanceOptions, resolveOrdBalance, checkSinkholeFall } from './higher-mishaps.js';
-import { climbFromPit, safePitRim, ropeRescues, rescueWithRope, pushTargets, pushIntoPit, avoidsFalling, knownPitAt, pitAtBottom, ropeDescents, descendWithRope } from './pits.js';
+import { climbFromPit, safePitRim, ropeRescues, rescueWithRope, pushTargets, pushIntoPit, avoidsFalling, knownPitAt, pitAtBottom, ropeDescents, descendWithRope, resolvePitSave } from './pits.js';
+import { resolveLuckSave, captureRuntimeLuckActor } from './luck-runtime.js';
 import { makePitTunnel } from './pit-tunnels.js';
 import { routeOf, routeAt, routeStep, sameRoute, makeUnderpass, routeKey } from './underpasses.js';
 import { beginPartyRest, acceptPartyRest, advancePartyRest, cancelPartyRest, interruptPartyRest, restInProgress, restSupplyStatus, restingParty, restWatchSchedule, restWatchCharacters } from './rest.js';
@@ -114,8 +128,8 @@ import { planMarchingSteps } from './marching-order.js';
 import { reorderGear } from './gear-order.js';
 import { isSleeping, isProne, isIncorporeal, canPhase, phaseStepAllowed, wakeCreature, standCreature, conditionAttackMode } from './conditions.js';
 import { portalHeld, forceHeldDoor, advancePortalRounds } from './control-spells.js';
-import { findPursuitStep, planFiringPosition } from './pursuit.js';
-import { isMonsterCurrentlyVisible } from './monster-perception.js';
+import { findPursuitStep, planFiringPosition, planDarkReposition } from './pursuit.js';
+import { isMonsterCurrentlyVisible, isFeatureCurrentlyVisible } from './monster-perception.js';
 import { resetBurningLights, releaseUnequippedTorches } from './light-lifecycle.js';
 import { stealableGear, selectStealTarget, takeStolenItem } from './thievery.js';
 import { rollTextSegments, damageRollSegments } from './roll-history.js';
@@ -123,6 +137,8 @@ import { restTourFrame } from './rest-scene.js';
 import { unawareReason, backstabMultiplier } from './backstab.js';
 import { createTalentMagicItem } from './talent-magic.js';
 import { elementalDamage } from './elemental-effects.js';
+import { isDarkvisionCharacter, companionEquipmentClass } from './darkvision.js';
+import { markMonsterCorrectlyGuessed, shouldRepositionAfterDarkGuess } from './monster-perception.js';
 import { awardExperience, canLevelUp, beginLevelUp, xpTarget, advancementOptions, resolveAdvancement, classAttackBonus, masteryTargets, classArmorBonus,
   initializeImportChoices, advancementButtonLabel, STAT_NAMES, GRIT_DESCRIPTIONS, hasGrit } from './class-progression.js';
 import {
@@ -138,6 +154,11 @@ let serverMonsterTurns = null;
 let serverFollowerFrames = new Map();
 let missileDisplay = null;
 let targetingMode = null;
+let shiftAttackHeld = false;
+let tierTwoUi = null;
+let areaPreview = null;
+let spellLuckContext = null;
+const seenSpellDialogs = new Set();
 let monsterTurnRadius = null;
 let sharedMonsterPresentation = null;
 let sharedMonsterPresentationRunning = false;
@@ -303,6 +324,99 @@ let multiplayerRefreshInFlight = false;
 let lastRestHeartbeatAt = 0;
 let multiplayerAutoJoinAttempted = false;
 let accountSession = { authenticated: false };
+let saveMenus = null;
+
+function getSaveMenus() {
+  if (SERVER_RUNTIME) return null;
+  return saveMenus ||= createSaveMenus({
+    getState: () => state,
+    getSession: () => isSharedRoom() ? { ...accountSession, ...multiplayerSession } : accountSession,
+    isSharedRoom, roomRequest, applyRoomState: applyMultiplayerSessionState,
+    loadCharacter: record => loadSelectedCharacter(record, { keepOpen: true, throwOnError: true }),
+    onPartyLoaded: loadPartySnapshot,
+    onPartyNameChanged: name => { if (name) { state.partyName = name; markRunDirty(); updatePanels(); } },
+    onStatus: setStatus
+  });
+}
+
+function loadPartySnapshot(snapshot) {
+  if (isSharedRoom() || isCombatActive() || restInProgress(state)) throw new Error('Finish combat/rest and leave multiplayer before replacing the party.');
+  const members = structuredClone(snapshot.characters || []);
+  if (!members.length || members.length > 16) throw new Error('A party must contain 1 to 16 members.');
+  const positions = dungeonArrivalPositions(state, members.length);
+  if (positions.length !== members.length) throw new Error('Generate a dungeon with enough safe starting-room space for this party.');
+  const identities = new Map(members.map(member => [member.id, `character-${crypto.randomUUID()}`]));
+  const remap = (value, field = '') => {
+    if (Array.isArray(value)) return value.map(child => remap(child, field));
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, key === 'lineageId' ? child : remap(child, key)]));
+    return typeof value === 'string' && /(?:^id$|Ids?$|_ids?$)/.test(field) && identities.has(value) ? identities.get(value) : value;
+  };
+  members.forEach((member, index) => {
+    const lineageId = member.lineageId || member.id;
+    Object.assign(member, remap(member), { lineageId });
+    member.raw ||= {}; Object.assign(member.raw, { id: member.id, lineageId });
+    delete member.owner_member_id; delete member.raw.owner_member_id;
+    if (member.companion) {
+      const sourceId = `party-companion-${crypto.randomUUID()}`;
+      member.companion.sourceMonsterId = sourceId;
+      if (member.companion.source) member.companion.source.id = sourceId;
+      member.raw.companion = structuredClone(member.companion);
+    }
+    Object.assign(member, positions[index]);
+    delete member.pendingSpell; delete member.pendingSteal; delete member.pendingFall;
+    if (member.conditions) { delete member.conditions.sinkhole; delete member.conditions.pitLedge; }
+    if (isFloatingDisc(member)) member.summon.trail = [];
+  });
+  const previous = state;
+  const candidate = hydrateDungeonState(serializeDungeonState(previous));
+  candidate.characters = members;
+  for (const key of ['partyName', 'partyAssets', 'timers', 'arcaneTime', 'spellClock', 'roundClock', 'gameClock']) {
+    if (snapshot[key] !== undefined) candidate[key] = structuredClone(snapshot[key]);
+  }
+  ensureTimers(candidate).lastTickAt = Date.now();
+  candidate.activeCharacterId = identities.get(snapshot.activeCharacterId) || members[0].id;
+  normalizeCharacterState(candidate);
+  try {
+    state = candidate;
+    syncAllCharacterEquipmentDerivedStats(); ensureCharacterPresentation(); syncPlayerToActiveCharacter(); recomputeVisibility(state);
+  } catch (error) { state = previous; throw error; }
+  markRunDirty(); updatePanels(); render();
+}
+
+async function descendDungeon() {
+  const level = Number(state.level) + 1;
+  const [content, rules, organic, inner, traps, monsters, bosses, library] = await Promise.all([
+    loadShadowdarkContent(), loadRulesData(), loadOrganicAssets(), loadInnerWallAssets(), loadTrapTable(),
+    loadMonsterTableForLevel(level), loadBossMonsterTableForLevel(level), ensureSpellLibraryLoaded()
+  ]);
+  state = buildNextLevelState(state, { seed: createRandomDungeonSeed(), generationOptions: {
+    monsterTable: monsters, bossMonsterTable: bosses, trapTable: traps, contentCatalog: content, rulesData: rules,
+    spells: library.spells, organicAssets: organic, innerWallAssets: inner
+  } });
+  shadowdarkContent = content; rulesData = rules; monsterTable = monsters; bossMonsterTable = bosses; trapTable = traps;
+  normalizeCharacterState(state); ensureCombatState(); syncAllCharacterEquipmentDerivedStats(); syncPlayerToActiveCharacter();
+  recomputeVisibility(state); markRunDirty();
+  if (!SERVER_RUNTIME) { ui.levelInput.value = state.level; ui.seedInput.value = state.seed; setupCanvasLayers(state); updatePanels(); render(); }
+  setStatus(`Descended to dungeon level ${state.level}.`);
+}
+
+async function requestDungeonDescent() {
+  const status = dungeonDescentStatus(state);
+  if (!status.ok) { setStatus(status.message); return; }
+  if (isSharedRoom()) {
+    try { applyMultiplayerSessionState(await roomRequest(multiplayerSession.id, 'group-action', { action: 'descend' })); }
+    catch (error) { setStatus(error.message); }
+    return;
+  }
+  const modal = document.createElement('dialog'); modal.className = 'sd-save-menus sd-simple-dialog'; modal.setAttribute('aria-label', 'Descend');
+  modal.addEventListener('keydown', event => event.stopPropagation());
+  const text = document.createElement('p'); text.textContent = status.message;
+  const yes = document.createElement('button'); yes.textContent = 'Yes';
+  const no = document.createElement('button'); no.textContent = 'No';
+  no.onclick = () => { modal.close(); modal.remove(); };
+  yes.onclick = async () => { yes.disabled = true; try { await descendDungeon(); modal.close(); modal.remove(); } catch (error) { setStatus(error.message); yes.disabled = false; } };
+  modal.addEventListener('close', () => modal.remove()); modal.append(text, yes, no); document.body.append(modal); modal.showModal();
+}
 let pendingLightRequest = null;
 let lastDyingAutoTickAt = Date.now();
 let autoEndTurnTimer = null;
@@ -561,8 +675,9 @@ function centerMapInView() {
   const { width: viewW, height: viewH } = getMapViewSize(panel);
   const mw = viewport.width * viewport.scale;
   const mh = viewport.height * viewport.scale;
-  viewport.panX = mw > viewW ? 0 : (viewW - mw) / 2;
-  viewport.panY = mh > viewH ? 0 : (viewH - mh) / 2;
+  const focus = getActiveCharacter(state) || state.player;
+  viewport.panX = mw > viewW ? viewW / 2 - (Number(focus?.x || 0) + .5) * TILE_SIZE_PX * viewport.scale : (viewW - mw) / 2;
+  viewport.panY = mh > viewH ? viewH / 2 - (Number(focus?.y || 0) + .5) * TILE_SIZE_PX * viewport.scale : (viewH - mh) / 2;
 }
 
 function clampPan() {
@@ -628,10 +743,11 @@ function setStatus(resultOrMessage) {
     : resultOrMessage || { message: "" };
   ui.statusText.classList.toggle("trap-sprung-status", result.trapSprung === true);
   ui.statusText.classList.toggle("no-free-slots-status", result.noFreeSlots === true);
-  ui.statusText.textContent = result.trapSprung
+  const messageContext = { state, rulesData, monsters: shadowdarkContent?.monsters || monsterTable, spells: spellLookup };
+  ui.statusText.textContent = formatRulesMessage(result.trapSprung
     ? `Trap is Sprung! ${result.message || ""}`
-    : result.message || "";
-  ui.darknessMessage.textContent = result.darknessMessage || "";
+    : result.message || "", messageContext);
+  ui.darknessMessage.textContent = formatRulesMessage(result.darknessMessage || "", messageContext);
   updateLockedDoorUi();
 }
 
@@ -739,7 +855,10 @@ function syncTurnCard() {
   const actor = character || monster;
   const key = actor ? `${state.combat.round}:${state.combat.turnIndex}:${actor.id}` : '';
   const columnSource = character ? [...ui.charactersList.children].find(card => card.dataset.characterId === character.id)?.getBoundingClientRect() : null;
-  for (const card of ui.charactersList?.children || []) card.classList.toggle('is-on-map', card.dataset.characterId === character?.id);
+  for (const card of ui.charactersList?.children || []) card.classList.remove('is-on-map');
+  makeTurnCardDraggable(layer);
+  if (columnSource?.width) layer.style.width = `${Math.min(columnSource.width * 1.15, (layer.parentElement?.clientWidth || 600) - 24)}px`;
+  clampTurnCard(layer);
   layer.hidden = !actor;
   if (!actor) { layer.replaceChildren(); turnCardKey = ''; turnCardSignature = ''; return; }
   const signature = JSON.stringify([actor, state.combat.actionUsed, state.combat.movementRemaining]);
@@ -765,6 +884,36 @@ function syncTurnCard() {
       { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1000, easing: 'ease-in-out' });
     flight.finished.finally(() => { ghost.remove(); card.style.removeProperty('visibility'); });
   }
+}
+
+function makeTurnCardDraggable(layer) {
+  if (layer.dataset.dragReady) return;
+  layer.dataset.dragReady = 'true';
+  let drag = null, suppressClick = false;
+  layer.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || event.target.closest('button,input,select,a')) return;
+    const rect = layer.getBoundingClientRect(), parent = layer.parentElement.getBoundingClientRect();
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left - parent.left, top: rect.top - parent.top, moved: false };
+    layer.setPointerCapture(event.pointerId); event.stopPropagation();
+  });
+  layer.addEventListener('pointermove', event => {
+    if (!drag || drag.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5 && !drag.moved) return;
+    drag.moved = true; event.preventDefault(); event.stopPropagation();
+    layer.style.transform = 'none';
+    layer.style.left = `${Math.max(0, Math.min(layer.parentElement.clientWidth - layer.offsetWidth, drag.left + event.clientX - drag.x))}px`;
+    layer.style.top = `${Math.max(0, Math.min(layer.parentElement.clientHeight - layer.offsetHeight, drag.top + event.clientY - drag.y))}px`;
+  });
+  const finish = event => { if (drag?.id !== event.pointerId) return; suppressClick = drag.moved; drag = null; };
+  layer.addEventListener('pointerup', finish); layer.addEventListener('pointercancel', finish);
+  layer.addEventListener('click', event => { if (suppressClick) { event.preventDefault(); event.stopImmediatePropagation(); suppressClick = false; } }, true);
+}
+
+function clampTurnCard(layer = document.getElementById('turn-card-layer')) {
+  if (!layer || layer.hidden || layer.style.transform !== 'none') return;
+  const parent = layer.parentElement;
+  layer.style.left = `${Math.max(0, Math.min(parent.clientWidth - layer.offsetWidth, parseFloat(layer.style.left) || 0))}px`;
+  layer.style.top = `${Math.max(0, Math.min(parent.clientHeight - layer.offsetHeight, parseFloat(layer.style.top) || 0))}px`;
 }
 
 function getCombatBannerLayer() {
@@ -974,11 +1123,11 @@ function render(options = {}) {
     forceBlackout: state.lightTransition && Date.now() - state.lightTransition.startedAt < 1000 || forceBlackoutWhenTorchOut && !hasAnyVisibleLightSource() && getActiveCharacter(state)?.companion?.kind!=='doppelganger',
     motionOnly: options.motionOnly === true,
     lightPolygons: options.lightPolygons,
-    targeting: currentTargetingOverlay(), restNow: now, restSceneVisible: restVisible
+    targeting: currentTargetingOverlay(), areaPreview, restNow: now, restSceneVisible: restVisible
   });
   if (caster) { [caster.visualX, caster.visualY] = visual; }
   delete state.lightVisualTime;
-  if ((restVisible && frame.active || state.lightTransition && now < state.lightTransition.startedAt + 3000) && !lightAnimationFrame) {
+  if ((restVisible && frame.active || state.lightTransition && now < state.lightTransition.startedAt + 3000 || state.areaSpells?.some(zone => zone.burnedAt && now < zone.burnedAt + 1500)) && !lightAnimationFrame) {
     lightAnimationFrame = requestAnimationFrame(() => { lightAnimationFrame = null; render({ motionOnly: true }); });
   }
   updateMonsterHoverCursor();
@@ -1058,7 +1207,7 @@ function getCharacterActionContext(action) {
   };
   const advantageClass = advantageClassByAction[action] || "";
   const hasAdvantage = Boolean(advantageClass && className === advantageClass);
-  const hasDisadvantage = action === "pick" && state?.player?.torchLit !== true;
+  const hasDisadvantage = action === 'pick' && !isDarkvisionCharacter(character) && !isCharacterInLiveLight(character);
   return {
     character,
     modifier: baseModifier + situational,
@@ -1342,7 +1491,7 @@ function isCharacterDying(character) {
 }
 
 function isCharacterAbleToAct(character) {
-  return character && !isCharacterDead(character) && !isCharacterDying(character) && !isSleeping(character, state) && !isRaving(character) && Number(character.hp) > 0;
+  return character && !isCharacterDead(character) && !isCharacterDying(character) && !character.conditions?.paralyzed && !isSleeping(character, state) && !isRaving(character) && Number(character.hp) > 0;
 }
 
 function performRevive(character) {
@@ -1413,7 +1562,7 @@ function inventoryController(character) {
 }
 
 function canUseCharacterInventory(character) {
-  return Boolean(character) && !isIncorporeal(character) && isCharacterAbleToAct(inventoryController(character));
+  return Boolean(character) && !isIncorporeal(character) && !isTied(inventoryController(character)) && isCharacterAbleToAct(inventoryController(character));
 }
 
 function isCharacterTargetableByMonster(character) {
@@ -1439,7 +1588,7 @@ function canMonsterSeeCharacter(monster, character) {
 }
 
 function creatureSight(source, target) {
-  return hasLineOfSightFrom(state, Number(source.x), Number(source.y), Number(target.x), Number(target.y), { source, target });
+  return !source.conditions?.blind && hasLineOfSightFrom(state, Number(source.x), Number(source.y), Number(target.x), Number(target.y), { source, target });
 }
 
 function canCharacterSeeMonster(character, monster, { includeInvisible = false } = {}) {
@@ -1616,7 +1765,7 @@ function shouldAutoEndCurrentCharacterTurn() {
   if (actor?.pendingSteal) return false;
   if (isCharacterDying(actor) && actor.reviveTurnKey !== `${combat.round}:${combat.turnIndex}`) return false;
   return entry?.type === "character" && combat.actionUsed === true &&
-    combat.movementRemaining < movementStepCost(state, Number(actor?.x), Number(actor?.y));
+    combat.movementRemaining < movementStepCost(state, Number(actor?.x), Number(actor?.y), actor);
 }
 
 function scheduleAutoEndTurnIfNeeded(delayMs = 300) {
@@ -1968,16 +2117,16 @@ function startCurrentCombatTurn() {
       startCurrentCombatTurn();
       return;
     }
-  } else if (isSleeping(character, state) || isRaving(character)) {
+  } else if (isSleeping(character, state) || isRaving(character) || character.conditions?.paralyzed) {
     combat.movementRemaining = 0;
     combat.actionUsed = true;
-    setStatus(`${character.name} is ${isRaving(character) ? 'raving' : 'sleeping'}.`);
+    setStatus(`${character.name} is ${isRaving(character) ? 'raving' : character.conditions?.paralyzed ? 'paralyzed' : 'sleeping'}.`);
   } else {
     setStatus(`Round ${combat.round}: ${character.name || "Character"}'s turn.`);
     recordWizardTurn(character);
     const turnKey = combat.round + ':' + character.id;
     if (character.focusSpell && character.focusSpell.lastTurn !== turnKey) {
-      character.focusSpell.lastTurn = turnKey;
+      if (!isTierTwoFocus(character.focusSpell) || character.focusSpell.spell === 'levitate') character.focusSpell.lastTurn = turnKey;
       recordFocusCheck(character, 'next round');
     }
   }
@@ -2082,7 +2231,7 @@ function performStealth() {
       setStatus("Only the character whose turn it is can attempt stealth.");
       return;
     }
-    if (state.combat.actionUsed) {
+    if (state.combat.actionUsed || hasAlterSelfFeature(character, 'claws') && remainingClawAttacks(state, character) === 1) {
       setStatus(`${character.name} has already acted this turn.`);
       return;
     }
@@ -2094,7 +2243,7 @@ function performStealth() {
   const modifier = abilityScoreModifier(character?.stats?.DEX);
   const advantage = /\bthief\b/i.test(String(character.className || ""));
   const disadvantage = characterWearsHeavyStealthArmor(character);
-  const check = rollCheck(modifier, {
+  const check = silenceStealthSuccess(state, character) ? { roll: 20, rolls: [20], total: 20 + modifier, modifier, checkMode: 'normal' } : rollCheck(modifier, {
     doubleRoll: advantage && !disadvantage,
     disadvantage: disadvantage && !advantage
   });
@@ -2252,11 +2401,12 @@ function getSingleCombatMonsterTarget() {
 }
 
 function getWeaponOutOfRangeMessage(weaponName) {
-  return `out of range to attack with ${weaponName || "weapon"}.`;
+  return `Out of range with ${String(weaponName || "weapon").toLowerCase()}.`;
 }
 
-function consumeCharacterCombatAction(character) {
+function consumeCharacterCombatAction(character, { teleport = false, clawAttack = false } = {}) {
   character = inventoryController(character);
+  if (isTied(character) && !teleport) { setStatus('Escape or break the rope before acting.'); return false; }
   if(state.encounterPrompt){setStatus('Resolve the monster reaction first.');return false;}
   if (restInProgress(state)) { setStatus('Cancel rest before taking an action.'); return false; }
   if (character?.pendingSpell) {
@@ -2270,6 +2420,9 @@ function consumeCharacterCombatAction(character) {
     setStatus("It is not that character's turn.");
     return false;
   }
+  if (!clawAttack && hasAlterSelfFeature(character, 'claws') && remainingClawAttacks(state, character) === 1) {
+    setStatus('Finish the second claw attack or end the turn before taking another action.'); return false;
+  }
   if (state.combat.actionUsed) {
     setStatus(`${character.name || "Character"} has already acted this turn.`);
     return false;
@@ -2279,10 +2432,14 @@ function consumeCharacterCombatAction(character) {
 }
 
 function getVisibleMonsterAtTile(x, y) {
-  if (!isTileVisible(state, x, y)) {
-    return null;
-  }
   return getLiveMonsters().find(monster => sameRoute(state, monster, state.player) && Number(monster.x) === x && Number(monster.y) === y && isMonsterCurrentlyVisible(state, monster)) || null;
+}
+
+function consumeWeaponCombatAction(character, attack) {
+  const claws = attack?.name === 'Claws' && hasAlterSelfFeature(character, 'claws');
+  if (!consumeCharacterCombatAction(character, { clawAttack: claws })) return false;
+  if (claws) { const spent = spendClawAttack(state, character); if (isCombatActive()) state.combat.actionUsed = spent.actionComplete; }
+  return true;
 }
 
 function getAlertingMonstersFromAttack(originMonster) {
@@ -2294,7 +2451,7 @@ function getAlertingMonstersFromAttack(originMonster) {
   ));
 }
 
-function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) {
+function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, { blindSquare = false } = {}) {
   if (monster && !sameRoute(state, character, monster)) throw new Error('That target is in a different passage.');
   if (isIncorporeal(character)) throw new Error('Become corporeal before attacking.');
   const partyTarget = state.characters.includes(monster);
@@ -2330,14 +2487,15 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
     combatAttack.attack = rollUnarmedAttack(abilityScoreModifier(character.stats?.STR));
   }
   const weaponName = combatAttack.attack.name || "weapon";
-  if (distance < 1 || !canTargetAtRange(state, character, monster, combatAttack.range.maxRange, { directAttack: true })) {
+  if (combatAttack.range.maxRange <= 1 && !transformationMovementRules(state, character).canMeleeAttack) return { message: 'You cannot make melee attacks while levitating.' };
+  if (combatAttack.range.maxRange <= 1 && transformationMovementRules(state, monster).levitating) return { message: `${monster.name} levitates beyond melee reach.` };
+  if (distance < 1 || !canTargetAtRange(state, character, monster, combatAttack.range.maxRange, { directAttack: !blindSquare, requireLight: !blindSquare && !partyTarget })) {
     const message = getWeaponOutOfRangeMessage(weaponName);
     setStatus(message);
     return { message };
   }
-  if (!consumeCharacterCombatAction(character)) {
-    return { message: ui.statusText.textContent || "Action unavailable." };
-  }
+  const claws = combatAttack.attack.name === 'Claws' && hasAlterSelfFeature(character, 'claws');
+  if (!consumeWeaponCombatAction(character, combatAttack.attack)) return { message: ui.statusText.textContent || 'Action unavailable.' };
   if (!SERVER_RUNTIME) targetingMode = null;
 
   const wasStealthed = isStealthed(character);
@@ -2345,13 +2503,16 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
   const backstab = advantageReason ? getBackstabMultiplier(character) : 0;
   const surprisedMimic=concealedMimic(monster);
   if(surprisedMimic)monster.disguiseRevealed=true;
-  const wardDisadvantage = protectionDisadvantage(state, character) || (isInvisible(monster) && !character.magicDetectedIds?.includes(monster.id));
+  const wardDisadvantage = protectionDisadvantage(state, character) || (isInvisible(monster) && !character.magicDetectedIds?.includes(monster.id)) ||
+    !isDarkvisionCharacter(character) && (blindSquare || !isTileIlluminated(state, monster.x, monster.y, monster));
+  if (blindSquare) markMonsterCorrectlyGuessed(monster);
   const item = character.gear[getAttackGearIndex(character, combatAttack.attack)];
   const ammoType = /crossbow/i.test(weaponName) ? 'bolts' : /(?:short|long)bow/i.test(weaponName) ? 'arrows' : '';
   const ammo = ammoType ? character.gear.find(item => getGearAmmoType(item) === ammoType && getGearUnits(item) > 0) : null;
   const knownMagic = revealedMagicBonus(item) + revealedMagicBonus(ammo);
   const hiddenMagic = magicBonus(item) - revealedMagicBonus(item) + magicBonus(ammo) - revealedMagicBonus(ammo);
-  const extraBonus = magicBonus(item) - revealedMagicBonus(item) + magicBonus(ammo);
+  const thoughts = detectThoughtsModifiers(state, character, monster);
+  const extraBonus = magicBonus(item) - revealedMagicBonus(item) + magicBonus(ammo) + thoughts.attack;
   const roll = rollCheck((combatAttack.attack.bonus || 0) + extraBonus, conditionAttackMode(monster, {
     advantage: Boolean(advantageReason), disadvantage: wardDisadvantage, melee: combatAttack.range.maxRange <= 1 || !ammoType && distance <= 1, close: distance <= 1, state }));
   if (ammo) {
@@ -2361,19 +2522,23 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
     updateCharacterAmmoFromGearItem(character, ammo);
     character.raw.gear = structuredClone(character.gear);
   }
-  if (wasStealthed) {
-    revealAfterOffense(character);
-  }
+  revealAfterOffense(character);
   const ac = partyTarget ? Number(monster.armorClass) : getMonsterAc(monster);
   const hit = roll.total >= ac;
+  const luck = beginLuckEvent(state, { kind: 'party-attack', actor: luckActorRef(character), target: luckActorRef(monster), roll, dc: ac,
+    context: { weapon: weaponName, expression: addDamageBonus(getAttackDamageExpression(combatAttack.attack), extraBonus - thoughts.attack + thoughts.damage), backstab: backstab || 1,
+      paralyzed: Boolean(monster.conditions?.paralyzed), elementalDice: item?.magic?.elementDice || null, element: item?.magic?.element || null } });
   const parts = [];
   let rolledDamage = null;
   let damageRoll = null;
   let defeated = false;
-  if (hit) {
-    const expression = addDamageBonus(getAttackDamageExpression(combatAttack.attack), extraBonus);
+  const mirror = hit && interceptMirrorImageHit(state, monster);
+  if (mirror?.intercepted) parts.push('destroys a mirror image');
+  else if (hit) {
+    const expression = addDamageBonus(getAttackDamageExpression(combatAttack.attack), extraBonus - thoughts.attack + thoughts.damage);
     if (expression) {
-      const damage = rollDamageExpression(backstab ? multiplyDamageDice(expression,backstab) : expression);
+      const diceMultiplier = (backstab || 1) * (monster.conditions?.paralyzed ? 2 : 1);
+      const damage = rollDamageExpression(diceMultiplier > 1 ? multiplyDamageDice(expression, diceMultiplier) : expression);
       if (item?.magic?.elementDice) {
         const elemental = rollDamageExpression(item.magic.elementDice);
         damage.total += elemental.total; damage.subtotal += elemental.total;
@@ -2387,6 +2552,10 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
       damageRoll = damage;
       if (partyTarget) setCharacterHp(monster, Number(monster.hp) - damage.total, { sourceId: character.id });
       else { monster.hp = Math.max(0, (Number.parseInt(monster.hp, 10) || 0) - damage.total); if (damage.total > 0) wakeCreature(monster, state); }
+      if (/fire|flame|burn/i.test(item?.magic?.element || '')) {
+        igniteWebsAt(state, monster);
+        for (const target of state.entities.filter(entity => entity.type === 'monster' && entity.id !== monster.id && !entity.defeated && entity.hp <= 0)) defeatMonster(state, target);
+      }
       state.lastDamageSourceId=character.id;
       parts.push(`hit for ${damage.total} damage`);
       applyDamageResultToPanel(damage, `${character.name} ${weaponName}`, { recordHistory: false });
@@ -2420,9 +2589,9 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
     detectAdditionalCombatMonsters();
     preserveCombatStatus = checkCombatEnd();
   }
-  const ability = getWeaponProfileFromText(weaponName)?.ability || 'STR';
+  const ability = claws ? 'INT' : getWeaponProfileFromText(weaponName)?.ability || 'STR';
   const message = attackNarrative({ character, monster: { ...monster, ac, partyMember: partyTarget }, weapon: weaponName, roll, ability,
-    abilityModifier: abilityScoreModifier(character.stats?.[ability]), hit, damage: rolledDamage, magic: knownMagic, hiddenMagic, backstab: Boolean(backstab), advantageReason });
+    abilityModifier: abilityScoreModifier(character.stats?.[ability]), hit, damage: rolledDamage, magic: knownMagic, hiddenMagic, backstab: Boolean(backstab), advantageReason }) + (mirror?.intercepted ? ' A mirror image is destroyed.' : '');
   pushDiceHistory('Attack', message, character.id, attackRollSegments({ character, monster: { ...monster, partyMember: partyTarget }, weapon: weaponName, roll, ability,
     abilityModifier: abilityScoreModifier(character.stats?.[ability]), hit, damage: rolledDamage, damageRoll, magic: knownMagic, hiddenMagic, backstab: Boolean(backstab), advantageReason }));
   dismissedTurnRadius = targetingTurnKey();
@@ -2430,6 +2599,7 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster) 
     setStatus(message);
   }
   pushCombatLog(message);
+  finishLuckEvent(state, luck, { succeeded: hit });
   scheduleAutoEndTurnIfNeeded();
   return { message };
 }
@@ -2452,11 +2622,13 @@ function selectedWeaponAttack(character, index = null) {
 
 function attackEmptyTile(character, x, y, index = null) {
   const attack = selectedWeaponAttack(character, index);
-  if (!attack || !Number.isInteger(x) || !Number.isInteger(y) || !canTargetAtRange(state, character, { x, y }, attack.range.maxRange)) throw new Error('That square is outside attack range.');
-  if (state.characters.some(member => member.x === x && member.y === y) || getVisibleMonsterAtTile(x, y) || getDoorAt(state, x, y)) throw new Error('Choose an empty square.');
+  if (!attack || !Number.isInteger(x) || !Number.isInteger(y) || !canTargetAtRange(state, character, { x, y, routeId: routeOf(state, character) }, attack.range.maxRange, { requireLight: false })) throw new Error('That square is outside attack range.');
+  if (state.characters.some(member => member.x === x && member.y === y && sameRoute(state, member, character)) || getDoorAt(state, x, y)) throw new Error('Choose an empty square.');
   const attackIndex = getRenderableAttacks(character).findIndex(text => parseAttackText(text)?.name === attack.attack.name);
   if (sendSharedCommand('attack_empty', { x, y, attack_index: attackIndex }, character)) return;
-  if (!consumeCharacterCombatAction(character)) { if (SERVER_RUNTIME) throw new Error('Action unavailable.'); return; }
+  const hidden = getLiveMonsters().find(monster => monster.x === x && monster.y === y && sameRoute(state, character, monster));
+  if (hidden) return resolveCharacterAttackAgainstMonster(character, attack, hidden, { blindSquare: !isMonsterCurrentlyVisible(state, hidden) || concealedMimic(hidden) });
+  if (!consumeWeaponCombatAction(character, attack.attack)) { if (SERVER_RUNTIME) throw new Error('Action unavailable.'); return; }
   if (attack.attack.name === 'Unarmed') attack.attack = rollUnarmedAttack(abilityScoreModifier(character.stats?.STR));
   const item = character.gear[getAttackGearIndex(character, attack.attack)];
   const ammoType = /crossbow/i.test(attack.attack.name) ? 'bolts' : /(?:short|long)bow/i.test(attack.attack.name) ? 'arrows' : '';
@@ -2469,12 +2641,36 @@ function attackEmptyTile(character, x, y, index = null) {
     updateCharacterAmmoFromGearItem(character, ammo); character.raw.gear = structuredClone(character.gear);
   }
   const ability = getWeaponProfileFromText(attack.attack.name)?.ability || 'STR';
-  const parts = attackRollSegments({ character, monster: { name: 'nothing' }, weapon: attack.attack.name, roll, ability,
-    abilityModifier: abilityScoreModifier(character.stats?.[ability]), hit: false,
+  const feature = state.entities.find(entity => entity.type === 'feature' && !entity.collected && !entity.destroyed &&
+    !/stairs|pit|spell-light/.test(entity.doorKind || entity.subtype || '') && entity.x === x && entity.y === y && sameRoute(state, character, entity));
+  const hit = Boolean(feature && (roll.roll === 20 || roll.roll !== 1 && roll.total >= 10));
+  const luck = beginLuckEvent(state, { kind: 'party-attack', actor: luckActorRef(character), target: feature ? luckActorRef(feature) : null, roll, dc: 10,
+    context: { weapon: attack.attack.name, expression: getAttackDamageExpression(attack.attack), feature: Boolean(feature) } });
+  const damage = hit ? rollDamageExpression(roll.roll === 20 ? multiplyDamageDice(getAttackDamageExpression(attack.attack), 2) : getAttackDamageExpression(attack.attack)) : null;
+  if (feature) {
+    feature.hp = Math.max(0, (Number.isFinite(feature.hp) ? feature.hp : 10) - (damage?.total || 0));
+    if (feature.hp === 0) { feature.destroyed = true; feature.visible = false; feature.collected = true; }
+  }
+  const parts = attackRollSegments({ character, monster: { name: feature?.name || 'nothing' }, weapon: attack.attack.name, roll, ability,
+    abilityModifier: abilityScoreModifier(character.stats?.[ability]), hit, damage: damage?.total, damageRoll: damage,
     magic: revealedMagicBonus(item) + revealedMagicBonus(ammo), hiddenMagic });
   const message = parts.map(part => part.text).join('');
   pushDiceHistory('Attack', message, character.id, parts); setStatus(message); revealAfterOffense(character);
+  finishLuckEvent(state, luck, { succeeded: hit });
   targetingMode = null; dismissedTurnRadius = targetingTurnKey(); markRunDirty(); updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+}
+
+function performMapAttack(x, y) {
+  const actor = getActiveCharacter(state);
+  if (!actor || !canControlCharacter(actor)) return;
+  try {
+    const victim = getCharacterAtTile(x, y);
+    if (victim) { if (victim.id !== actor.id) confirmPartyAttack(actor, victim); return; }
+    const door = getDoorAt(state, x, y);
+    if (door) attackDoor(actor, door.id);
+    else attackEmptyTile(actor, x, y);
+    render(); updatePanels(); updateMonsterHoverCursor();
+  } catch (error) { setStatus(error.message); }
 }
 
 function attackDoor(character, doorId, index = null) {
@@ -2485,15 +2681,20 @@ function attackDoor(character, doorId, index = null) {
   if (!door || !melee || !canTargetAtRange(state, character, door, 1, { requireLight: false })) throw new Error('Smash a nearby door with a melee weapon.');
   const attackIndex = getRenderableAttacks(character).findIndex(text => parseAttackText(text)?.name === attack.attack.name);
   if (sendSharedCommand('attack_door', { entity_id: doorId, attack_index: attackIndex }, character)) return;
-  if (!consumeCharacterCombatAction(character)) { if (SERVER_RUNTIME) throw new Error('Action unavailable.'); return; }
-  let result;
-  const grit = hasGrit(character, 'STR'), dagger = /dagger/i.test(attack.attack.name);
-  if (portalHeld(door)) result = forceHeldDoor(door, character, modifier => rollCheck(modifier, { doubleRoll: grit && !dagger, disadvantage: dagger && !grit }));
-  else {
-    state.lockedDoorAction = { doorId: door.id, breakDc: door.breakDc || 15, pickDc: door.lockPickDc || 15 };
-    result = attemptLockedDoor(state, 'break', abilityScoreModifier(character.stats?.STR), { doorId: door.id, doubleRoll: grit && !dagger, disadvantage: dagger && !grit });
-  }
-  setStatus(result.message); pushDiceHistory('Smash', result.message, character.id, rollTextSegments(result.message, result.result || result));
+  if (!consumeWeaponCombatAction(character, attack.attack)) { if (SERVER_RUNTIME) throw new Error('Action unavailable.'); return; }
+  const roll = rollCheck(attack.attack.bonus || 0, { disadvantage: /dagger/i.test(attack.attack.name) || protectionDisadvantage(state, character) });
+  const hit = roll.roll === 20 || roll.roll !== 1 && roll.total >= 10;
+  const expression = getAttackDamageExpression(attack.attack);
+  const luck = beginLuckEvent(state, { kind: 'party-attack', actor: luckActorRef(character), target: luckActorRef(door), roll, dc: 10,
+    context: { weapon: attack.attack.name, expression, feature: true, door: true } });
+  const damage = hit ? rollDamageExpression(roll.roll === 20 ? multiplyDamageDice(expression, 2) : expression) : null;
+  door.hp = Math.max(0, (Number.isFinite(door.hp) ? door.hp : 15) - (damage?.total || 0));
+  if (hit && door.hp === 0) { setDoorState(door, 'gone'); delete door.holdPortal; }
+  const parts = attackRollSegments({ character, monster: { name: 'door' }, weapon: attack.attack.name, roll,
+    ability: 'STR', abilityModifier: abilityScoreModifier(character.stats?.STR), hit, damage: damage?.total, damageRoll: damage });
+  const message = parts.map(part => part.text).join('') + (door.hp === 0 ? ' The door is destroyed.' : ` Door HP ${door.hp}/15.`);
+  revealAfterOffense(character); setStatus(message); pushDiceHistory('Attack', message, character.id, parts);
+  finishLuckEvent(state, luck, { succeeded: hit });
   targetingMode = null; dismissedTurnRadius = targetingTurnKey(); markRunDirty(); recomputeVisibility(state); updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
 }
 
@@ -2530,6 +2731,7 @@ function applyDamageResultToPanel(roll, sourceLabel, options = {}) {
 }
 
 function prepareEncounterState() {
+  cleanupWizardTierTwoFocus(state); syncTransformationEffects(state); syncAreaSpellConditions(state);
   for (const character of [...state.characters]) if (character.companion?.charm?.brokenByParty) endCharacterCharm(character, true);
   restoreMonsterSpellStats(state,shadowdarkContent?.monsters);
   initializeMorale(state); initializeDisguises(state);
@@ -2537,7 +2739,7 @@ function prepareEncounterState() {
   refreshMagicDetection(state);
   for (const character of [...state.characters]) if (character.detectedDoppelganger && character.companion?.kind === 'doppelganger') {
     const monster = { ...structuredClone(character.companion.source), id: character.companion.sourceMonsterId,
-      x: character.x, y: character.y, roomId: character.roomId, hp: character.hp, carriedGear: character.gear,
+      x: character.x, y: character.y, routeId: routeOf(state, character), roomId: character.roomId, hp: character.hp, carriedGear: character.gear,
       disguiseRevealed: true, impersonatedCharacter: null, hostile: true, attitude: 'hostile', attitudeChecked: true };
     state.entities.push(monster);
     state.characters = state.characters.filter(member => member.id !== character.id);
@@ -2581,7 +2783,7 @@ function removeCharmedMonsterFromCombat(monsterId) {
 function endCharacterCharm(character, harmed = false) {
   if (character.companion?.kind !== 'charmed') return;
   const monster = { ...structuredClone(character.companion.source), id: character.companion.sourceMonsterId,
-    x: character.x, y: character.y, roomId: character.roomId, hp: character.hp, maxHp: character.maxHitPoints,
+    x: character.x, y: character.y, routeId: routeOf(state, character), roomId: character.roomId, hp: character.hp, maxHp: character.maxHitPoints,
     carriedGear: structuredClone(character.gear), defeated: character.dead || character.slain,
     hostile: harmed, attitude: harmed ? 'hostile' : 'suspicious', attitudeChecked: true };
   delete monster.charm;
@@ -2676,7 +2878,7 @@ function betrayDoppelganger(character) {
   const data=character.companion;
   const monster=structuredClone(data.source);
   Object.assign(monster,{id:data.sourceMonsterId,type:'monster',hp:character.hp,maxHp:character.maxHitPoints,
-    x:character.x,y:character.y,roomId:character.roomId,impersonationStarted:false,impersonatedCharacter:null,
+    x:character.x,y:character.y,routeId:routeOf(state,character),roomId:character.roomId,impersonationStarted:false,impersonatedCharacter:null,
     disguiseRevealed:false,carriedGear:structuredClone(character.gear)});
   state.characters=state.characters.filter(member=>member.id!==character.id);
   state.entities=state.entities.filter(entity=>entity.id!==monster.id);state.entities.push(monster);
@@ -2692,9 +2894,10 @@ function triggerPartyDoppelgangers() {
   return impostor?betrayDoppelganger(impostor):false;
 }
 
-function monsterCanPlanStep(monster, fromX, fromY, x, y, { forceDoors = true, routeId = routeOf(state, monster) } = {}) {
+function monsterCanPlanStep(monster, fromX, fromY, x, y, { forceDoors = true, routeId = routeOf(state, monster), ignoreArmorLight = false } = {}) {
   const next = routeStep(state, { x: fromX, y: fromY, routeId }, { x, y }, { phase: isIncorporeal(monster) });
   if (!next || isMonsterMoveOccupied(monster, x, y, next.routeId)) return false;
+  if (!ignoreArmorLight && !animatedArmorCanEnter(state, monster, next, { isIlluminated: point => isTileIlluminated(state, point.x, point.y, point) })) return false;
   if (isIncorporeal(monster)) return phaseStepAllowed(state, fromX, fromY, x, y);
   const door = getDoorBetween(state, fromX, fromY, x, y) || getDoorAt(state, x, y);
   if (door && !['open', 'gone'].includes(door.doorState) &&
@@ -2743,7 +2946,18 @@ function progressEncounterCreatures(milliseconds) {
   }
   if(isCombatActive())return changed;
   settleCompanionsAfterCombat();prepareEncounterState();
+  if (updateAnimatedArmorDisguises(state, { hasLineOfSight: creatureSight }).length) changed = true;
   for(const monster of [...getLiveMonsters()]) {
+    if (monster.wandering && concealedAnimatedArmor(monster)) {
+      const retreat = planWanderingArmorRetreat(state, monster, {
+        movement: Math.max(1, movementStepCost(state, monster.x, monster.y)), isIlluminated: point => isTileIlluminated(state, point.x, point.y, point), hasLineOfSight: creatureSight,
+        stepCost: (x, y) => movementStepCost(state, x, y),
+        canStep: (fromX, fromY, x, y, point) => monsterCanPlanStep(monster, fromX, fromY, x, y, { routeId: point.routeId, ignoreArmorLight: true })
+      });
+      if (retreat?.steps.length) { changed = moveMonsterPlannedStep(monster, retreat.steps[0]) || changed; recomputeVisibility(state); }
+      continue;
+    }
+    if (shouldAnimatedArmorWait(state, monster, { isIlluminated: point => isTileIlluminated(state, point.x, point.y, point) })) continue;
     if(monster.departing) {
       if(!state.characters.some(character=>canCharacterSeeMonster(character,monster))) {state.entities=state.entities.filter(entity=>entity.id!==monster.id);changed=true;continue;}
       const target=state.characters.filter(character=>!isFloatingDisc(character)&&!isCharacterDead(character)).sort((a,b)=>Math.hypot(a.x-monster.x,a.y-monster.y)-Math.hypot(b.x-monster.x,b.y-monster.y))[0];
@@ -2793,10 +3007,12 @@ function processMonsterSightings() {
     return { combatStarted: false, combatEnded: false, messages: [] };
   }
   prepareEncounterState();
+  updateAnimatedArmorDisguises(state, { hasLineOfSight: creatureSight });
   if(state.encounterPrompt)return {combatStarted:false,combatEnded:false,messages:[]};
   const messages = [];
   let combatStarted = false;
   for (const monster of getLiveMonsters()) {
+    if (concealedAnimatedArmor(monster)) continue;
     if(concealedMimic(monster)||isDoppelganger(monster)&&!monster.disguiseRevealed)continue;
     if (isSleeping(monster, state)) continue;
     if (canPhase(monster) && !isIncorporeal(monster)) {
@@ -2947,7 +3163,7 @@ function getMonsterAttackOptions(monster) {
         rangeInfo: getAttackRangeInfo(segment, attack)
       };
     })
-    .filter(Boolean).filter(attack => !(monster.stolenGearNames || []).includes(String(attack.name).toLowerCase()));
+    .filter(Boolean).filter(attack => !(monster.stolenGearNames || []).includes(String(attack.name).toLowerCase()) && !silenceBlocksAction(state, monster, { attack: attack.segment }));
 }
 
 function getMonsterAttackPreference(monster) {
@@ -3168,6 +3384,22 @@ function pickMonsterTarget(monster) {
 
 async function chooseMonsterAttack(monster, target) {
   const movement = Math.max(0, getMonsterMoveSquares(monster) - (monster.standingMovementCost || 0));
+  if (shouldRepositionAfterDarkGuess(monster, { isIlluminated: point => isTileIlluminated(state, point.x, point.y, point) })) {
+    const preference = getMonsterAttackPreference(monster);
+    const attack = preference.preferNear ? preference.bestNear : preference.bestClose || preference.bestNear;
+    const plan = attack && planDarkReposition(state, monster, target, {
+      movement, preferRange: preference.preferNear,
+      isIlluminated: (x, y, point) => isTileIlluminated(state, x, y, point),
+      stepCost: (x, y) => movementStepCost(state, x, y),
+      canStep: (fromX, fromY, x, y, point) => monsterCanPlanStep(monster, fromX, fromY, x, y, { routeId: point.routeId }),
+      canAttackFrom: (x, y, point) => withinTargetRange(point, target, attack.rangeInfo.maxRange) && creatureSight({ ...monster, x, y, routeId: point.routeId }, target)
+    });
+    if (plan) {
+      for (const step of plan.steps) { if (!moveMonsterPlannedStep(monster, step)) break; render(); await delay(200); }
+      delete monster.darkGuess;
+      return !monster.doorActionUsed && withinTargetRange(monster, target, attack.rangeInfo.maxRange) && canMonsterSeeCharacter(monster, target) ? attack : null;
+    }
+  }
   if(isDoppelganger(monster)&&monster.impersonationStarted) {
     let spent=0;
     const others=state.characters.filter(character=>character.id!==target.id&&!isCharacterDead(character)&&canMonsterSeeCharacter(monster,character));
@@ -3214,25 +3446,34 @@ async function chooseMonsterAttack(monster, target) {
 
 function applyMonsterAttack(monster, target, attack) {
   if (!sameRoute(state, monster, target)) return `${monster.name} cannot attack across separate passages.`;
+  if (attack.rangeInfo.maxRange <= 1 && transformationMovementRules(state, target).levitating) return `${target.name} levitates beyond melee reach.`;
   if (blocksMindControl(state, target, attack.name || '')) return `${monster.name}'s ${attack.name} fails against the protection aura.`;
   const advantage = hasWizardEffect(target, 'purple-glow') || isStealthed(monster) || !canCharacterSeeMonster(target, monster);
   const hiddenAttack=isStealthed(monster),traits=JSON.stringify([monster.abilities,monster.talents]);
-  const disadvantage = protectionDisadvantage(state, monster) || monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0 || isInvisible(target);
+  const disadvantage = protectionDisadvantage(state, monster) || monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0 || isInvisible(target) || monster.conditions?.blind || transformationAttackDisadvantage(monster, target);
   const roll = rollCheck(attack.bonus || 0, conditionAttackMode(target, { advantage, disadvantage,
     melee: attack.rangeInfo.maxRange <= 1, close: getMonsterDistanceToCharacter(monster, target) <= 1, state }));
   revealAfterOffense(monster);monster.ambushAttack=null;
-  const ac = Number(target?.armorClass || 10);
+  const ac = Number(target?.armorClass || 10) + detectThoughtsModifiers(state, target, monster).armorClass;
   const hit = roll.total >= ac;
+  const luck = beginLuckEvent(state, { kind: 'monster-attack', actor: luckActorRef(monster), target: luckActorRef(target), roll, dc: ac,
+    context: { weapon: attack.name, damage: 0 }, scope: state.characters.map(luckActorRef) });
+  captureLuckActor(luck, target);
   const name = monster.name || "Monster";
   const logAttack = damage => {
-    const parts = attackRollSegments({ character: { id: monster.id, name }, monster: { name: target.name, partyMember: true }, weapon: attack.name,
+    luck.context.damage = damage?.total || 0;
+    finishLuckEvent(state, luck, { succeeded: hit });
+    const parts = attackRollSegments({ character: { ...monster, name }, monster: { name: target.name, partyMember: true }, weapon: attack.name,
       roll, ability: 'attack', abilityModifier: attack.bonus || 0, hit, damage: damage?.total, damageRoll: damage });
     const message = parts.map(part => part.text).join(''); pushDiceHistory('Attack', message, null, parts); return message;
   };
   if (!hit) {
     return logAttack(null);
   }
+  const mirror = interceptMirrorImageHit(state, target, { hit });
+  if (mirror?.intercepted || mirror?.absorbed) { finishLuckEvent(state, luck, { succeeded: false }); return `${monster.name} destroys one of ${target.name}'s mirror images.`; }
   let expression = attack.damageExpression;
+  if (target.conditions?.paralyzed && expression) expression = multiplyDamageDice(expression, 2);
   if(hiddenAttack&&/extra die of damage when undetected/i.test(traits))expression=multiplyDamageDice(expression,2);
   if(hiddenAttack&&/backstab/i.test(traits))expression=multiplyDamageDice(expression,2);
   if(state.combat.surpriseRound&&!state.combat.surpriseParticipantIds.includes(target.id)&&/execute.*x3 damage/i.test(traits))expression=multiplyDamageDice(expression,3);
@@ -3255,6 +3496,16 @@ async function runMonsterTurn(monster) {
     return "";
   }
   monster.doorActionUsed = false;
+  for (const resistance of resolveDetectThoughtsResistance(state, monster, { turnKey: `${state.combat.round}:${monster.id}`, ...tierTwoOptions() }))
+    pushDiceHistory('Detect Thoughts', resistance.message);
+  if (monster.conditions?.paralyzed) return `${monster.name} is paralyzed.`;
+  if (isRestrainedByWeb(state, monster)) return escapeWeb(state, monster).message;
+  if (isTied(monster)) {
+    if (isSleeping(monster, state) || monster.conditions?.paralyzed) return `${monster.name} is tied and incapacitated.`;
+    const method = Number(monster.S ?? monster['**S**'] ?? 0) >= Number(monster.D ?? monster['**D**'] ?? 0) ? 'break' : 'escape';
+    const result = escapeRope(state, monster, method, pitActionOptions());
+    return `${monster.name} ${result.escaped ? 'escapes the rope' : 'struggles against the rope'}: ${result.check.total} vs DC ${result.dc}.`;
+  }
   if (monster.conditions?.sinkhole) {
     if (avoidsFalling(monster)) delete monster.conditions.sinkhole;
     else {
@@ -3403,7 +3654,7 @@ function handleCombatMovement(delta, options = {}) {
     return true;
   }
   if (isProne(character, state)) { setStatus('Stand up before moving.'); return true; }
-  const cost = movementStepCost(state, Number(character.x), Number(character.y));
+  const cost = movementStepCost(state, Number(character.x), Number(character.y), character);
   if (state.combat.movementRemaining < cost) {
     setStatus(`${character.name || "Character"} ${state.combat.movementRemaining ? 'needs 2 movement points to leave water.' : 'has no movement left.'}`);
     return true;
@@ -3445,25 +3696,23 @@ function handleCombatMovement(delta, options = {}) {
 function updateMonsterHoverCursor() {
   if (SERVER_RUNTIME || !ui.mapHost) return;
   const panel = ui.mapHost.parentElement;
-  let cursor = "";
+  let cursor = dragState ? 'grabbing' : 'grab';
   const character = state && getActiveCharacter(state);
-  if (mapHoverPointer && !dragState && character && ownsCharacter(character)) {
-    const { x, y } = getTileFromPointer(mapHoverPointer);
-    if (!getCharacterAtTile(x, y) && getVisibleMonsterAtTile(x, y)) {
-      const color = getCharacterColorValue(character);
-      if (!attackCursorCache.has(color) && attackCursorImage?.naturalWidth) {
-        const canvas = document.createElement("canvas");
-        canvas.width = attackCursorImage.naturalWidth;
-        canvas.height = attackCursorImage.naturalHeight;
-        const context = canvas.getContext("2d");
-        context.drawImage(attackCursorImage, 0, 0);
-        context.globalCompositeOperation = "source-in";
-        context.fillStyle = color;
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        attackCursorCache.set(color, `url("${canvas.toDataURL("image/png")}") 1 1, crosshair`);
-      }
-      cursor = attackCursorCache.get(color) || "crosshair";
+  if (shiftAttackHeld || targetingMode?.kind === 'weapon') {
+    const color = character && ownsCharacter(character) ? getCharacterColorValue(character) : '#000000';
+    if (!attackCursorCache.has(color) && attackCursorImage?.naturalWidth) {
+      const canvas = document.createElement("canvas");
+      canvas.width = attackCursorImage.naturalWidth;
+      canvas.height = attackCursorImage.naturalHeight;
+      const context = canvas.getContext("2d");
+      context.drawImage(attackCursorImage, 0, 0);
+      context.globalCompositeOperation = "source-in";
+      context.fillStyle = color;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      attackCursorCache.set(color, `url("${canvas.toDataURL("image/png")}") 1 1, crosshair`);
     }
+    const source = attackCursorImage?.src || new URL('../assets/attack-alpha.png', import.meta.url).href;
+    cursor = attackCursorCache.get(color) || `url("${source}") 1 1, crosshair`;
   }
   if (panel.style.cursor !== cursor) panel.style.cursor = cursor;
 }
@@ -3471,6 +3720,8 @@ function updateMonsterHoverCursor() {
 function applyLocalMovement(delta, options = {}) {
   if(state.encounterPrompt){setStatus('Resolve the monster reaction first.');return;}
   const actor = getActiveCharacter(state);
+  if (isTied(actor)) { setStatus('Escape or break the rope before moving.'); return; }
+  if (!SERVER_RUNTIME && options.render !== false && offerGrapplingEscape(actor, delta)) return;
   if (isFloatingDisc(actor)) { setStatus('Floating Disc follows its caster and cannot move independently.'); return; }
   if (!SERVER_RUNTIME && options.render !== false && localWaterMotions.has(actor?.id)) return;
   if (restInProgress(state)) { setStatus('Cancel rest before moving.'); return; }
@@ -3486,7 +3737,7 @@ function applyLocalMovement(delta, options = {}) {
   let lightPolygons;
   if (result.moved) {
     syncActiveCharacterToPlayer();
-    if (actor && !SERVER_RUNTIME && options.render !== false && movementStepCost(state, origin.x, origin.y) > 1) animateLocalWaterStep(actor, origin);
+    if (actor && !SERVER_RUNTIME && options.render !== false && movementStepCost(state, origin.x, origin.y, actor) > 1) animateLocalWaterStep(actor, origin);
     lightPolygons = recomputeVisibility(state);
     sighting = processMonsterVisibilityChange();
     followersMoved = advanceMarchingOrder(getActiveCharacter(state), delta);
@@ -3499,6 +3750,23 @@ function applyLocalMovement(delta, options = {}) {
     updatePanels({ charactersUnchanged: result.moved && !result.trapSprung && !followersMoved &&
       !isCombatActive() && !sighting?.combatStarted && !sighting?.combatEnded });
   }
+}
+
+function offerGrapplingEscape(actor, delta) {
+  if (!actor?.conditions?.sinkhole || !delta || document.getElementById('grapple-escape-modal')) return false;
+  const pit = pitAtBottom(state, actor);
+  if (pit && (pit.cells || [{ x: pit.x, y: pit.y }]).some(cell => cell.x === actor.x + delta[0] && cell.y === actor.y + delta[1])) return false;
+  const option = grapplingEscapeOption(state, actor, { ...pitActionOptions(), toward: { x: actor.x + delta[0], y: actor.y + delta[1] } });
+  if (!option) return false;
+  const modal = document.createElement('dialog'); modal.id = 'grapple-escape-modal'; modal.className = 'sd-save-menus sd-simple-dialog';
+  modal.addEventListener('keydown', event => event.stopPropagation());
+  const prompt = document.createElement('p'); prompt.textContent = 'Escape pit with grappling hook?';
+  for (const choice of ['Yes', 'No']) {
+    const button = document.createElement('button'); button.textContent = choice;
+    button.onclick = () => { modal.close(); modal.remove(); if (choice === 'Yes') { try { performPitAction(actor, { action: 'grapple' }); } catch (error) { setStatus(error.message); } } };
+    modal.append(button);
+  }
+  modal.prepend(prompt); modal.addEventListener('close', () => modal.remove()); document.body.append(modal); modal.showModal(); return true;
 }
 
 function createBackstabButton(character, attack) {
@@ -3574,11 +3842,16 @@ function appendCompactAttackDetail(target, attack, character) {
 
 function createAttackAwareLine(attackText, character) {
   if (isSpellCheckText(attackText)) {
-    return createDamageAwareLine(formatTalentSpellTextForSheet(formatAttackForSheet(attackText)), {
-      sourceLabel: `${character?.name || "Character"} spell`,
-      spellCheck: true,
-      character
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'attack-roll-button sd-sheet-spellcasting-button';
+    button.textContent = 'Spellcasting';
+    button.title = 'View known spells and choose a spell to cast.';
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      void openSpellcastingMenu(character);
     });
+    return button;
   }
   const attack = parseAttackText(attackText);
   if (!attack) {
@@ -3757,6 +4030,8 @@ function attackRequiresMissingAmmo(character, attackText) {
 
 function getRenderableAttacks(character) {
   const attacks = (character?.attacks || []).filter(attackText => !isAmmoOnlyAttackText(attackText));
+  for (const attack of transformationAttackOptions(state, character, { attackBonus: (actor, attack) => abilityScoreModifier(actor.stats?.[attack.rangeInfo?.maxRange > 1 ? 'DEX' : 'STR']) + classAttackBonus(actor) }))
+    attacks.push(`${attack.name}: ${formatModifier(attack.bonus || 0)}, ${attack.damageExpression}, ${(attack.range ?? attack.rangeInfo?.maxRange ?? 1) <= 1 ? 'close' : (attack.rangeInfo?.maxRange || 6) > 6 ? 'far' : 'near'}`);
   if (!(character?.gear || []).some(item => handItemKind(item) === "weapon" && item.equipped) && !(character.companion&&attacks.length)) {
     attacks.push(`Unarmed: ${formatModifier(abilityScoreModifier(character?.stats?.STR))}, (1), close`);
   }
@@ -3781,6 +4056,7 @@ function getAttackGearIndex(character, attack) {
 }
 
 function isAttackEquipped(character, attack) {
+  if (transformationAttackOptions(state, character).some(option => option.name.toLowerCase() === String(attack?.name).toLowerCase())) return true;
   if(character.companion&&getAttackGearIndex(character,attack)<0&&!getWeaponProfileFromText(attack?.name))return true;
   const index = getAttackGearIndex(character, attack);
   return index < 0 ? attack?.name === "Unarmed" && !(character?.gear || []).some(item => item.equipped && handItemKind(item) === "weapon")
@@ -4046,7 +4322,7 @@ function canUseWeapon(character, itemOrName) {
   if (!profile) {
     return false;
   }
-  const classKey = getCharacterClassKey(character);
+  const classKey = companionEquipmentClass(character) || getCharacterClassKey(character);
   if (/\bfighter\b/.test(classKey)) {
     return true;
   }
@@ -4082,7 +4358,7 @@ function canUseArmor(character, item) {
   if (!profile) {
     return false;
   }
-  const classKey = getCharacterClassKey(character);
+  const classKey = companionEquipmentClass(character) || getCharacterClassKey(character);
   if (/\bwizard\b/.test(classKey)) {
     return false;
   }
@@ -4096,7 +4372,7 @@ function canUseArmor(character, item) {
 function canUseShield(character) {
   if (!availableHands(character)) return false;
   if (character.companion?.kind==='doppelganger')return false;
-  return !/\b(?:wizard|thief)\b/.test(getCharacterClassKey(character));
+  return !/\b(?:wizard|thief)\b/.test(companionEquipmentClass(character) || getCharacterClassKey(character));
 }
 
 function ensureEquipmentBaseline(character) {
@@ -4235,15 +4511,20 @@ function rebuildCharacterArmorClass(character) {
     character.raw.ac = character.armorClass;
     return;
   }
-  if(character.companion) {
-    const magicArmor = character.companion.kind === 'doppelganger' ? 0 :
-      (character.gear || []).filter(item => item.equipped && (isArmorItem(item) || isShieldItem(item))).reduce((sum,item) => sum + magicBonus(item),0);
-    character.armorClass=(Number.parseInt(character.companion.source.ac,10)||10)+faithArmorBonus(character)+magicArmor;
+  if(character.companion?.kind === 'doppelganger') {
+    character.armorClass=(Number.parseInt(character.companion.source.ac,10)||10)+faithArmorBonus(character);
     character.raw.armorClass=character.armorClass;character.raw.ac=character.armorClass;
     return;
   }
   const dexModifier = abilityScoreModifier(character?.stats?.DEX);
-  let armorClass = 10 + dexModifier;
+  let naturalArmor = 10 + dexModifier;
+  if (character.companion) {
+    const originalGear = nativeGear(character.companion.source);
+    if (!originalGear.some(item => isArmorItem(item) && !isShieldItem(item))) {
+      naturalArmor = (Number.parseInt(character.companion.source.ac, 10) || 10) - (originalGear.some(isShieldItem) ? 2 : 0);
+    }
+  }
+  let armorClass = naturalArmor;
   let armorMasteryApplies = false;
   let armorTalent = 0;
   const masteryTarget = getArmorMasteryTarget(character);
@@ -4254,7 +4535,8 @@ function rebuildCharacterArmorClass(character) {
     const explicit = Number(item?.armorClass ?? item?.ac);
     const profile = getArmorProfile(item);
     const armorDex = profile?.key === "plate" ? 0 : dexModifier;
-    const itemAc = (Number.isFinite(explicit) ? explicit : profile?.ac || 10) + armorDex + magicBonus(item);
+    const wornAc = (Number.isFinite(explicit) ? explicit : profile?.ac || 10) + armorDex;
+    const itemAc = (character.companion ? Math.max(naturalArmor, wornAc) : wornAc) + magicBonus(item);
     if (itemAc > armorClass) {
       armorClass = itemAc;
       armorMasteryApplies = masteryTarget && masteryTarget === profile?.key;
@@ -4928,6 +5210,7 @@ function dropCharacterGear(character, gearIndex) {
 function pickupDroppedEquipment(entity) {
   if (sendSharedCommand("pickup", { entity_id: entity?.id })) return { message: "Pickup submitted." };
   const character = getActiveCharacter(state);
+  if (!partyCanReachLoot(state, entity)) return { message: 'Move a party member beside this item to pick it up.' };
   if (!character) {
     return { message: "Select a character to pick up equipment." };
   }
@@ -5027,28 +5310,7 @@ function isCharacterInLiveLight(character) {
     return false;
   }
   if (isLightSuppressedAt(state, position.x, position.y)) return false;
-  const reachesCharacter = source => isPointInLightRadius(position.x, position.y, source) &&
-    creatureSight(source, position);
-  if (state.player?.torchLit === true && reachesCharacter({
-    x: state.player.x,
-    y: state.player.y,
-    radius: state.player.lightRadius || DEFAULT_LIGHT_RADIUS
-  })) {
-    return true;
-  }
-  for (const candidate of state.characters || []) {
-    if (candidate?.id === character?.id) {
-      continue;
-    }
-    if (reachesCharacter(candidate)) {
-      return true;
-    }
-  }
-  return (state.entities || []).some((entity) => (
-    entity.subtype === "dropped-equipment" &&
-    !entity.collected &&
-    reachesCharacter(entity)
-  ));
+  return isTileIlluminated(state, position.x, position.y, character);
 }
 
 function getExplicitActiveCharacter(stateValue = state) {
@@ -5595,7 +5857,7 @@ function buildTalentSpellLines(character) {
         continue;
       }
       globalKnownSpells.add(cleaned.toLowerCase());
-      addGlobalSpell(cleaned, "");
+      addGlobalSpell(cleaned, findSpellRecord(cleaned)?.tier || 1);
     }
   }
 
@@ -5604,7 +5866,7 @@ function buildTalentSpellLines(character) {
     if (!spell || !looksLikeSpell(spell)) {
       return;
     }
-    const key = normalizeTier(tier);
+    const key = normalizeTier(tier || findSpellRecord(spell)?.tier || 1);
     const bucket = spellBuckets[key] || [];
     const lower = spell.toLowerCase();
     const exists = bucket.some((entry) => entry.toLowerCase() === lower);
@@ -5827,7 +6089,7 @@ function buildTalentSpellLines(character) {
   });
   const spellLineParts = [];
   for (const tier of sortedTiers) {
-    const values = spellBuckets[tier] || [];
+    const values = (spellBuckets[tier] || []).sort((a, b) => a.localeCompare(b));
     if (!values.length) {
       continue;
     }
@@ -6555,26 +6817,29 @@ function renderCharacterCard(character) {
   card.classList.toggle('is-combat-current', isCombatActive() && isCurrentCharacterTurn(character));
   card.tabIndex = 0;
   card.setAttribute("role", "button");
-  card.setAttribute("aria-label", `Select ${character.name}`);
+  card.setAttribute("aria-label", `Open ${character.name} sheet`);
   card.addEventListener("click", () => {
-    if (character.id === state.activeCharacterId) return;
-    if (!activateCharacter(character)) return;
-    updateCharactersUi();
-    render();
+    openCharacterSheet(getCurrentCharacter(character) || character);
   });
   card.addEventListener("keydown", (event) => {
     if (event.target !== card) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       event.stopPropagation();
-      if (!activateCharacter(character)) return;
-      updateCharactersUi();
-      render();
+      openCharacterSheet(getCurrentCharacter(character) || character);
     }
   });
 
   const header = document.createElement("div");
   header.className = "character-mini-header";
+  header.tabIndex = 0; header.setAttribute('role', 'button'); header.setAttribute('aria-label', `Select ${character.name}`);
+  const selectCharacter = event => {
+    event.stopPropagation();
+    if (character.id === state.activeCharacterId || !activateCharacter(getCurrentCharacter(character) || character)) return;
+    updatePanels(); render();
+  };
+  header.addEventListener('click', selectCharacter);
+  header.addEventListener('keydown', event => { if (event.target === header && ['Enter', ' '].includes(event.key)) { event.preventDefault(); selectCharacter(event); } });
   const reorder = document.createElement("button");
   reorder.type = "button";
   reorder.className = "character-reorder-handle";
@@ -6652,12 +6917,19 @@ function renderCharacterCard(character) {
   identity.append(name);
   if (!disc) identity.append(document.createTextNode(` | ${character.ancestry || "Unknown"} | ${character.className || "Class"} ${character.level || 1}`));
   header.append(identity);
-  if (!disc) header.append(createCharacterColorControl(character, header));
+  if (character.luckTokens || character.luckToken) {
+    const luck = document.createElement('button'); luck.type = 'button'; luck.className = 'luck-token-button';
+    luck.title = 'Luck Token: reroll last unfavorable dice.'; luck.setAttribute('aria-label', luck.title);
+    luck.disabled = !ownsCharacter(character) || !checkLuckEvent(state, { ownerId: character.id }).ok;
+    luck.onclick = event => { event.stopPropagation(); try { performLuck(getCurrentCharacter(character)); } catch (error) { setStatus(error.message); } };
+    header.append(luck);
+  }
   const sheetButton = document.createElement('button'); sheetButton.type = 'button'; sheetButton.className = 'mini-sheet-open';
-  sheetButton.title = `Open ${character.name} character sheet`; sheetButton.setAttribute('aria-label', sheetButton.title);
+  sheetButton.title = disc ? 'Floating Disc color follows its caster' : `Change ${character.name} color`; sheetButton.setAttribute('aria-label', sheetButton.title);
   const sheetIcon = document.createElement('img'); sheetIcon.src = './assets/pop-up-sheet-icon.png'; sheetIcon.alt = '';
   sheetButton.append(sheetIcon);
-  sheetButton.addEventListener('click', event => { event.stopPropagation(); openCharacterSheet(getCurrentCharacter(character) || character); });
+  if (!disc) header.append(createCharacterColorControl(character, sheetButton));
+  else sheetButton.disabled = true;
   header.append(sheetButton);
   if (isCharacterDying(character)) {
     const revive = document.createElement('button'); revive.type = 'button'; revive.textContent = 'Revive';
@@ -6750,7 +7022,7 @@ function renderCharacterCard(character) {
   if (dyingBanner) {
     card.append(dyingBanner);
   }
-  if (!canControlCharacter(character)) for (const button of card.querySelectorAll('button:not(.mini-sheet-open):not(.spellcasting-menu-button):not(.wake-button):not(.character-reorder-handle)')) button.disabled = true;
+  if (!canControlCharacter(character)) for (const button of card.querySelectorAll('button:not(.mini-sheet-open):not(.spellcasting-menu-button):not(.wake-button):not(.character-reorder-handle):not(.luck-token-button)')) button.disabled = true;
   for (const button of card.querySelectorAll('.attack-roll-button')) button.disabled = !isCharacterAbleToAct(character) || !canControlCharacter(character) || isIncorporeal(character) || isCombatActive() && state.combat.actionUsed;
   return card;
 }
@@ -6825,11 +7097,17 @@ function renderCharacterDetail(character, target = ui.characterDetail, options =
     value.replaceChildren(name, button); value.classList.add('has-level-up');
   }
   const talentLines = buildTalentSpellLines(character.impersonation||character);
+  const spellSummary = talentLines.find(line => /^Spells:/i.test(line));
+  const languageLine = talentLines.find(line => /^Languages:/i.test(line));
   const displayedTalentKeys = new Set();
   const talentRows = [];
   for (const line of talentLines.filter((candidate) => !shouldSuppressTalentLine(candidate, talentLines))) {
+    if (/^(?:Spells|Languages):/i.test(line)) continue;
     const presentation = talentPresentation(formatTalentSpellTextForSheet(line));
     let displayLine = presentation.text;
+    if (/^Learn(?: Extra Spell)?:/i.test(displayLine)) continue;
+    displayLine = displayLine.replace(/^Stat Bonus:\s*(STR|DEX|CON|INT|WIS|CHA):\s*([+-]?\d+)$/i, (_, key, bonus) =>
+      `${Number(bonus) >= 0 ? '+' : ''}${Number(bonus)} ${{ STR: 'Strength', DEX: 'Dexterity', CON: 'Constitution', INT: 'Intelligence', WIS: 'Wisdom', CHA: 'Charisma' }[key.toUpperCase()]}`);
     const grit = /fighter/i.test(character.className) && displayLine.match(/^(?:Grit:\s*)?(Strength|Dexterity):?\s*(?:advantage)?$/i);
     if (grit) displayLine = `Grit: ${grit[1]}`;
     const displayKey = displayLine.toLowerCase().replace(/\s+/g, " ").trim();
@@ -6845,9 +7123,7 @@ function renderCharacterDetail(character, target = ui.characterDetail, options =
       const bonus = 1 + Math.floor((character.level || 1) / 2);
       talentRow.title = `Fighter ${character.level || 1}: +${bonus} to hit; +${bonus} damage.`;
     }
-    talentRow.append(character.impersonation?document.createTextNode(displayLine):/^Spells:/i.test(displayLine)
-      ? createSpellSummaryLine(displayLine, character)
-      : createDamageAwareLine(displayLine, {
+    talentRow.append(character.impersonation?document.createTextNode(displayLine):createDamageAwareLine(displayLine, {
         sourceLabel: `${character.name} talent`,
         spellCheck: isSpellCheckText(displayLine),
         character
@@ -6876,7 +7152,7 @@ function renderCharacterDetail(character, target = ui.characterDetail, options =
     .slice(0,7)
     .map((attackText) => createAttackAwareLine(formatAttackForSheet(attackText), character));
   const talentPanelTitle = getCharacterKnownSpellNames(character.impersonation||character).length ? "Talents / Spells" : "Talents";
-  const talents = createSdPanel(talentPanelTitle, buildSheetLines(talentRows, 8), "sd-talents-panel");
+  const talents = createSdPanel(talentPanelTitle, createTalentsContent(talentRows, spellSummary, languageLine, character), "sd-talents-panel");
   const attacks = createSdPanel("Attacks", buildSheetLines(attackRows, 7), "sd-attacks-panel");
   const gear = createSdGearPanel(character);
   const dismissal = popout ? createSdDismissPanel(character) : null;
@@ -6956,13 +7232,16 @@ function renderCharacterDetail(character, target = ui.characterDetail, options =
     for (const control of target.querySelectorAll('.sd-rename-button, .sd-coin-field input')) control.disabled = true;
   }
   if (!canControlCharacter(character) || !isCharacterAbleToAct(character) || (isCombatActive() && (!isCurrentCharacterTurn(character) || state.combat.actionUsed))) {
-    for (const control of target.querySelectorAll("input, select, textarea, button:not(.sd-sheet-icon)")) control.disabled = true;
+    for (const control of target.querySelectorAll("input, select, textarea, button:not(.sd-sheet-icon):not(.sd-sheet-spellcasting-button)")) control.disabled = true;
     const save = target.querySelector(".sd-save-character-button");
     if (save && ownsCharacter(character)) save.disabled = false;
     const bury = target.querySelector(".sd-dismiss-button");
     if (bury && !isCombatActive() && isCharacterDead(character) && canBuryCharacter(character)) bury.disabled = false;
   }
-  requestAnimationFrame(()=>updateTruncatedSheetTitles(target));
+  requestAnimationFrame(()=>{
+    fitCharacterSheetText(target);
+    updateTruncatedSheetTitles(target);
+  });
 }
 
 function renderFloatingDiscSheet(character, target) {
@@ -7361,8 +7640,7 @@ function createCharacterColorControl(character, anchor = null) {
   button.title = "Change character color";
   const currentColorValue = getCharacterColorValue(character);
   button.style.setProperty("--character-color", currentColorValue);
-  button.style.setProperty("background-color", currentColorValue);
-  button.style.setProperty("background", currentColorValue);
+  if (!anchor) { button.style.setProperty("background-color", currentColorValue); button.style.setProperty("background", currentColorValue); }
   button.style.backgroundImage = "none";
 
   const picker = document.createElement("span");
@@ -7398,7 +7676,7 @@ function createCharacterColorControl(character, anchor = null) {
   }
 
   button.addEventListener("click", (event) => {
-    if (event.target.closest?.('button')) return;
+    if (event.target.closest?.('button') && event.target.closest('button') !== button) return;
     event.stopPropagation();
     if (event.button !== 0 && event.button !== undefined) {
       return;
@@ -8211,6 +8489,15 @@ function positionCharacterSheetModal() {
   if (!card) {
     return;
   }
+  const sheet = card.querySelector('.character-sheet');
+  if (sheet) {
+    const width = sheet.offsetWidth;
+    const height = sheet.offsetHeight;
+    const scale = Math.min(1, (window.innerWidth - 24) / width, (window.innerHeight - 48) / height);
+    card.style.width = `${width}px`;
+    card.style.transformOrigin = 'top left';
+    card.style.transform = `scale(${Math.max(.1, scale)})`;
+  }
   const rect = card.getBoundingClientRect();
   const fallback = {
     left: Math.max(12, (window.innerWidth - rect.width) / 2),
@@ -8509,6 +8796,7 @@ function refreshOpenCharacterSheet(character) {
 }
 
 function pendingSpellMessage(character) {
+  if (character?.pendingSpell?.spell === 'light') return LIGHT_TARGET_PROMPT;
   if (character?.pendingSpell?.spell === 'floating disc') return 'Choose the critical Floating Disc effect first.';
   if (character?.pendingSpell?.spell === 'charm person') return character.pendingSpell.phase === 'critical' ? 'Choose the critical Charm Person effect first.' : 'Pick a humanoid to charm.';
   if (character?.pendingSpell?.spell === 'detect magic') return 'Choose the critical Detect Magic effect first.';
@@ -8521,8 +8809,8 @@ function pendingSpellMessage(character) {
 
 function canTargetMagicMissile(caster, monster) {
   return isCharacterAbleToAct(caster) && hasCharacterMapPosition(caster) && isLiveMonster(monster) &&
-    monster.visible !== false && isTileVisible(state, Number(monster.x), Number(monster.y)) &&
-    canTargetAtRange(state, caster, monster, RANGE_LIMITS.far, {directAttack:true});
+    monster.visible !== false &&
+    canTargetAtRange(state, caster, monster, RANGE_LIMITS.far, {directAttack:true, requireLight:false});
 }
 
 function targetingTurnKey() {
@@ -8530,6 +8818,13 @@ function targetingTurnKey() {
 }
 
 function currentTargetingOverlay() {
+  const tierCaster = state?.characters.find(character => TIER_TWO_SPELLS.has(character.pendingSpell?.spell) &&
+    ['targeting', 'placement'].includes(character.pendingSpell.phase) && canControlCharacter(character));
+  if (tierCaster) {
+    const pending = tierCaster.pendingSpell;
+    return { kind: 'spell', characterId: tierCaster.id, spellKey: pending.spell,
+      range: pending.spell === 'acid arrow' || ['silence','web'].includes(pending.spell) ? 12 : ['fixed object','levitate'].includes(pending.spell) ? 1 : pending.range || pending.radius || 6 };
+  }
   if (sharedMonsterPresentation) return { kind: 'monster', monsterId: sharedMonsterPresentation.actor.id,
     actor: sharedMonsterPresentation.actor, range: sharedMonsterPresentation.range };
   if (monsterTurnRadius && monsterTurnRadius.until > Date.now()) {
@@ -8569,6 +8864,7 @@ function beginWeaponTargeting(character, attack) {
   syncMagicMissileUi();
   setStatus('Pick a target for ' + attack.name + '.');
   render();
+  updateMonsterHoverCursor();
 }
 
 function openOffensiveSpellTargeting(character, spellKey) {
@@ -8677,8 +8973,17 @@ function syncMagicMissileUi() {
   discard.disabled = sharedCommandPending > 0;
 }
 
-function resolveMagicMissile(character, { choice, targetId, dismiss = false } = {}) {
-  if (sendSharedCommand('resolve_spell', { choice, target_id: targetId, dismiss }, character)) return;
+function finishLightSpell(character, selection) {
+  if (sendSharedCommand('resolve_spell', { target_id: selection.targetId, x: selection.x, y: selection.y }, character)) return;
+  try {
+    const result = resolveLight(state, getCurrentCharacter(character), selection);
+    syncAllCharacterEquipmentDerivedStats(); recomputeVisibility(state); markRunDirty();
+    setStatus(result.message); updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+  } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
+}
+
+function resolveMagicMissile(character, { choice, targetId, x, y, blind = false, dismiss = false } = {}) {
+  if (sendSharedCommand('resolve_spell', { choice, target_id: targetId, x, y, blind, dismiss }, character)) return;
   const caster = getCurrentCharacter(character);
   try {
     let outcome;
@@ -8688,14 +8993,16 @@ function resolveMagicMissile(character, { choice, targetId, dismiss = false } = 
     }
     else if (choice) outcome = chooseMagicMissile(caster, choice);
     else {
-      const monster = getMonsterById(targetId);
+      let monster = blind ? null : getMonsterById(targetId);
+      outcome = fireMagicMissile(caster, blind ? { x, y, blind: true } : monster, { state, canTarget: target => canTargetMagicMissile(caster, target) });
+      monster = monster || outcome.guessedMonster;
+      if (blind && monster) markMonsterCorrectlyGuessed(monster);
       const surprisedMimic=concealedMimic(monster);
-      outcome = fireMagicMissile(caster, monster, { canTarget: target => canTargetMagicMissile(caster, target) });
       if(surprisedMimic)monster.disguiseRevealed=true;
       const concealed = isStealthed(caster) || caster.castFromConcealment;
       revealAfterOffense(caster);state.lastDamageSourceId=caster.id;
       if (outcome.defeated) outcome.message += ` ${defeatMonster(state, monster).message}`;
-      const alerting = getAlertingMonstersFromAttack(monster).filter(target => !outcome.defeated || target.id !== monster.id);
+      const alerting = monster ? getAlertingMonstersFromAttack(monster).filter(target => !outcome.defeated || target.id !== monster.id) : [];
       for (const target of alerting) { target.attitude = 'combat'; target.attitudeChecked = true; target.hostile = true; }
       if (alerting.length && !isCombatActive()) {
         if (!caster.pendingSpell) caster.openingSpellActionSpent = true;
@@ -8880,6 +9187,12 @@ function updateMiniPitActions(container, character) {
     seen.add(monster.id); entries.push([`Push ${displayMonsterName(monster)}`, { action: 'push', target_id: monster.id, pit_id: pit.id }]);
   }
   if (pitAtBottom(state, character)) entries.push(['Climb Out', { action: 'climb' }]);
+  if (grapplingEscapeOption(state, character, options)) entries.push(['Grapple Out', { action: 'grapple' }]);
+  for (const bridge of ropeBridgeOptions(state, character, options)) entries.push([`Bridge Pit (${bridge.ropeFeet}' rope)`, { action: 'bridge', pit_id: bridge.pitId,
+    direction: { dx: Math.sign(bridge.destination.x - character.x), dy: Math.sign(bridge.destination.y - character.y) } }]);
+  for (const target of tieTargets(state, character, options)) entries.push([`Tie ${target.name}`, { action: 'tie', target_id: target.id }]);
+  if (isTied(character)) entries.push(['Escape (DEX)', { action: 'escape' }], ['Break Rope (STR)', { action: 'break' }]);
+  if (isRestrainedByWeb(state, character)) entries.push(['Escape Web', { action: 'escape_web' }]);
   const disabled = !canControlCharacter(character) || !isCharacterAbleToAct(character) || isCombatActive() && (!isCurrentCharacterTurn(character) || state.combat.actionUsed);
   const signature = JSON.stringify([entries, disabled]);
   if (container.dataset.signature === signature) return;
@@ -8902,6 +9215,28 @@ function performPitAction(character, command) {
   if (!helper || !ownsCharacter(helper)) throw new Error('This character is not yours.');
   if (!isCharacterAbleToAct(helper) || isIncorporeal(helper) || isFloatingDisc(helper) || helper.conditions?.paralyzed ||
       state.characters.some(member => member.pendingFall) || isCombatActive() && !isCurrentCharacterTurn(helper)) throw new Error('This character cannot act now.');
+  if (command.action === 'escape_web') {
+    if (!consumeCharacterCombatAction(helper)) throw new Error('Action unavailable.');
+    const result = escapeWeb(state, helper); setStatus(result.message); pushDiceHistory('Escape Web', result.message, helper.id);
+    markRunDirty(); updatePanels(); render(); scheduleAutoEndTurnIfNeeded(); return;
+  }
+  if (['grapple', 'bridge', 'tie', 'escape', 'break'].includes(command.action)) {
+    let result, message;
+    if (command.action === 'grapple') {
+      result = escapePitWithGrapplingHook(state, helper, options); message = `${helper.name} climbs out with a grappling hook.`;
+    } else if (command.action === 'bridge') {
+      result = buildRopeBridge(state, helper, command.pit_id, { ...options, direction: command.direction });
+      message = `${helper.name} bridges the pit with ${result.bridge.ropeFeet} feet of rope.`;
+    } else if (command.action === 'tie') {
+      result = tieWithRope(state, helper, command.target_id, options); message = `${helper.name} ties the creature. Escape DC ${result.dc}.`;
+    } else {
+      result = escapeRope(state, helper, command.action, options);
+      message = `${helper.name}: ${result.check.total} vs DC ${result.dc}; ${result.escaped ? 'freed from the rope.' : 'still tied.'}`;
+    }
+    syncPlayerToActiveCharacter(); syncAllCharacterEquipmentDerivedStats(); recomputeVisibility(state); markRunDirty();
+    pushDiceHistory('Rope', message, helper.id); setStatus(message); updatePanels(); render(); scheduleAutoEndTurnIfNeeded(); return;
+  }
+  if (isTied(helper)) throw new Error('Escape or break the rope before acting.');
   const valid = command.action === 'rescue' ? ropeRescues(state, helper, options).some(item => item.target.id === command.target_id) :
     command.action === 'descend' ? ropeDescents(state, helper, options).some(pit => pit.id === command.pit_id) :
     command.action === 'push' && pushTargets(state, helper, options).some(item => item.monster.id === command.target_id && item.pit.id === command.pit_id);
@@ -9010,15 +9345,110 @@ function syncMishapUi() {
   if (!options.length) { description.textContent = 'No item or known spell can be sacrificed yet. This debt remains until a spell is learned or a magic item is obtained.'; const close = document.createElement('button'); close.textContent = 'Close'; close.onclick = () => { modal.dataset.dismissed = key; modal.hidden = true; }; card.append(close); }
 }
 
+function tierTwoOptions() {
+  return {
+    monsterAttacks: getMonsterAttackOptions,
+    onDefeat: (...args) => {
+      const target = args[0] === state ? args[1] : args[0];
+      if (target?.type === 'monster' && !target.defeated) defeatMonster(state, target);
+    },
+    grantLuck: (_state, caster) => grantLuckToken(state, caster.id),
+    onLuck: caster => grantLuckToken(state, caster.id),
+    criticalChoices: TIER_TWO_CHOICES,
+    onCriticalChoice: (_state, caster, focus, choice) => {
+      if (focus.spell === 'silence' && choice === 'area') {
+        const zone = state.areaSpells?.find(area => area.id === focus.areaId);
+        if (zone) { zone.x -= 3; zone.y -= 3; zone.width = zone.height = 12; }
+      }
+    },
+    wanderingCheck: ({ origin }) => {
+      const result = maybeSpawnWanderingMonster(state, monsterTable, { ignoreDarkness: true, allowUnlit: true, origin, forceEncounter: true });
+      if (result.spawned) { result.entity.hostile = true; result.entity.attitude = 'combat'; result.entity.attitudeChecked = true; addMonstersToCombat([result.entity], 'Knock attracts a wandering monster.'); }
+    }
+  };
+}
+
+function finishTierTwoSpell(character, selection = {}) {
+  if (!character) return;
+  if (!SERVER_RUNTIME && character.pendingSpell?.spell === 'misty step' && character.pendingSpell.phase === 'targeting' && !selection.dismiss && !selection.choice && !selection.confirmed) {
+    const destination = validateMistyStepDestination(state, character, selection);
+    if (destination.requiresConfirmation) {
+      if (!window.confirm(destination.prompt)) return;
+      selection = { ...selection, confirmed: true };
+    }
+  }
+  if (sendSharedCommand('resolve_spell', { choice: selection.choice, option: selection.option, target_id: selection.targetId,
+    x: selection.x, y: selection.y, confirmed: selection.confirmed, gear_index: selection.gearIndex, dismiss: selection.dismiss }, character)) return;
+  const outcome = resolveTierTwoSpell(state, character, selection, tierTwoOptions());
+  rememberSpellDialogs(outcome);
+  if (outcome.requiresConfirmation && outcome.prompt && !SERVER_RUNTIME) {
+    if (window.confirm(outcome.prompt)) finishTierTwoSpell(character, { ...selection, confirmed: true });
+    return;
+  }
+  syncTransformationEffects(state); syncAreaSpellConditions(state); cleanupWizardTierTwoFocus(state);
+  for (const monster of state.entities.filter(entity => entity.type === 'monster' && !entity.defeated && Number(entity.hp) <= 0)) defeatMonster(state, monster);
+  syncPlayerToActiveCharacter(); recomputeVisibility(state); prepareEncounterState(); checkCombatEnd();
+  markRunDirty(); markUserActivity(); setStatus(outcome.message || 'Spell resolved.');
+  pushDiceHistory('Spell', outcome.message || 'Spell resolved.', character.id);
+  render(); updatePanels(); scheduleAutoEndTurnIfNeeded();
+}
+
+function getTierTwoUi() {
+  if (SERVER_RUNTIME) return null;
+  return tierTwoUi ||= createTierTwoUi({
+    getPresentation: () => {
+      const caster = state?.characters.find(member => TIER_TWO_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member));
+      const view = tierTwoPresentation(state, caster);
+      if (view && caster.pendingSpell.spell === 'fixed object' && caster.pendingSpell.phase !== 'critical')
+        view.gear = (caster.gear || []).map((item, gearIndex) => ({ label: item.name, gearIndex }));
+      if (view) { ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true; }
+      return view;
+    },
+    resolve: selection => finishTierTwoSpell(state.characters.find(member => TIER_TWO_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member)), selection),
+    preview: selection => {
+      const caster = state?.characters.find(member => TIER_TWO_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member));
+      try { areaPreview = selection && caster ? { ...areaSpellPlacement(state, caster, selection, selection.size), color: caster.colorValue, spell: caster.pendingSpell.spell } : null; }
+      catch (error) { areaPreview = null; setStatus(error.message); }
+      render();
+    }, mapHost: ui.mapHost, status: setStatus
+  });
+}
+
+function rememberSpellDialogs(outcome) {
+  if (!outcome.dialogs?.length) return;
+  state.spellDialogMessages ||= [];
+  for (const dialog of outcome.dialogs) state.spellDialogMessages.push({ id: crypto.randomUUID(), text: dialog.text });
+  state.spellDialogMessages = state.spellDialogMessages.slice(-8);
+}
+
 function recordFocusCheck(character, reason) {
-  const focusCheck = character.focusSpell?.spell === 'detect magic' ? maintainDetectMagic : maintainFocus;
+  if (character.focusSpell && silenceBlocksAction(state, character, { spellcasting: true })) {
+    character.focusSpell = null; cleanupWizardTierTwoFocus(state); syncTransformationEffects(state); syncAreaSpellConditions(state);
+    return { message: `${character.name} loses Focus inside Silence.` };
+  }
+  const spell = character.focusSpell?.spell;
+  let luck = null;
+  const checkRoll = (modifier, options) => {
+    const check = rollCheck(modifier, options);
+    if (!isLuckResolution(state)) {
+      luck = beginLuckEvent(state, { kind: 'cast', actor: luckActorRef(character), roll: check,
+        dc: 10 + Number(findSpellRecord(spell)?.tier || 1), context: { spell, focus: true, reason },
+        scope: [...state.characters, ...state.entities.filter(entity => entity.type === 'monster')].map(luckActorRef) });
+      for (const actor of [...state.characters, ...state.entities.filter(entity => entity.type === 'monster')]) captureLuckActor(luck, actor);
+    }
+    return check;
+  };
+  const focusCheck = character.focusSpell?.spell === 'levitate' ? maintainLevitationFocus : isTierTwoFocus(character.focusSpell) ? maintainTierTwoFocus : character.focusSpell?.spell === 'detect magic' ? maintainDetectMagic : maintainFocus;
   const outcome = focusCheck(state, character, { reason,
+    ...tierTwoOptions(), checkRoll, rollCheck: checkRoll,
     disadvantage: protectionDisadvantage(state, character),
     advantage: characterHasSpellCastingAdvantage(character, findSpellRecord(character.focusSpell?.spell)) });
   if (outcome) {
+    rememberSpellDialogs(outcome);
     pushDiceHistory('Focus', outcome.message, character.id); pushCombatLog(outcome.message); setStatus(outcome.message);
     markRunDirty();
   }
+  if (luck) finishLuckEvent(state, luck, { succeeded: outcome?.succeeded === true });
   return outcome;
 }
 
@@ -9033,7 +9463,7 @@ setCharacterDamageListener((character,damage,sourceId) => {
 
 function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = false } = {}) {
   const discsChanged = progressFloatingDiscTime(milliseconds);
-  const hasItems = state.characters.some(character => character.potionEffects?.length || character.companion?.charm) || state.entities.some(entity => entity.charm);
+  const hasItems = state.characters.some(character => character.potionEffects?.length || character.companion?.charm || character.transformationEffects?.length) || state.entities.some(entity => entity.charm || entity.fixedObject) || state.areaSpells?.length;
   if (hasItems) advanceCharmTime(milliseconds);
   const hasFaith = state.entities.some(portalHeld) || state.characters.some(character => character.invisibility || character.faithEffects?.length || character.focusSpell || character.gear?.some(item => item.holyWeapon)) ||
     state.entities.some(entity => entity.invisibility || entity.moraleFlight || entity.turnedUndead || entity.gearItem?.holyWeapon);
@@ -9049,6 +9479,8 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
     state.arcaneTime.crawlRemainderMs %= SPELL_ROUND_MS;
   }
   if ((hasFaith || hasItems) && rounds > 0) {
+    advanceTransformationRounds(state, rounds); advanceAreaSpells(state, rounds);
+    cleanupWizardTierTwoFocus(state); syncTransformationEffects(state); syncAreaSpellConditions(state);
     advancePortalRounds(state, rounds);
     advancePotionRounds(state, rounds);
     advanceConcealmentRounds(state,rounds);
@@ -9056,6 +9488,8 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
     advanceFaithRounds(state, rounds);
     if (crawlingTurns) for (let round = 0; round < rounds; round++) {
       for (const character of state.characters) if (character.focusSpell) recordFocusCheck(character, 'next round');
+      for (const monster of getLiveMonsters()) for (const result of resolveDetectThoughtsResistance(state, monster, tierTwoOptions()))
+        pushDiceHistory('Detect Thoughts', result.message);
     }
     syncAllCharacterEquipmentDerivedStats();
   }
@@ -9068,6 +9502,7 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
       return crawlingTurns && recordWizardTurn(character);
     },
     onScream: character => {
+      if (noiseIsSilenced(state, character)) return;
       const result = maybeSpawnWanderingMonster(state, monsterTable, { ignoreDarkness: true, allowUnlit: true,
         origin: character, seedOffset: state.arcaneTime.elapsedMs + (state.wanderingMonsters?.spawnedCount || 0) * 7919 });
       const message = `${character.name} screams in Primordial. ${result.message}`;
@@ -9441,10 +9876,100 @@ function recordRestInterruptionChecks() {
   }
 }
 
+function luckActorRef(actor) { return { collection: state.characters.includes(actor) ? 'characters' : 'entities', id: actor.id }; }
+function captureLuckActor(event, actor) {
+  captureRuntimeLuckActor(state, event, actor);
+  captureLuckChange(state, event, luckActorRef(actor), ['invisibility', 'lightSpellLit', 'lightSource']);
+}
+function performLuck(character) {
+  if (sendSharedCommand('luck', {}, character)) return;
+  if (!ownsCharacter(character)) throw new Error('This Luck Token is not yours.');
+  const outcome = consumeLuck(state, { ownerId: character.id, applyOutcome: (draft, info) => {
+    const { event, check, succeeded, actor, target } = info;
+    if (event.kind === 'party-attack') {
+      if (!succeeded) return { message: `${actor.name}'s attack still misses (${check.total}).` };
+      if (!target) return { message: `${actor.name} still attacks nothing (${check.total}).` };
+      const multiplier = (event.context.backstab || 1) * (event.context.paralyzed || check.roll === 20 ? 2 : 1);
+      const damage = rollDamageExpression(multiplier > 1 ? multiplyDamageDice(event.context.expression, multiplier) : event.context.expression);
+      if (event.context.elementalDice) damage.total += rollDamageExpression(event.context.elementalDice).total;
+      const total = elementalDamage(target, damage.total, event.context.element || '').total;
+      if (event.context.feature) {
+        target.hp = Math.max(0, (Number.isFinite(target.hp) ? target.hp : event.context.door ? 15 : 10) - total);
+        if (!target.hp) {
+          if (event.context.door) { setDoorState(target, 'gone'); delete target.holdPortal; }
+          else { target.destroyed = true; target.visible = false; target.collected = true; }
+        }
+      } else if (draft.characters.includes(target)) setCharacterHp(target, Number(target.hp) - total, { sourceId: actor.id });
+      else { target.hp = Math.max(0, target.hp - total); wakeCreature(target, draft); }
+      return { message: `${actor.name}'s rerolled attack hits ${target.name}: ${check.total}. Damage: ${total}.` };
+    }
+    if (event.kind === 'monster-attack') {
+      if (succeeded && event.context.damage) setCharacterHp(target, Number(target.hp) - event.context.damage, { sourceId: actor.id });
+      return { message: `${actor.name}'s rerolled attack ${succeeded ? 'still hits' : 'misses'} ${target.name}: ${check.total}.` };
+    }
+    if (event.kind === 'cast') {
+      const key = event.context.spell;
+      actor.failedSpellKeys = (actor.failedSpellKeys || []).filter(name => name !== key);
+      const options = { checkRoll: () => check, rollCheck: () => check, knownSpells: getCharacterKnownSpellNames(actor), monsterAttacks: getMonsterAttackOptions };
+      let result;
+      if (event.context.focus) {
+        const maintain = key === 'levitate' ? maintainLevitationFocus : isTierTwoFocus(actor.focusSpell) ? maintainTierTwoFocus : key === 'detect magic' ? maintainDetectMagic : maintainFocus;
+        result = maintain(draft, actor, { ...options, reason: event.context.reason, turnKey: `luck:${event.id}`,
+          criticalChoices: TIER_TWO_CHOICES, grantLuck: (world, owner) => grantLuckToken(world, owner.id),
+          onCriticalChoice: (world, owner, focus, choice) => {
+            const zone = world.areaSpells?.find(area => area.id === focus.areaId);
+            if (zone && choice === 'area') { zone.x -= 3; zone.y -= 3; zone.width = zone.height = 12; }
+          } });
+      } else if (TIER_TWO_SPELLS.has(key)) result = castTierTwoSpell(draft, actor, key, options);
+      else if (WIZARD_TIER_ONE.has(key)) result = castWizardTierOne(draft, actor, key, options);
+      else if (FAITH_SPELLS.has(key)) result = castFaithSpell(draft, actor, key, options);
+      else if (key === 'invisibility') result = castInvisibility(draft, actor, options);
+      else if (key === 'light') result = castLight(draft, actor, options);
+      else if (key === 'cure wounds') result = castCureWounds(draft, actor, event.context.targetId, options);
+      else if (key === 'magic missile') result = castMagicMissile(draft, actor, options);
+      else if (key === 'burning hands') result = castBurningHands(draft, actor, options);
+      else throw new Error('That spell does not yet support a Luck reroll.');
+      return { message: result.message };
+    }
+    if (event.kind === 'save') return resolveLuckSave(draft, info, { resolvePitSave,
+      canStep: (world, creature, x, y, nx, ny) => canMoveBetweenTiles(world, x, y, nx, ny, { creature, routeId: routeOf(world, creature), ignorePits: true }).ok });
+    throw new Error('That saving throw cannot be rerolled yet.');
+  } });
+  for (const monster of state.entities.filter(entity => entity.type === 'monster' && !entity.defeated && Number(entity.hp) <= 0)) defeatMonster(state, monster);
+  syncTransformationEffects(state); syncAreaSpellConditions(state); syncAllCharacterEquipmentDerivedStats();
+  syncPlayerToActiveCharacter(); recomputeVisibility(state); prepareEncounterState(); checkCombatEnd();
+  const message = outcome.result?.message || `Luck reroll: ${outcome.check.roll}.`;
+  pushDiceHistory('Luck', message, character.id); setStatus(message); markRunDirty(); updatePanels(); render();
+}
+
+function spellLuckOptions(caster, spell) {
+  const check = (modifier, options) => {
+    const result = rollCheck(modifier, options);
+    if (spellLuckContext && !spellLuckContext.event && !isLuckResolution(state) && !caster.castingScroll) {
+      const context = spellLuckContext;
+      context.event = beginLuckEvent(state, { kind: 'cast', actor: luckActorRef(caster), roll: result, dc: 10 + Number(spell.tier || 1),
+        context: { spell: getSpellKey(spell), targetId: context.targetId }, scope: [...state.characters, ...state.entities.filter(entity => entity.type === 'monster')].map(luckActorRef) });
+      for (const actor of [...state.characters, ...state.entities.filter(entity => entity.type === 'monster')]) captureLuckActor(context.event, actor);
+      captureLuckChange(state, context.event, luckActorRef(caster), ['spellPenance']);
+      context.result = result;
+    }
+    return result;
+  };
+  return { checkRoll: check, rollCheck: check };
+}
 function performSpellCast(character, spell, targetId = null) {
+  const previous = spellLuckContext, context = { targetId };
+  spellLuckContext = context;
+  try { return performSpellCastInternal(character, spell, targetId); }
+  finally {
+    spellLuckContext = previous;
+    if (context.event) finishLuckEvent(state, context.event, { succeeded: context.result.roll !== 1 && (context.result.roll === 20 || context.result.total >= 10 + Number(spell.tier || 1)) });
+  }
+}
+function performSpellCastInternal(character, spell, targetId = null) {
   if (getSpellKey(spell) === 'alarm') { performRestAlarm(character); return; }
   if (sendSharedCommand("spell", { spell_name: spell?.name, target_id: targetId }, character)) {
-    if (FAITH_SPELLS.has(getSpellKey(spell))) { ui.spellDetailModal.hidden=true; ui.characterSheetModal.hidden=true; }
+    if (FAITH_SPELLS.has(getSpellKey(spell)) || getSpellKey(spell) === 'light') { ui.spellDetailModal.hidden=true; ui.characterSheetModal.hidden=true; ui.spellcastingModal.hidden=true; }
     return;
   }
   const currentCharacter = getCurrentCharacter(character) || getActiveCharacter(state);
@@ -9453,19 +9978,48 @@ function performSpellCast(character, spell, targetId = null) {
   }
   if (!isCharacterAbleToAct(currentCharacter) || !canControlCharacter(currentCharacter) || isCharacterSpellFailed(currentCharacter, spell)) return;
   if(currentCharacter.companion?.kind==='doppelganger'){setStatus('This character cannot cast spells.');return;}
-  if (/focus/i.test(spell.duration || '') && getSpellKey(spell) !== 'protection from evil') currentCharacter.focusSpell = null;
   if (hasReadyOffensiveSpell(currentCharacter) && currentCharacter.pendingSpell.spell === getSpellKey(spell)) {
     setStatus(pendingSpellMessage(currentCharacter));
     if (!SERVER_RUNTIME && OFFENSIVE_SPELLS.has(getSpellKey(spell))) openOffensiveSpellTargeting(currentCharacter, getSpellKey(spell));
     return;
   }
+  const blockedBySilence = silenceBlocksAction(state, currentCharacter, { spellcasting: true });
+  if (blockedBySilence) { if (SERVER_RUNTIME) throw new Error(blockedBySilence); setStatus(blockedBySilence); return; }
+  if (/focus/i.test(spell.duration || '') && getSpellKey(spell) !== 'protection from evil') {
+    currentCharacter.focusSpell = null; cleanupWizardTierTwoFocus(state); syncTransformationEffects(state); syncAreaSpellConditions(state);
+  }
   currentCharacter.castFromConcealment = isStealthed(currentCharacter);
   revealAfterOffense(currentCharacter);
+  if (TIER_TWO_SPELLS.has(getSpellKey(spell))) {
+    try {
+      if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter, { teleport: getSpellKey(spell) === 'misty step' })) return;
+      const outcome = castTierTwoSpell(state, currentCharacter, getSpellKey(spell), { ...tierTwoOptions(),
+        ...spellLuckOptions(currentCharacter, spell),
+        advantage: characterHasSpellCastingAdvantage(currentCharacter, spell), disadvantage: protectionDisadvantage(state, currentCharacter) });
+      syncTransformationEffects(state); syncAreaSpellConditions(state); cleanupWizardTierTwoFocus(state);
+      syncAllCharacterEquipmentDerivedStats(); recomputeVisibility(state);
+      markRunDirty(); markUserActivity(); setStatus(outcome.message); showCheckResult(outcome.check, spell.name + ' cast', { message: outcome.message });
+      if (!SERVER_RUNTIME) { ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true; }
+      updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+    } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
+    return;
+  }
+  if (getSpellKey(spell) === 'light') {
+    try {
+      if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
+      const outcome = castLight(state, currentCharacter, { ...spellLuckOptions(currentCharacter, spell), advantage: characterHasSpellCastingAdvantage(currentCharacter, spell), disadvantage: protectionDisadvantage(state, currentCharacter) });
+      if (!SERVER_RUNTIME && outcome.succeeded) { ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true; }
+      markRunDirty(); markUserActivity(); setStatus(outcome.message); showCheckResult(outcome.check, 'Light cast', { message: outcome.message });
+      updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+    } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
+    return;
+  }
   if (WIZARD_TIER_ONE.has(getSpellKey(spell))) {
     try {
       const falling = getSpellKey(spell) === 'feather fall';
       if (!SERVER_RUNTIME && !falling && !consumeCharacterCombatAction(currentCharacter)) return;
       const outcome = castWizardTierOne(state, currentCharacter, getSpellKey(spell), {
+        ...spellLuckOptions(currentCharacter, spell),
         advantage: characterHasSpellCastingAdvantage(currentCharacter, spell), disadvantage: protectionDisadvantage(state, currentCharacter) });
       syncAllCharacterEquipmentDerivedStats();
       prepareEncounterState();
@@ -9480,7 +10034,7 @@ function performSpellCast(character, spell, targetId = null) {
     try {
       if(!SERVER_RUNTIME&&!consumeCharacterCombatAction(currentCharacter))return;
       revealAfterOffense(currentCharacter);
-      const outcome=castInvisibility(state,currentCharacter,{advantage:characterHasSpellCastingAdvantage(currentCharacter,spell),disadvantage:protectionDisadvantage(state,currentCharacter)});
+      const outcome=castInvisibility(state,currentCharacter,{...spellLuckOptions(currentCharacter,spell),advantage:characterHasSpellCastingAdvantage(currentCharacter,spell),disadvantage:protectionDisadvantage(state,currentCharacter)});
       markRunDirty();markUserActivity();setStatus(outcome.message);showCheckResult(outcome.check,'Invisibility cast',{message:outcome.message});
       if(!SERVER_RUNTIME){ui.spellDetailModal.hidden=true;ui.characterSheetModal.hidden=true;}
       syncCriticalSpellDialog();updatePanels();render();
@@ -9490,7 +10044,7 @@ function performSpellCast(character, spell, targetId = null) {
     try {
       if (getSpellKey(spell) === 'turn undead' && !(currentCharacter.gear || []).some(item => /holy symbol/i.test(item.name))) throw new Error('Turn Undead requires a holy symbol.');
       if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
-      const outcome = castFaithSpell(state, currentCharacter, getSpellKey(spell), { advantage: characterHasSpellCastingAdvantage(currentCharacter, spell) });
+      const outcome = castFaithSpell(state, currentCharacter, getSpellKey(spell), { ...spellLuckOptions(currentCharacter, spell), advantage: characterHasSpellCastingAdvantage(currentCharacter, spell) });
       startTurnedUndeadCombat(currentCharacter, outcome);
       syncAllCharacterEquipmentDerivedStats(); recomputeVisibility(state); checkCombatEnd();
       markRunDirty(); markUserActivity(); setStatus(outcome.message);
@@ -9505,6 +10059,7 @@ function performSpellCast(character, spell, targetId = null) {
       if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
       const cast = getSpellKey(spell) === 'magic missile' ? castMagicMissile : castBurningHands;
       const outcome = cast(state, currentCharacter, { knownSpells: getCharacterKnownSpellNames(currentCharacter),
+        ...spellLuckOptions(currentCharacter, spell),
         disadvantage: protectionDisadvantage(state, currentCharacter),
         advantage: characterHasSpellCastingAdvantage(currentCharacter, spell) });
       if (outcome.mishaps?.length) {
@@ -9543,7 +10098,7 @@ function performSpellCast(character, spell, targetId = null) {
     try {
       validateCureWoundsTarget(state, currentCharacter, targetId);
       if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
-      const outcome = castCureWounds(state, currentCharacter, targetId, { advantage: characterHasSpellCastingAdvantage(currentCharacter, spell), disadvantage: protectionDisadvantage(state, currentCharacter) });
+      const outcome = castCureWounds(state, currentCharacter, targetId, { ...spellLuckOptions(currentCharacter, spell), advantage: characterHasSpellCastingAdvantage(currentCharacter, spell), disadvantage: protectionDisadvantage(state, currentCharacter) });
       markUserActivity();
       markRunDirty();
       setStatus(outcome.message);
@@ -9988,6 +10543,10 @@ function shouldTreatAsSpellCheck(reference, text, options = {}) {
 }
 
 function createDamageButton(reference, options = {}) {
+  if (!options.spellCheck && options.character) {
+    const value = document.createElement('span'); value.className = 'damage-value';
+    value.textContent = options.label || reference.expression; return value;
+  }
   const button = document.createElement("button");
   button.type = "button";
   button.className = "damage-token";
@@ -10083,7 +10642,7 @@ function renderSpellcastingMenu(character) {
   ui.spellcastingModal.dataset.characterId = caster.id;
   document.getElementById('spellcasting-title').textContent = `${caster.name}: Spellcasting`;
   const names = [...new Set(getCharacterKnownSpellNames(caster).filter(name => !/^none$/i.test(name)))];
-  const rows = names.map(name => ({ name, spell: findSpellRecord(name) }));
+  const rows = names.map(name => ({ name, spell: findSpellRecord(name) })).sort((a, b) => Number(a.spell?.tier || 0) - Number(b.spell?.tier || 0) || a.name.localeCompare(b.name));
   const key = JSON.stringify(rows.map(({ name, spell }) => [name, spellMenuCastReason(caster, spell), caster.pendingSpell?.spell === getSpellKey(name)]));
   if (ui.spellcastingList.dataset.renderKey === key) return;
   const focused = document.activeElement.closest?.('.spellcasting-row');
@@ -10246,14 +10805,15 @@ function renderSpellDetail(spell, character, { scrollIndex = null, readOnly = fa
 }
 
 function createSpellButton(spellName, options = {}) {
-  const button = document.createElement("button");
-  button.type = "button";
+  const button = document.createElement("a");
+  button.href = '#spell-description';
   button.className = "spell-link-button";
   button.textContent = spellName;
   if (isCharacterSpellFailed(options.character, spellName)) {
     button.classList.add("is-spell-lost");
   }
   button.addEventListener("click", async event => {
+    event.preventDefault();
     event.stopPropagation();
     await ensureSpellLibraryLoaded();
     const spell = findSpellRecord(spellName);
@@ -10261,8 +10821,7 @@ function createSpellButton(spellName, options = {}) {
       setStatus(`No spell details found for ${spellName}.`);
       return;
     }
-    if (OFFENSIVE_SPELLS.has(getSpellKey(spell))) openOffensiveSpellTargeting(options.character, getSpellKey(spell));
-    else renderSpellDetail(spell, options.character);
+    renderSpellDetail(spell, options.character);
   });
   return button;
 }
@@ -10273,7 +10832,8 @@ function createSpellSummaryLine(text, character) {
   const prefix = document.createElement("strong");
   prefix.className = "sd-line-prefix";
   prefix.textContent = "Spells:";
-  container.append(prefix, document.createTextNode(" "));
+  prefix.title = fieldLore('Spells', character?.className);
+  container.append(prefix);
 
   const payload = String(text || "").replace(/^Spells:\s*/i, "").trim();
   if (!payload || /^none$/i.test(payload)) {
@@ -10281,32 +10841,87 @@ function createSpellSummaryLine(text, character) {
     return container;
   }
 
-  const groups = payload.split(/\s*;\s*/).filter(Boolean);
-  groups.forEach((group, groupIndex) => {
-    if (groupIndex > 0) {
-      container.append(document.createTextNode("; "));
-    }
+  const groups = new Map();
+  for (const group of payload.split(/\s*;\s*/).filter(Boolean)) {
     const match = group.match(/^\(Tier\s+(\d+)\):\s*(.+)$/i);
     const tier = match?.[1] || "";
     const names = (match?.[2] || group)
       .split(/\s*,\s*/)
       .map((value) => value.trim())
       .filter(Boolean);
+    const bucket = groups.get(tier) || new Map();
+    for (const name of names) if (!bucket.has(name.toLowerCase())) bucket.set(name.toLowerCase(), name);
+    groups.set(tier, bucket);
+  }
+  const sortedGroups = [...groups].sort(([a], [b]) => (Number(a) || Infinity) - (Number(b) || Infinity));
+  sortedGroups.forEach(([tier, bucket]) => {
+    const section = document.createElement('section');
+    section.className = 'sd-spell-tier';
     if (tier) {
       const tierLabel = document.createElement("span");
       tierLabel.className = "sd-spell-tier-label";
       tierLabel.textContent = `Tier ${tier}`;
-      container.append(tierLabel, document.createTextNode(": "));
+      section.append(tierLabel);
     }
-    names.forEach((name, index) => {
+    const names = document.createElement('div');
+    names.className = 'sd-spell-names';
+    [...bucket.values()].sort((a, b) => a.localeCompare(b)).forEach((name, index) => {
       if (index > 0) {
-        container.append(document.createTextNode(", "));
+        names.append(document.createTextNode(", "));
       }
-      container.append(createSpellButton(name, { character, tier }));
+      const button = createSpellButton(name, { character, tier });
+      names.append(button);
     });
+    section.append(names);
+    container.append(section);
   });
 
   return container;
+}
+
+function createTalentsContent(rows, spellSummary, languageLine, character) {
+  const content = document.createElement('div');
+  content.className = 'sd-talents-content';
+  const talents = document.createElement('section');
+  talents.className = 'sd-talents-list';
+  const heading = document.createElement('strong');
+  heading.textContent = 'Talents:';
+  heading.title = fieldLore('Talents');
+  talents.append(heading);
+  for (const row of rows) {
+    const line = document.createElement('div');
+    line.append(row);
+    talents.append(line);
+  }
+  if (!rows.length) {
+    const line = document.createElement('div');
+    line.textContent = 'None';
+    talents.append(line);
+  }
+  content.append(talents);
+  if (spellSummary && !/^Spells:\s*None$/i.test(spellSummary)) {
+    content.append(createSpellSummaryLine(spellSummary, character));
+  }
+  const languages = document.createElement('div');
+  languages.className = 'sd-sheet-languages';
+  languages.textContent = languageLine || 'Languages: None';
+  languages.title = fieldLore('Languages');
+  content.append(languages);
+  return content;
+}
+
+function fitCharacterSheetText(target) {
+  const fit = (node, minimum) => {
+    const initial = Number.parseFloat(getComputedStyle(node).fontSize) || 12;
+    node.style.fontSize = `${initial}px`;
+    let size = initial;
+    while (size > minimum && (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1)) {
+      size = Math.max(minimum, size - .25);
+      node.style.fontSize = `${size}px`;
+    }
+  };
+  for (const node of target.querySelectorAll('.sd-talents-content')) fit(node, 6);
+  for (const node of target.querySelectorAll('.sd-sheet-value, .sd-lined-block > div')) fit(node, 6);
 }
 
 function createSdField(label, value, className = "") {
@@ -10318,8 +10933,8 @@ function createSdField(label, value, className = "") {
   content.className = "sd-sheet-value";
   content.textContent = `${value ?? ""}`;
   field.append(heading, content);
-  const lore = sheetLore(label, value);
-  if (lore) field.title = lore;
+  const lore = sheetLore(label, value) || fieldLore(label, value);
+  if (lore) { field.title = lore; heading.title = lore; }
   return field;
 }
 
@@ -10356,12 +10971,14 @@ function createSdPanel(title, content, className = "") {
   panel.className = ["sd-sheet-panel", className].filter(Boolean).join(" ");
   const heading = document.createElement("h3");
   heading.textContent = title;
+  heading.title = fieldLore(title);
   panel.append(heading, content);
   return panel;
 }
 
 function updateTruncatedSheetTitles(target) {
   for(const node of target.querySelectorAll('.sd-gear-line-label,.sd-free-carry-text,.sd-sheet-value,.sd-lined-block > div')) {
+    if (node.closest('.sd-name-box')) { node.removeAttribute('title'); continue; }
     if(node.dataset.forceTooltip||node.scrollWidth>node.clientWidth+1)node.title=node.dataset.fullText||node.textContent.trim();
     else node.removeAttribute('title');
   }
@@ -10403,7 +11020,7 @@ function createSdGearPanel(character) {
   headingRow.className = "sd-gear-heading-row";
   const heading = document.createElement("h3");
   heading.textContent = "Gear";
-  heading.title='Drag items to reorder.';
+  heading.title=fieldLore('Gear');
   const coinFields = document.createElement("div");
   coinFields.className = "sd-coin-fields";
 
@@ -10415,6 +11032,7 @@ function createSdGearPanel(character) {
   for (const [label, key] of coinFieldConfigs) {
     const field = document.createElement("label");
     field.className = "sd-coin-field";
+    field.title = fieldLore(label);
     const fieldLabel = document.createElement("span");
     fieldLabel.textContent = label;
     const input = document.createElement("input");
@@ -10442,6 +11060,7 @@ function createSdGearPanel(character) {
 
   const rows = document.createElement("div");
   rows.className = "sd-gear-lines";
+  rows.title = 'Drag items to reorder.';
   const { slots, freeCarry, freeCarryIndices } = getCharacterGearSlots(character, {
     maxSlots: 20,
     excludeBackpack: true
@@ -10542,6 +11161,7 @@ function createSdGearPanel(character) {
   freeCarryPanel.className = "sd-free-carry";
   const freeCarryHeading = document.createElement("h3");
   freeCarryHeading.textContent = "FREE TO CARRY";
+  freeCarryHeading.title = fieldLore('Free to Carry');
   const freeCarryLines = document.createElement("div");
   freeCarryLines.className = "sd-free-carry-lines";
   const freeCarryDisplay = freeCarry;
@@ -10549,6 +11169,11 @@ function createSdGearPanel(character) {
     const line = document.createElement("div");
     line.className='sd-free-carry-text';
     line.textContent = freeCarryDisplay[index] || "";
+    if (index === 0) {
+      line.title = fieldLore('Coins');
+      line.dataset.forceTooltip = 'true';
+      line.dataset.fullText = line.title;
+    }
     if(Number.isInteger(freeCarryIndices[index])&&freeCarryIndices[index]>=0)enableGearDragging(line,line,character,freeCarryIndices[index],freeCarryLines);
     freeCarryLines.append(line);
   }
@@ -10732,6 +11357,7 @@ function moveCoinUnits(source, target, key, amount) {
 
 function adjustCoinFeature(loot, direction) {
   if (sendSharedCommand("coin_adjust", { entity_id: loot.id, direction })) return false;
+  if (!partyCanReachLoot(state, loot)) { setStatus('Move a party member beside this item.'); return false; }
   const key = getCoinEntityKey(loot);
   const floor = isFloorCoinEntity(loot);
   let counterpart = findCoinCounterpart(loot, key);
@@ -10755,6 +11381,7 @@ function adjustCoinFeature(loot, direction) {
 
 function setCoinFeatureAmount(loot, nextAmount) {
   if (sendSharedCommand("coin_amount", { entity_id: loot.id, amount: Number(nextAmount) })) return;
+  if (!partyCanReachLoot(state, loot)) { setStatus('Move a party member beside this item.'); return; }
   const key = getCoinEntityKey(loot);
   const current = getCoinEntityAmount(loot, key);
   const counterpart = findCoinCounterpart(loot, key);
@@ -10838,7 +11465,7 @@ function updateRoomLootPanel() {
     entity.subtype !== "room-feature" &&
     entity.subtype !== "door" &&
     entity.visible !== false &&
-    (entity.roomId === state.player.roomId || isTileVisible(state, Number(entity.x), Number(entity.y)))
+    partyInLootArea(state, entity) && isFeatureCurrentlyVisible(state, entity)
   ));
   if (roomLoot.length === 0 && roomFeatures.length === 0) {
     ui.roomLootPanel.hidden = true;
@@ -10870,6 +11497,8 @@ function updateRoomLootPanel() {
     row.className = ["room-loot-row", loot.coinBreakdown ? "room-loot-row--coins" : ""].filter(Boolean).join(" ");
     const lootButton = document.createElement("button");
     lootButton.type = "button";
+    lootButton.disabled = !partyCanReachLoot(state, loot);
+    if (lootButton.disabled) lootButton.title = 'Move a party member beside this item to pick it up.';
     const isDroppedEquipment = loot.subtype === "dropped-equipment";
     lootButton.textContent = formatRoomLootButtonText(loot);
     lootButton.addEventListener("click", () => {
@@ -10966,6 +11595,21 @@ function renderMonsterMini(monster) {
   return card;
 }
 
+function openMonsterSheet(monster) {
+  const modal = document.createElement('dialog'); modal.className = 'sd-save-menus sd-simple-dialog'; modal.setAttribute('aria-label', displayMonsterName(monster));
+  modal.addEventListener('keydown', event => event.stopPropagation());
+  const heading = document.createElement('h2'); heading.textContent = displayMonsterName(monster);
+  const close = document.createElement('button'); close.textContent = 'X'; close.setAttribute('aria-label', 'Close monster sheet'); close.onclick = () => modal.close();
+  const stats = document.createElement('p'); stats.textContent = `Level ${monster.level || 1} | AC ${monster.ac} | HP ${monster.hp}`;
+  const languages = document.createElement('p'); languages.textContent = `Languages: ${(monster.languages || []).join(', ') || 'None'}`;
+  const traits = document.createElement('div');
+  for (const [name, description] of Object.entries(monster.abilities || {})) {
+    const line = document.createElement('p'); line.textContent = `${name}: ${description}`; traits.append(line);
+  }
+  modal.append(heading, close, stats, languages, traits); modal.addEventListener('close', () => modal.remove());
+  document.body.append(modal); modal.showModal();
+}
+
 function updateMonsterPanel() {
   ui.monsterPanel.innerHTML = "";
   ui.monsterPanel.hidden = false;
@@ -10994,8 +11638,13 @@ function updateMonsterPanel() {
 
     const title = document.createElement("h3");
     title.textContent = monster.wandering ? `${displayMonsterName(monster)} (wandering)` : displayMonsterName(monster);
+    if (!concealedAnimatedArmor(monster) && !(isDoppelganger(monster) && !monster.disguiseRevealed)) {
+      title.tabIndex = 0; title.setAttribute('role', 'button'); title.setAttribute('aria-label', `Open ${displayMonsterName(monster)} sheet`);
+      title.onclick = () => openMonsterSheet(monster);
+      title.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openMonsterSheet(monster); } };
+    }
     card.append(title);
-    if(isDoppelganger(monster)&&!monster.disguiseRevealed){ui.monsterPanel.append(card);continue;}
+    if(concealedAnimatedArmor(monster) || isDoppelganger(monster)&&!monster.disguiseRevealed){ui.monsterPanel.append(card);continue;}
 
     const stats = document.createElement("dl");
     stats.className = 'monster-mini-stats';
@@ -11152,6 +11801,12 @@ function updateSelectedPartyControls() {
 
 function updatePanels(options = {}) {
   if (SERVER_RUNTIME) return;
+  getTierTwoUi().sync();
+  const dialogs = (state.spellDialogMessages || []).filter(message => !seenSpellDialogs.has(message.id));
+  if (dialogs.length) { for (const message of dialogs) seenSpellDialogs.add(message.id); showNotice(dialogs.map(message => message.text).join('\n')); }
+  document.getElementById('party-heading').textContent = state.partyName || 'The Party';
+  if (isSharedRoom()) void getSaveMenus().syncConsensus();
+  else if (saveMenus) void saveMenus.syncConsensus();
   const detection = document.getElementById('detect-magic-summary');
   const observer = state.characters.find(character => ownsCharacter(character) && character.focusSpell?.spell === 'detect magic');
   detection.hidden = !observer;
@@ -11365,7 +12020,7 @@ function performSearch() {
     message,
     context
   });
-  if (state.player.torchLit) {
+  if (hasLiveTimedLight(state) && !result.darknessMessage) {
     applyTorchAdvance(advanceTorchTime(state, TORCH_SEARCH_ADVANCE_MS));
   }
   if (!isCombatActive()) progressWizardEffects(TORCH_SEARCH_ADVANCE_MS, { crawlingTurns: true });
@@ -11519,14 +12174,15 @@ function renderSavedCharactersList() {
   }
 }
 
-async function loadSelectedCharacter(savedCharacter) {
+async function loadSelectedCharacter(savedCharacter, { keepOpen = false, throwOnError = false } = {}) {
   ui.saveLoadStatus.textContent = "Loading character...";
   try {
     if (!canUseRoomCharacterImport()) throw new Error("The host is assigning characters for this dungeon.");
     if (!floatingDiscSlotsAvailable(state)) throw new Error("The dungeon already contains 16 characters or reserved spell slots.");
     if (isSharedRoom()) {
-      await executeSharedCommand({ type: "import", saved_character_id: savedCharacter.id });
-      closeSaveLoadModal();
+      const result = await executeSharedCommand({ type: "import", saved_character_id: savedCharacter.id });
+      if (result?.cancelled) throw new Error('The dungeon changed before the character could load.');
+      if (!keepOpen) closeSaveLoadModal();
       return;
     }
     const loaded = savedCharacter.character_json ? savedCharacter : await loadSavedCharacter(savedCharacter.id);
@@ -11534,6 +12190,11 @@ async function loadSelectedCharacter(savedCharacter) {
     if (!character) {
       throw new Error("Saved character did not include usable character data.");
     }
+    const lineage = character.lineageId || loaded.lineageId || character.id;
+    if (state.characters.some(member => (member.lineageId || member.id) === lineage)) throw new Error('That character is already in The Party.');
+    character.lineageId = lineage;
+    character.id = `character-${crypto.randomUUID()}`;
+    Object.assign(character.raw, { id: character.id, lineageId: lineage });
     if (Number(character.partyAssetShareCopper || 0) > 0) {
       addPartyAssetsCopper(character.partyAssetShareCopper);
       character.partyAssetShareCopper = 0;
@@ -11563,12 +12224,13 @@ async function loadSelectedCharacter(savedCharacter) {
     updateCharactersUi();
     render();
     updatePanels();
-    closeSaveLoadModal();
+    if (!keepOpen) closeSaveLoadModal();
     if (!sighting?.combatStarted && !sighting?.combatEnded) {
       setStatus(`Loaded character ${character.name || "saved character"}.`);
     }
   } catch (error) {
     ui.saveLoadStatus.textContent = error.message;
+    if (throwOnError) throw error;
   }
 }
 
@@ -11629,6 +12291,7 @@ async function openSaveLoadModal(mode) {
     setStatus("The host is assigning characters for this dungeon.");
     return;
   }
+  if (mode === 'load-character') { await getSaveMenus().openLoadCharacters(); return; }
   saveDialog = {
     mode,
     runs: [],
@@ -11869,7 +12532,7 @@ function advanceMarchingOrder(anchor, delta = null, command = null, options = {}
     if (!result.moved) continue;
     changed = true;
     syncActiveCharacterToPlayer();
-    if (!SERVER_RUNTIME && movementStepCost(state,before.x,before.y)>1) animateLocalWaterStep(character,before);
+    if (!SERVER_RUNTIME && movementStepCost(state,before.x,before.y,character)>1) animateLocalWaterStep(character,before);
     recomputeVisibility(state);
     processMonsterVisibilityChange();
     if (SERVER_RUNTIME && values.motion_id) {
@@ -11908,10 +12571,18 @@ function createSharedViewerVisibility(base, saved = {}) {
   const closedDoorExploredSides = new Map(Object.entries(saved.closedDoorExploredSides || {}).map(
     ([doorId, sides]) => [doorId, new Set(Array.isArray(sides) ? sides : [])]
   ));
+  const routeDarkvisionExplored = Object.fromEntries(Object.entries(saved.routeDarkvisionExplored || {}).map(
+    ([route, cells]) => [route, new Set(Array.from(cells instanceof Set || Array.isArray(cells) ? cells : [])
+      .filter(key => typeof key === 'string' && /^\d+,\d+$/.test(key)))]
+  ));
   return {
     ...(base || {}),
     visibleNow: new Set(),
     routeVisible: {},
+    darkvisionNow: new Set(),
+    routeDarkvision: {},
+    routeDarkvisionExplored,
+    darkvisionExplored: new Set(Object.values(routeDarkvisionExplored).flatMap(cells => [...cells])),
     routeExplored: Object.fromEntries(Object.entries(saved.routeExplored || {}).map(([id, cells]) => [id, new Set(cells)])),
     exploredEver: new Set(Array.isArray(saved.exploredEver) ? saved.exploredEver : []),
     exploredBeforeNow: new Set(Array.isArray(saved.exploredEver) ? saved.exploredEver : []),
@@ -11941,6 +12612,8 @@ function serializeSharedViewerVisibility() {
   return {
     exploredEver: Array.from(visibility.exploredEver || []),
     routeExplored: Object.fromEntries(Object.entries(visibility.routeExplored || {}).map(([id, cells]) => [id, [...cells]])),
+    routeDarkvisionExplored: Object.fromEntries(Object.entries(visibility.routeDarkvisionExplored || {}).map(([id, cells]) =>
+      [id, Array.from(cells instanceof Set || Array.isArray(cells) ? cells : []).filter(key => typeof key === 'string' && /^\d+,\d+$/.test(key))])),
     visitedRoomIds: Array.from(visibility.visitedRoomIds || []),
     exploredInnerWallInteriors: Array.from(visibility.exploredInnerWallInteriors || []),
     closedDoorExploredSides: Object.fromEntries(
@@ -12236,11 +12909,13 @@ function sendSharedCommand(type, values = {}, character = getActiveCharacter(sta
     return true;
   }
   if (type === "roll" && !ownsCharacter(character)) return false;
-  if (!(type === "bury" ? canBuryCharacter(character) : restAlarm ? ownsCharacter(character) && multiplayerSession.can_explore : canControlCharacter(character))) {
+  if (!(type === "bury" ? canBuryCharacter(character) : restAlarm || type === 'luck' ? ownsCharacter(character) && multiplayerSession.can_explore : canControlCharacter(character))) {
     setStatus(!ownsCharacter(character) ? "Choose one of your own characters." : "The dungeon is paused while the host is away.");
     return true;
   }
   if (type === "move") {
+    if (isTied(character)) { setStatus('Escape or break the rope before moving.'); return true; }
+    if (offerGrapplingEscape(character, [values.dx, values.dy])) return true;
     queueSharedMove(values, character);
     return true;
   }
@@ -12310,7 +12985,8 @@ function applyMultiplayerSessionState(payload, options = {}) {
   const previousPositions = displayedCharacterPositions();
   const activeId = state?.activeCharacterId;
   const oldRoom = multiplayerSession.id;
-  const previousViewerVisibility = oldRoom === payload.id && state?.sharedRoom === true
+  const floorChanged = Boolean(payload.state_json && state && (payload.state_json.level !== state.level || payload.state_json.seed !== state.seed));
+  const previousViewerVisibility = !floorChanged && oldRoom === payload.id && state?.sharedRoom === true
     ? state.visibility
     : null;
   if (oldRoom !== payload.id) for (const input of document.querySelectorAll(".room-option input")) delete input.dataset.dirty;
@@ -12343,6 +13019,10 @@ function applyMultiplayerSessionState(payload, options = {}) {
       }
       state = nextState;
       state.sharedRoom = true;
+      if (floorChanged) {
+        setupCanvasLayers(state); ui.levelInput.value = state.level; ui.seedInput.value = state.seed;
+        resetSharedMotionPlayback(motions);
+      }
       const owned = multiplayerSession.owned_character_ids || [];
       state.visibility = previousViewerVisibility || createSharedViewerVisibility(
         nextState.visibility,
@@ -12375,7 +13055,7 @@ function applyMultiplayerSessionState(payload, options = {}) {
       }
       for (const motion of remoteMotions) queueSharedMotionAnimation(motion);
       queueMonsterTurnPresentations(nextState.monsterTurnEvents || [], oldRoom !== payload.id);
-      if (oldRoom !== payload.id || newOwned.length) {
+      if (floorChanged || oldRoom !== payload.id || newOwned.length) {
         const focus = state.characters.find((item) => item.id === state.activeCharacterId) || state.player;
         const center = getMapViewCenter(ui.mapHost.parentElement);
         viewport.panX = center.x - (Number(focus.x) + .5) * TILE_SIZE_PX * viewport.scale;
@@ -12667,6 +13347,7 @@ async function leaveSharedRoom() {
   sharedCommandPending = 0;
   resetSharedMotionPlayback();
   multiplayerSession = { players: [], assignments: [] };
+  if (saveMenus) void saveMenus.syncConsensus();
   if (state) {
     state.sharedRoom = false;
     render({ motionOnly: true });
@@ -12752,6 +13433,7 @@ function hookInputEvents() {
     if (!state) {
       return;
     }
+    if (event.key === 'Shift') { shiftAttackHeld = true; updateMonsterHoverCursor(); }
     const advancementModal = document.getElementById('advancement-modal');
     if (advancementModal && !advancementModal.hidden && ui.spellDetailModal.hidden) {
       if (event.key === 'Escape') { event.preventDefault(); advancementModal.hidden = true; }
@@ -12764,7 +13446,7 @@ function hookInputEvents() {
       if (!ui.extinguishOldModal.hidden) { closeExtinguishOldModal(); return; }
       const thief = state.characters.find(character => character.pendingSteal && canControlCharacter(character));
       if (thief) { event.preventDefault(); resolveSteal(thief, { cancel: true }); return; }
-      if (currentTargetingOverlay()) { event.preventDefault(); targetingMode = null; dismissedTurnRadius = targetingTurnKey(); syncMagicMissileUi(); render(); return; }
+      if (currentTargetingOverlay()) { event.preventDefault(); targetingMode = null; dismissedTurnRadius = targetingTurnKey(); syncMagicMissileUi(); updateMonsterHoverCursor(); render(); return; }
     }
     if (activeShopPanel || activeSellPanel) {
       if (event.key === 'Escape') {
@@ -12968,6 +13650,8 @@ function hookInputEvents() {
     if (character && ownsCharacter(character)) saveCharacterSnapshot(character);
     else setStatus('Select one of your characters to save.');
   });
+  document.getElementById('save-party-menu-btn')?.addEventListener('click', () => { saveLoadMenu.hidden = true; void getSaveMenus().openSaveParty(); });
+  document.getElementById('load-party-menu-btn')?.addEventListener('click', () => { saveLoadMenu.hidden = true; void getSaveMenus().openLoadParty(); });
 
   ui.multiplayerBtn?.addEventListener("click", openMultiplayerModal);
   ui.multiplayerCreateHostBtn?.addEventListener("click", createMultiplayerHost);
@@ -13160,6 +13844,8 @@ function hookInputEvents() {
 
 function hookMapViewportInteractions() {
   const panel = ui.mapHost.parentElement;
+  document.addEventListener('keyup', event => { if (event.key === 'Shift') { shiftAttackHeld = false; updateMonsterHoverCursor(); } });
+  window.addEventListener('blur', () => { shiftAttackHeld = false; updateMonsterHoverCursor(); });
   attackCursorImage = new Image();
   attackCursorImage.onload = updateMonsterHoverCursor;
   attackCursorImage.src = new URL("../assets/attack-alpha.png", import.meta.url).href;
@@ -13195,6 +13881,7 @@ function hookMapViewportInteractions() {
     const wasDrag = dragState.moved;
     const clickX = dragState.clickX;
     const clickY = dragState.clickY;
+    const attackIntent = dragState.attackIntent || event.shiftKey || shiftAttackHeld;
     dragState = null;
     panel.classList.remove("is-dragging");
     updateMonsterHoverCursor();
@@ -13206,6 +13893,18 @@ function hookMapViewportInteractions() {
       return;
     }
     const { x, y } = getTileFromPointer({ clientX: clickX, clientY: clickY });
+    if (state.characters.some(member => TIER_TWO_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member))) {
+      const target = getCharacterAtTile(x, y, { includeDiscs: true }) || getVisibleMonsterAtTile(x, y) ||
+        state.entities.find(entity => entity.x === x && entity.y === y && !entity.collected && entity.type === 'treasure');
+      if (getTierTwoUi().click(x, y, target?.id)) return;
+    }
+    const lightCaster = state.characters.find(character => character.pendingSpell?.spell === 'light' && canControlCharacter(character));
+    if (lightCaster) {
+      const target = getCharacterAtTile(x, y, { includeDiscs: true }) || getVisibleMonsterAtTile(x, y) || getRoomLoot(state).find(item => item.x === x && item.y === y);
+      finishLightSpell(lightCaster, target ? { targetId: target.id } : { x, y }); return;
+    }
+    const downstairs = downstairsIn(state);
+    if (downstairs?.x === x && downstairs?.y === y && !currentTargetingOverlay()) { void requestDungeonDescent(); return; }
     const blessingCaster = state.characters.find(character => ['holy weapon','invisibility','charm person','hold portal','sleep'].includes(character.pendingSpell?.spell) && character.pendingSpell.phase === 'targeting' && canControlCharacter(character));
     if (blessingCaster?.pendingSpell.spell === 'sleep') { finishFaithSpell(blessingCaster, { x, y }); return; }
     if (blessingCaster?.pendingSpell.spell === 'hold portal') {
@@ -13216,9 +13915,14 @@ function hookMapViewportInteractions() {
     const blessingTarget = blessingCaster?.pendingSpell.spell === 'charm person' ? getVisibleMonsterAtTile(x,y) :
       getCharacterAtTile(x,y)||(blessingCaster?.pendingSpell.spell==='invisibility'?getVisibleMonsterAtTile(x,y):null);
     if (blessingCaster && blessingTarget) { finishFaithSpell(blessingCaster, { targetId: blessingTarget.id }); return; }
-    const overlay = currentTargetingOverlay();
+    if (attackIntent && !getActiveCharacter(state)?.pendingSpell) { performMapAttack(x, y); return; }
+    let overlay = currentTargetingOverlay();
+    if (overlay?.kind === 'weapon') overlay = null;
     if (overlay?.kind === 'monster') return;
     const targetMonster = getVisibleMonsterAtTile(x, y);
+    if (overlay?.kind === 'spell' && targetingMode?.spellKey === 'magic missile' && !targetMonster) {
+      resolveMagicMissile(state.characters.find(character => character.id === overlay.characterId), { x, y, blind: true }); return;
+    }
     if (overlay && targetMonster) {
       const actor = state.characters.find(character => character.id === overlay.characterId);
       if (overlay.kind === 'steal') { resolveSteal(actor, { targetId: targetMonster.id }); return; }
@@ -13246,7 +13950,7 @@ function hookMapViewportInteractions() {
       if (victim && victim.id !== actor.id && targetingMode?.kind === 'weapon') { confirmPartyAttack(actor, victim); return; }
       const door = getDoorAt(state, x, y);
       if (door && targetingMode?.kind === 'weapon') { attackDoor(actor, door.id); return; }
-      if (!isCombatActive() && !victim) { attackEmptyTile(actor, x, y); return; }
+      if (!victim && (!isCombatActive() || !isTileIlluminated(state, x, y, { x, y, routeId: routeOf(state, actor) }))) { attackEmptyTile(actor, x, y); render(); updatePanels(); return; }
     }
     if (tryClickMovement(x, y)) return;
     const clickedCharacter = getCharacterAtTile(x, y, { includeDiscs: true });
@@ -13276,6 +13980,7 @@ function hookMapViewportInteractions() {
       }
       return;
     }
+    if (clickedMonster) { if (!concealedAnimatedArmor(clickedMonster)) openMonsterSheet(clickedMonster); return; }
     const doorClick = clickedMonster ? null : getDoorClickContext(state, x, y, { canUseCharacter: canControlCharacter });
     if (doorClick?.message) { setStatus(doorClick.message); return; }
     if (doorClick?.character) {
@@ -13323,7 +14028,7 @@ function hookMapViewportInteractions() {
   });
 
   panel.addEventListener("pointerdown", (event) => {
-    if (event.target.closest?.('#magic-missile-panel, #holy-weapon-panel, #turn-card-layer')) return;
+    if (event.target.closest?.('#magic-missile-panel, #holy-weapon-panel, #turn-card-layer, .tier-two-target-panel')) return;
     if (event.target?.closest?.(".map-zoom-controls")) {
       return;
     }
@@ -13332,6 +14037,7 @@ function hookMapViewportInteractions() {
     }
     dragState = {
       pointerId: event.pointerId,
+      attackIntent: event.shiftKey || shiftAttackHeld || targetingMode?.kind === 'weapon',
       startX: event.clientX,
       startY: event.clientY,
       clickX: event.clientX,
@@ -13397,6 +14103,12 @@ async function loadLocalTestParty() {
       wizard.spellsKnown = [...new Set([...wizard.spellsKnown.split(/,\s*/), 'Alarm', 'Floating Disc', 'Mage Armor', 'Hold Portal', 'Sleep'])].join(', ');
       wizard.gear.push({ name: 'Rations', quantity: 3, totalUnits: 3, slots: 1 },
         { name: 'Lantern', quantity: 1, slots: 1 }, { name: 'Oil flask', quantity: 1, slots: 1 });
+    }
+    if (new URLSearchParams(location.search).get('tier-two-test') === 'one') {
+      const wizard = imported.find(character => /wizard/i.test(character.className));
+      wizard.spellsKnown = [...TIER_TWO_SPELLS, 'invisibility', 'Light', 'Magic Missile', 'Burning Hands'].map(name => name.replace(/\b\w/g, letter => letter.toUpperCase())).join(', ');
+      wizard.level = 4; wizard.stats.INT = 18;
+      for (const member of imported) { member.hp = member.maxHitPoints = 60; member.luckToken = true; }
     }
     if (new URLSearchParams(location.search).get('initial-choices') === 'one') {
       for (const character of imported) initializeImportChoices(character);
@@ -13621,6 +14333,7 @@ async function initialize() {
     document.fonts.ready.then(syncSidebarWidth);
   }
   window.addEventListener("resize", syncSidebarWidth);
+  window.addEventListener('resize', () => { if (state) requestAnimationFrame(() => { syncTurnCard(); clampTurnCard(); }); });
   startClock();
   const [artworkLoaded] = await Promise.all([assetsReady, generateAndRender()]);
   render();
@@ -13648,7 +14361,7 @@ export async function executeGameCommand(rawState, command) {
   lastDamageRoll = null;
   diceHistory = Array.isArray(state.rollHistory) ? state.rollHistory : [];
   ui.statusText.textContent = "";
-  if(state.encounterPrompt&&!['reaction','normalize','tick'].includes(command.type))throw new Error('Resolve the monster reaction first.');
+  if(state.encounterPrompt&&!['reaction','normalize','tick','luck'].includes(command.type))throw new Error('Resolve the monster reaction first.');
   state.combat.autoRunning = false;
   state.run = state.run || {};
   const character = state.characters.find((item) => item.id === command.character_id);
@@ -13663,14 +14376,16 @@ export async function executeGameCommand(rawState, command) {
     throw new Error(pendingSpellMessage(controller));
   }
   let movementFrames = null;
-  const utilityCommands = new Set(["normalize", "import", "bury", "dismiss", "edit_character", "tick", "rest_accept", "rest_cancel",'reaction','bury_corpse','reorder_gear','fall_response','revive','advance_choice','level_up','mishap_action','pit_action']);
+  const utilityCommands = new Set(["normalize", "import", "bury", "dismiss", "edit_character", "tick", "rest_accept", "rest_cancel",'reaction','bury_corpse','reorder_gear','fall_response','revive','advance_choice','level_up','mishap_action','pit_action','descend','luck']);
+  const teleportCommand = command.type === 'spell' && getSpellKey(command.spell_name) === 'misty step' || command.type === 'resolve_spell' && character?.pendingSpell?.spell === 'misty step';
+  if (isTied(character) && !teleportCommand && !['end_turn','tick','normalize','luck'].includes(command.type) && !(command.type === 'pit_action' && ['escape','break'].includes(command.action))) throw new Error('Escape or break the rope before acting.');
   if (command.type === 'edit_character' && isCombatActive()) throw new Error('Character sheet edits are unavailable during combat; use the turn actions.');
   if (!utilityCommands.has(command.type)) {
-    const dyingEnd = command.type === 'end_turn' && (isCharacterDying(character) || isRaving(character) || isSleeping(character, state)) && isCurrentCharacterTurn(character);
+    const dyingEnd = command.type === 'end_turn' && (isCharacterDying(character) || isRaving(character) || isSleeping(character, state) || character.conditions?.paralyzed) && isCurrentCharacterTurn(character);
     if (!character || !dyingEnd && !(isFloatingDisc(character) ? canUseCharacterInventory(character) : isCharacterAbleToAct(character))) throw new Error("This character cannot act.");
     if (isCombatActive() && !isCurrentCharacterTurn(character)) throw new Error("It is not this character's turn.");
   }
-  if (character) {
+  if (character && command.type !== 'luck') {
     syncCharacterEquipmentDerivedStats(character);
     setActiveCharacter(state, character.id);
     syncPlayerToActiveCharacter();
@@ -13688,10 +14403,17 @@ export async function executeGameCommand(rawState, command) {
   const actionCommands = new Set(["search", "disarm", "get", "leave", "interact", "pick_lock", "break_door", "spell", "light", "drop_gear", "pickup", "collect", "persuade", 'identify', 'read_scroll', 'read_wand']);
   if (command.type === 'interact' && getDoorAt(state, command.x, command.y) && !portalHeld(getDoorAt(state, command.x, command.y))) actionCommands.delete('interact');
   const resumingReadySpell = command.type === 'spell' && hasReadyOffensiveSpell(character) && character.pendingSpell.spell === getSpellKey(command.spell_name);
-  if (isCombatActive() && actionCommands.has(command.type) && !resumingReadySpell && !consumeCharacterCombatAction(character)) {
+  const itemSpell = ['read_scroll', 'read_wand'].includes(command.type) && character.gear?.[command.gear_index]?.magic?.spellName;
+  if (command.type === 'spell' && getSpellKey(command.spell_name) === 'knock' || command.type === 'resolve_spell' && character?.pendingSpell?.spell === 'knock' || itemSpell && getSpellKey(itemSpell) === 'knock')
+    monsterTable = await loadMonsterTableForLevel(state.level);
+  if (isCombatActive() && actionCommands.has(command.type) && !resumingReadySpell && !consumeCharacterCombatAction(character, { teleport: teleportCommand })) {
     throw new Error("This character has already acted this turn.");
   }
   switch (command.type) {
+    case 'luck': performLuck(character); break;
+    case 'descend':
+      if (command.confirmed !== true) throw new Error('All connected players must confirm descent.');
+      await descendDungeon(); break;
     case 'mishap_action': performMishapAction(character, command); break;
     case 'pit_action': performPitAction(character, command); break;
     case 'phase': performPhase(character); break;
@@ -13812,10 +14534,13 @@ export async function executeGameCommand(rawState, command) {
       break;
     }
     case 'resolve_spell':
-      if (FAITH_SPELLS.has(character.pendingSpell?.spell)||WIZARD_TIER_ONE.has(character.pendingSpell?.spell)||character.pendingSpell?.spell==='invisibility') finishFaithSpell(character, { choice: command.choice, targetId: command.target_id, x: command.x, y: command.y, dismiss: command.dismiss === true });
+      if (TIER_TWO_SPELLS.has(character.pendingSpell?.spell)) finishTierTwoSpell(character, { choice: command.choice, option: command.option, targetId: command.target_id, x: command.x, y: command.y, confirmed: command.confirmed === true, gearIndex: command.gear_index, dismiss: command.dismiss === true });
+      else if (character.pendingSpell?.spell === 'light') finishLightSpell(character, { targetId: command.target_id, x: command.x, y: command.y });
+      else if (FAITH_SPELLS.has(character.pendingSpell?.spell)||WIZARD_TIER_ONE.has(character.pendingSpell?.spell)||character.pendingSpell?.spell==='invisibility') finishFaithSpell(character, { choice: command.choice, targetId: command.target_id, x: command.x, y: command.y, dismiss: command.dismiss === true });
       else if (character.pendingSpell?.spell === 'magic missile') {
         if (typeof command.dismiss !== 'undefined' && typeof command.dismiss !== 'boolean') throw new Error('Invalid missile dismissal.');
-        resolveMagicMissile(character, { choice: command.choice, targetId: command.target_id, dismiss: command.dismiss === true });
+        if (command.blind != null && typeof command.blind !== 'boolean') throw new Error('Invalid target selection.');
+        resolveMagicMissile(character, { choice: command.choice, targetId: command.target_id, x: command.x, y: command.y, blind: command.blind === true, dismiss: command.dismiss === true });
       } else if (character.pendingSpell?.spell === 'burning hands') {
         if (typeof command.dismiss !== 'undefined' && typeof command.dismiss !== 'boolean') throw new Error('Invalid spell dismissal.');
         resolveBurningHands(character, { choice: command.choice, dismiss: command.dismiss === true });

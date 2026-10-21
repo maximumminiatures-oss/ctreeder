@@ -5,6 +5,8 @@ import { canTargetAtRange } from './targeting.js';
 import { rollWizardMishaps, wizardCastingMode } from './wizard-mishaps.js';
 import { applyFireToTreasure } from './fire-damage.js';
 import { isFloatingDisc } from './floating-disc.js';
+import { igniteWebsAt } from './area-spells.js';
+import { routeOf } from './underpasses.js';
 
 const choices = {
   normal: { diceCount: 1, diceSides: 6, radius: 1 },
@@ -14,7 +16,7 @@ const choices = {
 };
 
 export function applyBurningHands(state, caster, { center = caster, diceCount = 1, diceSides = 6, radius = 1,
-  includeCaster = false, random = Math.random } = {}) {
+  includeCaster = false, random = Math.random, now = Date.now() } = {}) {
   const rolls = Array.from({ length: diceCount }, () => Math.floor(random() * diceSides) + 1);
   const damage = rolls.reduce((total, roll) => total + roll, 0);
   const hits = [], ignited = [], damagedTreasure = [];
@@ -39,10 +41,35 @@ export function applyBurningHands(state, caster, { center = caster, diceCount = 
     }
   }
   const targets = hits.length ? hits.map(hit => hit.name).join(', ') : 'no creatures';
-  return { rolls, damage, hits, ignited, damagedTreasure, message: caster.name + ' releases Burning Hands: ' + diceCount + 'd' + diceSides +
+  // Flames reach empty squares too; touching any part burns the entire Web once.
+  // Merge its individual d6 hits into hits so existing parent defeat handling sees
+  // distant creatures as well as those inside the original Burning Hands radius.
+  const webIgnitions = [], webHits = [];
+  if ((state.areaSpells || []).some(zone => zone.spell === 'web' && zone.rounds > 0 && zone.burnedAt == null)) {
+    for (let y = Math.max(0, Math.floor(center.y - radius)); y <= Math.min(state.map.height - 1, Math.ceil(center.y + radius)); y++) {
+      for (let x = Math.max(0, Math.floor(center.x - radius)); x <= Math.min(state.map.width - 1, Math.ceil(center.x + radius)); x++) {
+        const point = { x, y, routeId: routeOf(state, center) };
+        if (!reaches(point)) continue;
+        const fire = igniteWebsAt(state, point, { random, now });
+        webIgnitions.push(...fire.ignited);
+        for (const hit of fire.hits) {
+          const character = (state.characters || []).find(member => member.id === hit.id);
+          const creature = character || (state.entities || []).find(entity => entity.id === hit.id);
+          const detail = { ...hit, name: creature?.name || hit.id, type: character ? 'character' : 'monster', source: 'web' };
+          webHits.push(detail);
+          const previous = hits.find(existing => existing.id === hit.id);
+          if (previous) { previous.damage += hit.damage; previous.webDamage = (previous.webDamage || 0) + hit.damage; previous.defeated = hit.defeated; }
+          else hits.push({ ...detail, webDamage: hit.damage });
+        }
+      }
+    }
+  }
+  return { rolls, damage, hits, ignited, damagedTreasure, webIgnitions, webHits, message: caster.name + ' releases Burning Hands: ' + diceCount + 'd' + diceSides +
     ' = (' + rolls.join(' + ') + ') = ' + damage + ' damage to ' + targets + '.' +
     (ignited.length ? ' ' + ignited.join(', ') + ' catch fire.' : '') +
-    (damagedTreasure.length ? ' ' + damagedTreasure.join(' ') : '') };
+    (damagedTreasure.length ? ' ' + damagedTreasure.join(' ') : '') +
+    (webIgnitions.length ? ' The Web burns; each creature inside takes its own 1d6 fire damage.' +
+      (webHits.length ? ' ' + webHits.map(hit => `${hit.name}: (${hit.roll}) = ${hit.damage} fire damage.`).join(' ') : '') : '') };
 }
 
 export function castBurningHands(state, caster, options = {}) {

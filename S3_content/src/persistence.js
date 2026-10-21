@@ -179,6 +179,8 @@ export function serializeDungeonState(state) {
       visibleNow: Array.from(state.visibility?.visibleNow || []),
       routeVisible: Object.fromEntries(Object.entries(state.visibility?.routeVisible || {}).map(([id, cells]) => [id, [...cells]])),
       routeExplored: Object.fromEntries(Object.entries(state.visibility?.routeExplored || {}).map(([id, cells]) => [id, [...cells]])),
+      routeDarkvisionExplored: Object.fromEntries(Object.entries(state.visibility?.routeDarkvisionExplored || {}).map(([id, cells]) =>
+        [id, [...asSet(cells)].filter(key => typeof key === 'string' && /^\d+,\d+$/.test(key))])),
       exploredEver: Array.from(state.visibility?.exploredEver || []),
       exploredLightPolygons: normalizeExploredLightPolygons(state.visibility?.exploredLightPolygons),
       visitedRoomIds: Array.from(state.visibility?.visitedRoomIds || []),
@@ -205,6 +207,8 @@ export function hydrateDungeonState(raw) {
   }
   const visibleNow = asSet(raw.visibility?.visibleNow);
   const exploredEver = asSet(raw.visibility?.exploredEver);
+  const routeDarkvisionExplored = Object.fromEntries(Object.entries(raw.visibility?.routeDarkvisionExplored || {})
+    .map(([id, cells]) => [id, new Set([...asSet(cells)].filter(key => typeof key === 'string' && /^\d+,\d+$/.test(key)))]));
   const visitedRoomIds = asSet(raw.visibility?.visitedRoomIds);
   const exploredLightPolygons = normalizeExploredLightPolygons(raw.visibility?.exploredLightPolygons);
   const lightGeometryVersion = Number.isSafeInteger(raw.visibility?.lightGeometryVersion)
@@ -218,6 +222,7 @@ export function hydrateDungeonState(raw) {
       visibleNow: Array.from(visibleNow),
       routeVisible: raw.visibility?.routeVisible || {},
       routeExplored: raw.visibility?.routeExplored || {},
+      routeDarkvisionExplored: Object.fromEntries(Object.entries(routeDarkvisionExplored).map(([id, cells]) => [id, [...cells]])),
       exploredEver: Array.from(exploredEver),
       exploredLightPolygons,
       visitedRoomIds: Array.from(visitedRoomIds),
@@ -243,6 +248,10 @@ export function hydrateDungeonState(raw) {
     visibleNow,
     routeVisible: Object.fromEntries(Object.entries(state.visibility?.routeVisible || {}).map(([id, cells]) => [id, asSet(cells)])),
     routeExplored: Object.fromEntries(Object.entries(state.visibility?.routeExplored || {}).map(([id, cells]) => [id, asSet(cells)])),
+    routeDarkvisionExplored,
+    darkvisionExplored: new Set(Object.values(routeDarkvisionExplored).flatMap(cells => [...cells])),
+    routeDarkvision: {},
+    darkvisionNow: new Set(),
     exploredEver,
     exploredLightPolygons,
     visitedRoomIds,

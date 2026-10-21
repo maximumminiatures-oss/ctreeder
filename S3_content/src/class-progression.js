@@ -141,7 +141,7 @@ export function beginLevelUp(character, { random = Math.random } = {}) {
       event.tasks.push({ id: 'talent', type });
     }
     if (key === 'wizard' || key === 'priest') {
-      const count = key === 'priest' && character.level === 2 ? 2 : 1;
+      const count = 1;
       for (let index = 0; index < count; index++) event.tasks.push({ id: index ? `spell-${index + 1}` : 'spell', type: 'spell', tier: Math.min(5, Math.floor((character.level + 1) / 2)) });
     }
     character.advancements.push(event); events.push(event);

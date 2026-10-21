@@ -302,10 +302,20 @@ function normalizeAmmo(gear, raw = {}) {
   return ammo;
 }
 
+function normalizedLuckToken(raw) {
+  if (typeof raw.luckToken === 'boolean') return raw.luckToken;
+  if (Object.hasOwn(raw, 'luckTokens')) return Number(raw.luckTokens) > 0;
+  if (typeof raw.raw?.luckToken === 'boolean') return raw.raw.luckToken;
+  return Number(raw.raw?.luckTokens) > 0;
+}
+
 function normalizeCharacterSource(raw = {}, index = 0) {
   // Preserve imported fields without nesting another complete sheet on every sync.
   const normalizedRaw = clonePlain({ ...(raw.raw || {}), ...raw });
   delete normalizedRaw.raw;
+  const identifier = raw.id || `character-${index + 1}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const lineageId = raw.lineageId || raw.raw?.lineageId || identifier;
+  normalizedRaw.id = identifier; normalizedRaw.lineageId = lineageId;
   const stats = normalizeAbilityScores(raw.stats || {});
   const rolledStats = normalizeAbilityScores(raw.rolledStats || raw.stats || {});
   const gear = Array.isArray(raw.gear) ? clonePlain(raw.gear) : [];
@@ -346,7 +356,8 @@ function normalizeCharacterSource(raw = {}, index = 0) {
   }
 
   return {
-    id: raw.id || `character-${index + 1}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    id: identifier,
+    lineageId,
     name,
     slain: raw.slain === true,
     dead: raw.dead === true || raw.slain === true,
@@ -411,6 +422,9 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     magicDetectedIds: Array.isArray(raw.magicDetectedIds) ? clonePlain(raw.magicDetectedIds) : [],
     pendingFall: raw.pendingFall ? clonePlain(raw.pendingFall) : null,
     potionEffects: Array.isArray(raw.potionEffects) ? clonePlain(raw.potionEffects) : [],
+    transformationEffects: Array.isArray(raw.transformationEffects) ? clonePlain(raw.transformationEffects) : [],
+    luckToken: normalizedLuckToken(raw),
+    luckTokens: normalizedLuckToken(raw) ? 1 : 0,
     vitalityPotionsDrunk: Math.max(0, Number(raw.vitalityPotionsDrunk) || 0),
     scrollStudy: raw.scrollStudy ? clonePlain(raw.scrollStudy) : null,
     learnedScrollSpells: Array.isArray(raw.learnedScrollSpells) ? clonePlain(raw.learnedScrollSpells) : [],

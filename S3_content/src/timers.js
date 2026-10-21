@@ -1,3 +1,6 @@
+import { syncEquipmentLight } from './equipment.js';
+import { resetBurningLights } from './light-lifecycle.js';
+
 export const TORCH_DURATION_MS = 60 * 60 * 1000;
 export const TORCH_SEARCH_ADVANCE_MS = 10 * 60 * 1000;
 export const WANDERING_CHECK_INTERVAL_MS = 10 * 60 * 1000;
@@ -19,17 +22,38 @@ export function ensureTimers(state) {
 
 export function hasLiveTimedLight(state) {
   if ((state.characters || []).some((character) => (
-    character?.lightSpellLit === true || (character.gear || []).some(item => item.lit === true) ||
+    character?.lightSpellLit === true || (character.gear || []).some(item => item.lit === true || item.lightSpellLit === true) ||
     (["torch", "lantern", "light-spell"].includes(character?.lightSource) && Number(character?.lightRadius) > 0)
   ))) {
     return true;
   }
   return (state.entities || []).some((entity) => (
-    entity?.subtype === "dropped-equipment" &&
     entity.collected !== true &&
-    (entity.lightSource === "torch" || entity.lightSource === "lantern") &&
-    Number(entity.lightRadius) > 0
+    (entity.lightSpellLit === true || entity.gearItem?.lightSpellLit === true ||
+      (entity.gear || []).some(item => item.lit === true || item.lightSpellLit === true) ||
+      (["torch", "lantern", "light-spell"].includes(entity.lightSource) && Number(entity.lightRadius) > 0))
   ));
+}
+
+export function expireTimedLights(state) {
+  const holders = [...(state.characters || []), ...(state.entities || []).filter(entity => entity.type === 'monster')];
+  const lights = { characters: holders, entities: state.entities || [] };
+  resetBurningLights(lights);
+  state.entities = lights.entities.filter(entity => entity.subtype !== 'spell-light');
+  for (const holder of holders) {
+    holder.lightSpellLit = false;
+    for (const item of holder.gear || []) item.lightSpellLit = false;
+    syncEquipmentLight(holder);
+    if (holder.raw) holder.raw.gear = structuredClone(holder.gear || []);
+  }
+  for (const entity of state.entities || []) {
+    entity.lightSpellLit = false;
+    if (entity.gearItem) entity.gearItem.lightSpellLit = false;
+    if (["torch", "lantern", "light-spell"].includes(entity.lightSource)) {
+      delete entity.lightSource; delete entity.lightRadius;
+    }
+  }
+  if (state.player) Object.assign(state.player, { torchLit: false, lightSource: '', lightRadius: 0 });
 }
 
 export function syncElapsedTime(state, now = Date.now()) {
@@ -56,7 +80,8 @@ export function advanceTorchTime(state, milliseconds) {
 
   const expired = hasLiveTimedLight(state) && timers.torchElapsedMs >= timers.torchDurationMs;
   if (expired) {
-    state.player.torchLit = false;
+    // Sources, not just the selected player's preview flag, own rendered illumination.
+    expireTimedLights(state);
     timers.torchElapsedMs = Math.max(timers.torchElapsedMs, timers.torchDurationMs);
   }
 

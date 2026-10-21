@@ -8,6 +8,8 @@ import { visualTilePoint } from "./tile-positions.js";
 import { isLightSuppressedAt } from './wizard-mishaps.js';
 import { isSleeping } from './conditions.js';
 import { routeOf, sameRoute, routeLightSegments } from './underpasses.js';
+import { lightSpellSources } from './light-spell.js';
+import { isTilePhysicallyIlluminated } from './darkvision.js';
 
 const ANGLE_EPSILON = 0.00008;
 const RADIUS_RAY_COUNT = 96;
@@ -170,10 +172,6 @@ export function collectLightSources(state) {
     ))
     : [];
   for (const character of state.characters || []) {
-    if(character.companion?.kind==='doppelganger'&&!character.dead&&!character.slain&&
-       (!viewerIds?state.activeCharacterId===character.id:viewerIds.has(character.id))) {
-      addLightSource(sources,seen,Number(character.visualX??character.x),Number(character.visualY??character.y),12,routeOf(state,character));
-    }
     if (Number(character?.lightRadius) > 0) {
       const source = {
         x: Number(character.visualX ?? character.x),
@@ -207,6 +205,23 @@ export function collectLightSources(state) {
         continue;
       }
       addLightSource(sources, seen, entity.x, entity.y, entity.lightRadius, source.routeId);
+    }
+  }
+  const spellSources = lightSpellSources(state);
+  if (spellSources.length) {
+    const holders = new Map();
+    for (const holder of [...(state.characters || []), ...(state.entities || [])]) {
+      holders.set(holder.id, holder);
+      for (const [index, item] of (holder.gear || []).entries()) holders.set(item.instanceId || `${holder.id}:gear:${index}`, holder);
+    }
+    for (const spellSource of spellSources) {
+      const holder = holders.get(spellSource.sourceId);
+      const source = { ...spellSource, x: Number(holder?.visualX ?? spellSource.x), y: Number(holder?.visualY ?? spellSource.y),
+        routeId: holder?.visualRouteId ?? spellSource.routeId };
+      const owned = viewerIds && (state.characters || []).includes(holder) && viewerIds.has(holder.id);
+      if (viewerIds && !owned && !lightReachesViewer(state, source, viewers)) continue;
+      if (sources.some(existing => existing.routeId === source.routeId && existing.x === source.x && existing.y === source.y && existing.radius >= source.radius)) continue;
+      addLightSource(sources, seen, source.x, source.y, source.radius, source.routeId);
     }
   }
   if (state.rest?.suppliesPaid && ['sleeping', 'interrupted', 'voting'].includes(state.rest.phase)) {
@@ -582,4 +597,13 @@ export function isTileTouchedByLightPolygon(tile, polygon) {
     }
   }
   return false;
+}
+
+export function isTileIlluminated(state, x, y, point = { x, y }) {
+  const tile = getTileAt(state, x, y);
+  if (!tile || tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID || isLightSuppressedAt(state, x, y, point)) return false;
+  return isTilePhysicallyIlluminated(state, { ...tile, routeId: routeOf(state, point) }, {
+    sources: collectLightSources(state), tileSize: TILE_SIZE_PX,
+    polygonFor: source => computeLightPolygon(state, source)
+  });
 }

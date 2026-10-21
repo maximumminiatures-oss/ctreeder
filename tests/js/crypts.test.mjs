@@ -67,7 +67,7 @@ test('crypt chambers include their threshold and use two or three cells accordin
         assert.ok(tiles.every(tile => tile.type === 'floor' && tile.meta.crypt));
         const placement = state.decor.crypts.find(item => item.roomId === room.id);
         rotations.add(placement.rotationTurns);
-        const doors = state.entities.filter(entity => entity.subtype === 'door' && entity.roomId === room.id);
+        const doors = state.entities.filter(entity => entity.subtype === 'door' && !String(entity.doorKind || '').startsWith('stairs') && entity.roomId === room.id);
         assert.equal(doors.length, 1);
         const door = doors[0], [dx, dy] = openingDelta[room.opening];
         assert.equal(getTile(state, door.x, door.y).roomId, room.id);

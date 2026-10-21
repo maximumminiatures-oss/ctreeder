@@ -11,7 +11,8 @@ from app import app, engine, User, SavedCharacter
 from room_models import GameRoom, RoomMember, SaveCheckpoint
 
 
-def character(name="Host", identifier="host-char"):
+def character(name="Host", identifier=None):
+    identifier = identifier or f"{name.lower()}-char"
     return {"id": identifier, "name": name, "className": "Fighter", "class": "Fighter",
             "level": 1, "hp": 8, "maxHitPoints": 8, "armorClass": 12,
             "stats": {key: 10 for key in ("STR", "DEX", "CON", "INT", "WIS", "CHA")},
@@ -569,7 +570,7 @@ def test_host_absence_options_and_returning_membership(clients):
         "extra_characters_without_host": True}, "patch")
     assert updated.status_code == 200
     assert command(guest, room, "move", character_id=owned, dx=1, dy=0).status_code == 200
-    assert command(guest, room, "import", character_json=character()).status_code == 200
+    assert command(guest, room, "import", character_json=character("Second Guest")).status_code == 200
     post(host, f"/api/rooms/{room['id']}/invite", {})
     assert post(guest, f"/api/rooms/{room['id']}/resume", {}).status_code == 200
 
@@ -587,8 +588,8 @@ def test_burial_and_sixteen_character_cap(clients):
         db.commit()
     assert command(guest, room, "bury", character_id="host-char").status_code == 403
     assert command(host, room, "bury", character_id="host-char").status_code == 200
-    for _ in range(16):
-        result = command(guest, room, "import", character_json=character())
+    for index in range(16):
+        result = command(guest, room, "import", character_json=character(f"Guest {index}"))
         assert result.status_code == 200, result.json
     assert command(guest, room, "import", character_json=character()).status_code == 409
 
@@ -817,3 +818,45 @@ def test_alarm_is_owned_and_allowed_while_rest_vote_is_pending(clients):
     result = command(host, room, "rest_alarm", character_id="host-char")
     assert result.status_code == 200, result.json
     assert result.json["state_json"]["rest"]["phase"] == "voting"
+
+
+def test_route_darkvision_visibility_survives_presence_leave_and_reconnect_per_viewer(clients):
+    from test_underpasses import crossing
+    host, guest, _ = clients
+    created = post(host, "/api/rooms", {"state_json": crossing()})
+    assert created.status_code == 201, created.json
+    room = created.json
+    joined = join(guest, room)
+    visibility = {"routeExplored": {"": ["2,2"], "lower": ["3,3"]},
+                  "routeDarkvisionExplored": {"": ["4,4", "4,4"], "lower": ["3,3", "4,3"]}}
+    expected = {"": ["4,4"], "lower": ["3,3", "4,3"]}
+    updated = post(guest, f"/api/rooms/{room['id']}/presence", {"viewer_visibility": visibility})
+    assert updated.status_code == 200, updated.json
+    assert updated.json["viewer_visibility"]["routeDarkvisionExplored"] == expected
+    assert updated.json["viewer_visibility"]["routeExplored"] == visibility["routeExplored"]
+    assert post(guest, f"/api/rooms/{room['id']}/leave", {"viewer_visibility": visibility}).status_code == 200
+    resumed = post(guest, f"/api/rooms/{room['id']}/resume", {})
+    assert resumed.status_code == 200, resumed.json
+    assert resumed.json["viewer_visibility"]["routeDarkvisionExplored"] == expected
+    assert guest.get(f"/api/rooms/{room['id']}").json["viewer_visibility"]["routeDarkvisionExplored"] == expected
+    assert host.get(f"/api/rooms/{room['id']}").json["viewer_visibility"].get("routeDarkvisionExplored", {}) != expected
+    with Session(engine) as db:
+        member = db.get(RoomMember, joined["current_player_id"])
+        assert member.visibility_json["routeDarkvisionExplored"] == expected
+
+
+@pytest.mark.parametrize("routes", [
+    {"not-a-route": ["3,3"]}, {"lower": ["7,3"]}, {"": ["-1,0"]},
+    {"lower": ["3,7"]}, {"lower": ["3,3", 5]}, {"lower": "3,3"},
+    {"lower": ["0,0"] * 50}, [], None,
+])
+def test_route_darkvision_visibility_rejects_invalid_routes_bounds_and_shapes(clients, routes):
+    from test_underpasses import crossing
+    host, guest, _ = clients
+    room = post(host, "/api/rooms", {"state_json": crossing()}).json
+    join(guest, room)
+    valid = {"routeDarkvisionExplored": {"lower": ["3,3"]}}
+    assert post(guest, f"/api/rooms/{room['id']}/presence", {"viewer_visibility": valid}).status_code == 200
+    rejected = post(guest, f"/api/rooms/{room['id']}/presence", {"viewer_visibility": {"routeDarkvisionExplored": routes}})
+    assert rejected.status_code == 400, rejected.json
+    assert guest.get(f"/api/rooms/{room['id']}").json["viewer_visibility"]["routeDarkvisionExplored"] == valid["routeDarkvisionExplored"]

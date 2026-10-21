@@ -2,33 +2,33 @@ import { abilityScoreModifier } from './characters.js';
 import { isStealthed } from './concealment.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { sameRoute } from './underpasses.js';
+import { ensureMonsterLanguages, normalizeLanguages, isAnimalMonsterName } from './monster-languages.js';
+import { isSleeping } from './conditions.js';
 
 export const monsterTraits = monster => [...(monster?.tags || []), monster?.name || '', JSON.stringify([monster?.abilities,monster?.talents])].join(' ').toLowerCase();
 export const monsterModifier = (monster, ability) => Number(monster?.[ability] ?? monster?.[`**${ability === 'Ch' ? 'CH' : ability}**`] ?? 0) || 0;
 export const monsterScore = (monster, ability) => Math.max(1, 10 + 2 * monsterModifier(monster, ability));
 export const isAnimalMonster = monster => /\b(?:animal|beast)\b/.test((monster.tags || []).join(' ')) ||
-  /\b(?:bear|wasp|wolf|rat|panther|snake|viper|boar|spider|bat|ape|elk|eagle|hawk|owl|horse|dog|cat|crocodile|shark|lion|tiger|beetle|ant|centipede|scorpion)\b/i.test(monster.name || '');
+  isAnimalMonsterName(monster);
 export function automaticallyHostile(monster) {
   const traits = monsterTraits(monster), intelligence = monsterScore(monster, 'I');
   return /\bdemon\w*\b/.test(traits) || (/\b(?:devil\w*|fiend\w*|undead)\b/.test(traits) && intelligence < 10) ||
     (!isAnimalMonster(monster) && intelligence < 4);
 }
 export function creatureLanguages(creature, monster = false) {
-  const explicit = creature.languages ?? creature.raw?.languages;
-  if (explicit) return (Array.isArray(explicit) ? explicit : String(explicit).split(/[,;\n]/)).map(language => String(language).trim().toLowerCase());
-  if (!monster) return [];
-  if (isAnimalMonster(creature) || /\b(?:ooze|golem|skeleton|zombie)\b/.test(monsterTraits(creature))) return [];
-  return /\b(?:humanoid|human|elf|dwarf|halfling|goblin|orc)\b/.test(monsterTraits(creature)) ||
-    /\b(?:peasant|pirate|assassin|bandit|thief|acolyte|apprentice|wizard|knight|guard|cultist|soldier|merchant|drow|duergar)\b/i.test(creature.name || '') ? ['common'] : [];
+  return (monster ? ensureMonsterLanguages(creature) : normalizeLanguages(creature?.languages ?? creature?.raw?.languages))
+    .map(language => language.toLowerCase());
 }
 export function reactionSpeaker(state, monster) {
   const languages = new Set(creatureLanguages(monster, true));
   return (state.characters || []).filter(character => !character.dead && !character.slain && Number(character.hp) > 0 &&
+    !isFloatingDisc(character) && !isSleeping(character, state) &&
     sameRoute(state, character, monster) && Math.hypot(character.x - monster.x, character.y - monster.y) <= 16 && creatureLanguages(character).some(language => languages.has(language)))
     .sort((a,b) => Number(b.stats?.CHA||10) - Number(a.stats?.CHA||10))[0] || null;
 }
 export const reactionAttitude = total => total <= 6 ? 'hostile' : total <= 8 ? 'suspicious' : total === 9 ? 'neutral' : total <= 11 ? 'curious' : 'friendly';
 export function resolveReaction(state, monster, { talk = false, speaker = null, random = Math.random } = {}) {
+  speaker = talk ? reactionSpeaker(state, monster) : null;
   const rolls = [1 + Math.floor(random() * 6), 1 + Math.floor(random() * 6)];
   const modifier = talk && speaker ? abilityScoreModifier(speaker.stats?.CHA) : 0;
   const total = rolls[0] + rolls[1] + modifier;

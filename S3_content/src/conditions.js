@@ -1,4 +1,7 @@
 export const isIncorporeal = creature => creature?.conditions?.incorporeal === true;
+export const isParalyzed = creature => Boolean(creature?.conditions?.paralyzed);
+export const conditionAutomaticCritical = target => isParalyzed(target);
+export const conditionAllowsBackstab = (target, state = null) => isParalyzed(target) || isSleeping(target, state) || Boolean(target?.conditions?.blind);
 export const canPhase = creature => /^(?:ghost|wraith|void spider)$/i.test(creature?.name || '') ||
   /^(?:ghost|wraith|void spider)$/i.test(creature?.companion?.source?.name || '');
 
@@ -40,7 +43,7 @@ export function standCreature(creature, budget, remaining, state = null) {
 }
 
 export function conditionAttackMode(target, { melee = true, close = true, advantage = false, disadvantage = false, state = null } = {}) {
-  advantage ||= isProne(target, state) && melee;
+  advantage ||= isParalyzed(target) || isProne(target, state) && melee;
   disadvantage ||= isProne(target, state) && !melee && !close;
   return { doubleRoll: advantage && !disadvantage, disadvantage: disadvantage && !advantage };
 }

@@ -4,6 +4,7 @@ import { isIncorporeal, isSleeping, wakeCreature } from './conditions.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { getTile } from './state-schema.js';
 import { sameRoute, routeOf } from './underpasses.js';
+import { startLuckSave, finishLuckSave } from './luck-runtime.js';
 
 const key = (x, y) => `${x},${y}`;
 const adjacent = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) === 1;
@@ -12,7 +13,8 @@ export const isPit = entity => entity?.subtype === 'arcane-sinkhole' || entity?.
   entity?.type === 'trap' && entity.targetType === 'tile' && /\bpit\b/i.test(entity.name || '');
 export const pitIsOpen = pit => isPit(pit) && (pit.subtype === 'arcane-sinkhole' || pit.subtype === 'pit' || pit.triggered === true);
 export const pitIsKnown = pit => isPit(pit) && (pitIsOpen(pit) || pit.revealed === true && !pit.disarmed);
-export const avoidsFalling = creature => isFloatingDisc(creature) || isIncorporeal(creature) ||
+export const avoidsFalling = creature => isFloatingDisc(creature) || isIncorporeal(creature) || creature?.transformationEffects?.some(effect =>
+  effect.spell === 'levitate' || effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('spider-legs')) ||
   /\bfly(?:ing)?\b/i.test([creature?.movement, creature?.companion?.source?.movement, ...(creature?.tags || [])].join(' '));
 
 export function pitContains(pit, x, y) {
@@ -28,7 +30,14 @@ export function pitCells(state, pit) {
 
 export function knownPitAt(state, x, y, creature = null) {
   if (creature && avoidsFalling(creature)) return null;
-  return (state.entities || []).find(pit => pitIsKnown(pit) && (!creature || sameRoute(state, pit, creature)) && pitContains(pit, x, y)) || null;
+  return (state.entities || []).find(pit => pitIsKnown(pit) && (!creature || sameRoute(state, pit, creature)) && pitContains(pit, x, y) &&
+    !pitBridgeAt(state, pit, { x, y, routeId: creature ? routeOf(state, creature) : routeOf(state, pit), conditions: creature?.conditions })) || null;
+}
+
+export function pitBridgeAt(state, pit, point) {
+  if (!pitIsOpen(pit) || point.conditions?.sinkhole || routeOf(state, point) !== '' || routeOf(state, pit) !== '') return null;
+  return (pit.ropeBridges || []).find(bridge => bridge.routeId === '' &&
+    bridge.cells?.some(cell => cell.x === point.x && cell.y === point.y && pitContains(pit, cell.x, cell.y))) || null;
 }
 
 export function pitAdjacent(state, pit, creature, canStep = () => true) {
@@ -110,7 +119,7 @@ export function escapePit(state, creature, pit, options = {}) {
 }
 
 export function fallIntoPit(state, pit, creature, { random = Math.random, queueFall } = {}) {
-  if (!alive(creature) || avoidsFalling(creature) || creature.conditions?.sinkhole) return null;
+  if (!alive(creature) || avoidsFalling(creature) || creature.conditions?.sinkhole || pitBridgeAt(state, pit, creature)) return null;
   const rolls = Array.from({ length: 3 }, () => Math.floor(random() * 6) + 1);
   const damage = rolls.reduce((sum, roll) => sum + roll, 0), hpBefore = Number(creature.hp);
   creature.conditions ||= {};
@@ -133,10 +142,12 @@ export function fallIntoPit(state, pit, creature, { random = Math.random, queueF
 }
 
 export function resolvePitSave(state, pit, creature, { check, canStep, ...options } = {}) {
-  if (!alive(creature) || avoidsFalling(creature) || creature.conditions?.sinkhole) return null;
+  if (!alive(creature) || avoidsFalling(creature) || creature.conditions?.sinkhole || pitBridgeAt(state, pit, creature)) return null;
   const party = (state.characters || []).includes(creature);
   const save = check(party ? abilityScoreModifier(creature.stats?.DEX) : Number(creature.D) || 0,
     { doubleRoll: party && hasGrit(creature, 'DEX') });
+  const luck = party ? startLuckSave(state, creature, save, { dc: 15, target: pit, captureTarget: false,
+    context: { saveType: 'pit', pitId: pit.id, stat: 'DEX' } }) : null;
   if (save.total >= 15) {
     const destination = safePitRim(state, pit, creature, { canStep });
     if (destination) relocate(state, creature, destination);
@@ -144,9 +155,13 @@ export function resolvePitSave(state, pit, creature, { check, canStep, ...option
       // A crowded/fully collapsed map may have no legal rim: keep a safe ledge, never teleport into a wall.
       creature.conditions ||= {}; creature.conditions.pitLedge = pit.id;
     }
-    return { id: creature.id, passed: true, check: save, destination: destination && { x: destination.x, y: destination.y } };
+    const outcome = { id: creature.id, passed: true, check: save, destination: destination && { x: destination.x, y: destination.y } };
+    finishLuckSave(state, luck, creature, outcome);
+    return outcome;
   }
-  return { ...fallIntoPit(state, pit, creature, options), check: save };
+  const outcome = { ...fallIntoPit(state, pit, creature, options), check: save };
+  finishLuckSave(state, luck, creature, outcome);
+  return outcome;
 }
 
 export function openPit(state, pit, options = {}) {

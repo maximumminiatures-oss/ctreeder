@@ -10,6 +10,7 @@ import { isLightSuppressedAt, suppressionZones } from './wizard-mishaps.js';
 import { isShrouded } from './arcane-effects.js';
 import { isPit, pitContains } from './pits.js';
 import { routeAt, routeOf, routeExistsAt, routeLineClear, sameRoute } from './underpasses.js';
+import { darkvisionCells } from './darkvision.js';
 
 const LIGHT_GEOMETRY_VERSION = 13;
 
@@ -358,6 +359,35 @@ export function isTileVisible(state, x, y, options = null) {
   return !isShrouded(state, x, y, options && typeof options === 'object' ? options : { x, y, routeId: route ?? routeAt(state, x, y) }) && Boolean(cells?.has(tileKey(x, y)));
 }
 
+export function isTilePerceived(state, x, y, point = { x, y }) {
+  if (isTileVisible(state, x, y, point)) return true;
+  return !isShrouded(state, x, y, point) && Boolean(state.visibility.routeDarkvision?.[routeOf(state, point)]?.has(tileKey(x, y)));
+}
+
+function ensureDarkvisionMemory(state) {
+  state.visibility.routeDarkvisionExplored = Object.fromEntries(Object.entries(state.visibility.routeDarkvisionExplored || {})
+    .map(([route, cells]) => [route, cells instanceof Set ? cells : new Set(Array.isArray(cells) ? cells : [])]));
+  state.visibility.darkvisionExplored = new Set(Object.values(state.visibility.routeDarkvisionExplored).flatMap(cells => [...cells]));
+}
+
+function revealDarkvision(state) {
+  state.visibility.darkvisionNow = new Set();
+  state.visibility.routeDarkvision = {};
+  ensureDarkvisionMemory(state);
+  for (const point of darkvisionCells(state)) {
+    const tile = getTileAt(state, point.x, point.y);
+    if (!tile || tile.meta?.neverExplore || tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID ||
+      isClosedSecretDoorTile(state, tile) || isShrouded(state, point.x, point.y, point)) continue;
+    const key = tileKey(point.x, point.y), route = point.routeId;
+    state.visibility.darkvisionNow.add(key);
+    (state.visibility.routeDarkvision[route] ||= new Set()).add(key);
+    state.visibility.darkvisionExplored.add(key);
+    (state.visibility.routeDarkvisionExplored[route] ||= new Set()).add(key);
+    state.visibility.exploredEver.add(key);
+    (state.visibility.routeExplored[route] ||= new Set()).add(key);
+  }
+}
+
 function cloneLightPolygon(polygon) {
   return Array.isArray(polygon)
     ? polygon
@@ -489,6 +519,7 @@ function updateVisibility(state) {
   state.visibility.closedDoorVisibleSides = new Map();
   const lightSources = collectLightSources(state);
   if (!lightSources.length) {
+    revealDarkvision(state);
     return [];
   }
   rememberAdjacentInnerWallInteriors(state, lightSources);
@@ -547,6 +578,7 @@ function updateVisibility(state) {
       else appendExploredLightPolygon(state, [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]].map(point => point.map(value => value * TILE_SIZE_PX)));
     }
   }
+  revealDarkvision(state);
   return lightPolygons;
 }
 

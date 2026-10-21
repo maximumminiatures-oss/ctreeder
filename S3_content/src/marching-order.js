@@ -33,8 +33,7 @@ export function planMarchingSteps(state, anchorId, config, { canStep }) {
   if (!anchor || rank < 0) return [];
   const following = new Set(config.followingIds || []);
   const direction = config.direction || [0, 1];
-  const tile = state.tiles[Number(anchor.y) * state.map.width + Number(anchor.x)];
-  const spacing = tile?.roomId ? 2 : 1;
+  const spacing = 1;
   const occupied = new Set([...characters.values()].map(character => routeKey({ ...character, routeId: routeOf(state, character) })));
   for (const entity of state.entities || []) if ((entity.type === 'monster' && !entity.defeated) ||
       (entity.type === 'trap' && entity.revealed && !entity.disarmed && !entity.triggered)) occupied.add(routeKey({ ...entity, routeId: routeOf(state, entity) }));

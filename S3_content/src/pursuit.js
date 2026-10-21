@@ -1,5 +1,5 @@
 import { routeOf, routeStep, routeKey, sameRoute } from './underpasses.js';
-import { isIncorporeal } from './conditions.js';
+import { isIncorporeal, isSleeping } from './conditions.js';
 const directions = [[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]];
 
 export function planFiringPosition(state, creature, target, { movement, canStep, canAttackFrom, stepCost = () => 1,
@@ -50,4 +50,44 @@ export function findPursuitStep(state, creature, target, { canStep, canAttackFro
     }
   }
   return null;
+}
+
+// Callback signatures match planFiringPosition; returned steps spend only the supplied budget.
+export function planDarkReposition(state, creature, target, { movement = 0, canStep, canAttackFrom,
+  stepCost = () => 1, isIlluminated = () => false, preferRange = false, maxNodes = 2048,
+  wasCorrectlyGuessed = Boolean(creature?.darkGuess) } = {}) {
+  if (!wasCorrectlyGuessed || Number(creature.I ?? creature['**I**'] ?? 0) < 0 || creature.defeated || creature.leftPeacefully ||
+    isSleeping(creature, state) || movement <= 0 || typeof canStep !== 'function' || typeof canAttackFrom !== 'function' ||
+    isIlluminated(creature.x, creature.y, creature)) return null;
+  if (creature.darkGuess && (creature.darkGuess.x !== creature.x || creature.darkGuess.y !== creature.y ||
+    (creature.darkGuess.routeId || '') !== routeOf(state, creature))) return null;
+  const start = { x: Number(creature.x), y: Number(creature.y), routeId: routeOf(state, creature), cost: 0, steps: [] };
+  const queue = [start], cheapest = new Map([[routeKey(start), 0]]);
+  let best = null;
+  for (let visited = 0; queue.length && visited < maxNodes; visited++) {
+    queue.sort((a, b) => a.cost - b.cost);
+    const point = queue.shift();
+    if (point.cost !== cheapest.get(routeKey(point))) continue;
+    if (point.steps.length && routeKey(point) !== routeKey(start) && sameRoute(state, point, target) &&
+      !isIlluminated(point.x, point.y, point) && canAttackFrom(point.x, point.y, point)) {
+      const distance = Math.hypot(point.x - target.x, point.y - target.y);
+      const displacement = Math.hypot(point.x - start.x, point.y - start.y);
+      const rank = preferRange ? distance : displacement;
+      if (!best || rank > best.rank + 1e-6 || Math.abs(rank - best.rank) < 1e-6 && point.cost < best.cost)
+        best = { ...point, distance, displacement, rank, hidden: true, attackReady: true };
+    }
+    const departureCost = Number(stepCost(point.x, point.y, point));
+    if (!(departureCost > 0) || !Number.isFinite(departureCost)) continue;
+    const cost = point.cost + departureCost;
+    if (cost > movement) continue;
+    for (const [dx, dy] of directions) {
+      const x = point.x + dx, y = point.y + dy;
+      const next = routeStep(state, point, { x, y }, { phase: isIncorporeal(creature) });
+      if (!next || x < 0 || y < 0 || x >= state.map.width || y >= state.map.height ||
+        (cheapest.get(routeKey(next)) ?? Infinity) <= cost || !canStep(point.x, point.y, x, y, point)) continue;
+      cheapest.set(routeKey(next), cost);
+      queue.push({ ...next, cost, steps: [...point.steps, next] });
+    }
+  }
+  return best;
 }

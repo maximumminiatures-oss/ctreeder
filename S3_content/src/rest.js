@@ -151,6 +151,11 @@ export function acceptPartyRest(state, memberId, now = Date.now()) {
     torches -= taken;
   }
   rest.phase = 'sleeping';
+  for (const character of state.characters.filter(member => rest.participantIds.includes(member.id))) {
+    character.stealthed = false;
+    if (character.stealthState) character.stealthState.revealed = true;
+    if (character.raw) character.raw.stealthed = false;
+  }
   rest.suppliesPaid = true;
   if (scene) {
     const fresh = !rest.scene;
