@@ -2,6 +2,7 @@ import { movementStepCost } from './terrain-movement.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { petrifiedLegs, isRaving } from './arcane-effects.js';
 import { routeOf, routeStep } from './underpasses.js';
+import { canonicalWeaponSpelling, formatFieldName } from './ui-text.js';
 
 export function characterMovementBudget(character) {
   const value = Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
@@ -33,8 +34,11 @@ export function combatStepBlock(state, character, x, y) {
 
 export function attackCreatureName(creature, { article = false, sentenceStart = false } = {}) {
   const name = String((typeof creature?.uniqueName === 'string' && creature.uniqueName) ||
-    (typeof creature?.properName === 'string' && creature.properName) || creature?.name || 'monster');
-  const proper = creature?.partyMember || creature?.className || creature?.uniqueName || creature?.properName || creature?.isUnique;
+    (typeof creature?.properName === 'string' && creature.properName) || creature?.metadata?.uniqueName ||
+    creature?.meta?.uniqueName || creature?.name || 'monster');
+  const proper = creature?.partyMember || creature?.className || creature?.uniqueName || creature?.properName ||
+    creature?.isUnique || creature?.isNamed || creature?.unique || creature?.metadata?.isUnique || creature?.meta?.isUnique ||
+    creature?.metadata?.unique || creature?.meta?.unique || creature?.metadata?.uniqueName || creature?.meta?.uniqueName;
   if (proper) return name;
   const commonName = `${article ? 'the ' : ''}${name.toLowerCase()}`;
   return sentenceStart ? commonName.charAt(0).toUpperCase() + commonName.slice(1) : commonName;
@@ -45,7 +49,7 @@ export function attackRollSegments({ character, monster, weapon, spell, roll, ab
   const other = (Number(roll.modifier) || 0) - modifier - magic - hiddenMagic;
   const signed = number => `${number < 0 ? '-' : '+'}${Math.abs(number)}`;
   const mode = ['advantage', 'disadvantage'].includes(roll.checkMode) ? ` at ${roll.checkMode}` : '';
-  const attackName = spell || (weapon || 'unarmed strike').toLowerCase();
+  const attackName = spell || canonicalWeaponSpelling(weapon || 'unarmed strike').toLowerCase();
   const actorName = character.type === 'monster' ? attackCreatureName(character, { sentenceStart: true }) : character.name;
   const parts = [{ text: actorName, bold: true, characterId: character.id },
     { text: ` ${backstab ? 'backstabs' : 'attacks'} ${monster.name === 'nothing' ? 'nothing' : attackCreatureName(monster, { article: true })}${backstab ? '' : mode} with ${spell ? '' : 'a '}${attackName}.\n` }];
@@ -63,10 +67,12 @@ export function attackRollSegments({ character, monster, weapon, spell, roll, ab
   }
   tooltip.push({ text: ` ${signed(modifier)} ${String(ability || 'attack').toUpperCase()}${magic ? ` ${signed(magic)} magic` : ''}${other ? ` ${signed(other)} other` : ''} = To hit: ` },
     { text: String(roll.total), bold: true });
-  parts.push({ text: String(roll.total), bold: true, tooltip }, { text: ` ${hit ? 'Hits!' : 'Miss!'}` });
-  if (damage != null) {
+  const hasDamage = hit && damage != null;
+  parts.push({ text: String(roll.total), bold: true, tooltip }, { text: hit ? hasDamage ? ' hits for ' : ' hits.' : ' misses.' });
+  if (hasDamage) {
     const dice = damageRoll?.terms?.filter(term => term.type === 'die') || [];
-    const damageTip = [{ text: `${spell || (weapon || 'unarmed').toLowerCase()}: ` }];
+    const damageLabel = spell || formatFieldName(weapon || 'unarmed');
+    const damageTip = [{ text: `${damageLabel}: ` }];
     if (!backstab && dice.length === 1 && !(damageRoll.terms || []).some(term => term.type === 'flat') &&
       !(damageRoll.multiplier > 1) && !damageRoll.resistance) {
       damageTip.push({ text: `1-${dice[0].label.replace(/^1d/, '')} (` },
@@ -82,8 +88,9 @@ export function attackRollSegments({ character, monster, weapon, spell, roll, ab
       if (damageRoll?.resistance) damageTip.push({ text: ` / 2 (${damageRoll.resistance} resistance)` });
       damageTip.push({ text: backstab ? ' backstab = ' : ' = ' }, { text: String(damage), bold: true }, { text: ' damage' });
     }
-    parts.push({ text: ' Damage: ' }, { text: String(damage), bold: true, tooltip: damageTip,
-      maximum: dice.length > 0 && dice.every(term => term.isMaximum), minimum: dice.length > 0 && dice.every(term => term.isMinimum) });
+    parts.push({ text: String(damage), bold: true, tooltip: damageTip,
+      maximum: dice.length > 0 && dice.every(term => term.isMaximum), minimum: dice.length > 0 && dice.every(term => term.isMinimum) },
+      { text: ' damage.' });
   }
   return parts;
 }

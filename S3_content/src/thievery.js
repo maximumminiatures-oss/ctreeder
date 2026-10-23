@@ -1,9 +1,9 @@
-import { nativeGear } from './companions.js';
+import { ensureMonsterGear, transferredMonsterGear } from './companions.js';
 import { monsterModifier } from './encounters.js';
 import { canTargetAtRange } from './targeting.js';
 
 export function stealableGear(monster) {
-  monster.gear ||= nativeGear(monster);
+  ensureMonsterGear(monster);
   return monster.gear.map((item, index) => ({ item, index })).filter(({ item }) =>
     !(item.equipped && (item.type === 'armor' || /\b(?:armor|leather|chainmail|plate|padded|hide)\b/i.test(item.name))));
 }
@@ -29,5 +29,5 @@ export function takeStolenItem(state, thief, index) {
   if (!monster.gear.some(other => other.name.toLowerCase() === item.name.toLowerCase()))
     monster.stolenGearNames = [...(monster.stolenGearNames || []), item.name.toLowerCase()];
   thief.pendingSteal = null;
-  return { item, monster };
+  return { item: transferredMonsterGear(item), monster };
 }

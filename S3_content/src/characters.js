@@ -1,6 +1,7 @@
 import { isFloatingDisc, FLOATING_DISC_COLOR } from './floating-disc.js';
 import { wakeCreature } from './conditions.js';
 import { elementalDamage } from './elemental-effects.js';
+import { monsterAlignmentName, normalizeMonsterGearItem } from './monster-terms.js';
 
 const ABILITY_KEYS = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 const MAX_EDITABLE_VALUE = 99;
@@ -28,6 +29,10 @@ function clampInRange(value, min, max, fallback = min) {
 
 function inferGearItemSlots(name, item = {}) {
   const normalizedName = String(name || "").toLowerCase();
+  if (/\bmithral\b/.test(normalizedName)) {
+    if (/\bplate\b/.test(normalizedName)) return 2;
+    if (/\bchain\s*mail\b/.test(normalizedName)) return 1;
+  }
   const treasureKind = String(item?.treasureKind || item?.kind || "").toLowerCase();
   if (item?.treasureItem === true || treasureKind) {
     if (treasureKind === "herbs" || treasureKind === "clothing" || treasureKind === "jewels" || treasureKind === "gems") {
@@ -94,6 +99,7 @@ function getSlotsFromGear(gear, excludeFreeBackpack = true) {
     if (normalizedName.includes("ration")) {
       return 3;
     }
+    if (/\b(?:iron\s+)?spikes?\b/.test(normalizedName)) return 10;
     return 1;
   }
 
@@ -318,7 +324,9 @@ function normalizeCharacterSource(raw = {}, index = 0) {
   normalizedRaw.id = identifier; normalizedRaw.lineageId = lineageId;
   const stats = normalizeAbilityScores(raw.stats || {});
   const rolledStats = normalizeAbilityScores(raw.rolledStats || raw.stats || {});
-  const gear = Array.isArray(raw.gear) ? clonePlain(raw.gear) : [];
+  const gear = Array.isArray(raw.gear) ? clonePlain(raw.gear).map(item => raw.companion ? normalizeMonsterGearItem(item) : item) : [];
+  const alignment = raw.companion ? monsterAlignmentName(raw.alignment || raw.AL || raw['**AL**']) : raw.alignment || '';
+  if (raw.companion) { normalizedRaw.alignment = alignment; normalizedRaw.gear = clonePlain(gear); }
   const languageString = normalizeLanguageList(raw.languages);
   const money = normalizeMoney(raw);
   const maxHitPoints = clampInt(raw.maxHitPoints ?? raw.hp ?? 1, 0, MAX_HIT_POINTS, 1);
@@ -395,6 +403,7 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     stats,
     rolledStats,
     ancestry: raw.ancestry || "",
+    ancestryChoices: clonePlain(raw.ancestryChoices || raw.raw?.ancestryChoices || {}),
     className: raw.class || raw.className || "",
     level: clampInt(raw.level ?? 1, 1, MAX_EDITABLE_VALUE, 1),
     XP: clampInt(raw.XP ?? raw.xp ?? 0, 0, 1000000000, 0),
@@ -402,8 +411,10 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     hiddenXp: Math.max(0, Number(raw.hiddenXp ?? raw.xpRemainder ?? 0) || 0),
     partyAssetShareCopper: Math.max(0, Math.floor(Number(raw.partyAssetShareCopper ?? 0) || 0)),
     title: raw.title || "",
-    alignment: raw.alignment || "",
+    alignment,
     background: raw.background || "",
+    backgroundDetails: raw.backgroundDetails && typeof raw.backgroundDetails === 'object' ? clonePlain(raw.backgroundDetails)
+      : raw.raw?.backgroundDetails && typeof raw.raw.backgroundDetails === 'object' ? clonePlain(raw.raw.backgroundDetails) : null,
     deity: raw.deity || "",
     gearSlotsTotal,
     gearSlotsUsed,

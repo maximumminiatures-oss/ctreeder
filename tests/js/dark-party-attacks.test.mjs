@@ -98,5 +98,5 @@ test('attack narratives lowercase ordinary terms but preserve character, unique 
   assert.match(attackNarrative({ ...base, character: { id: 'wasp', type: 'monster', name: 'Giant Wasp' } }), /^Giant wasp attacks/);
   const spell = attackRollSegments({ ...base, spell: 'Magic Missile' });
   assert.match(spell.map(part => part.text).join(''), /with Magic Missile\./);
-  assert.equal(spell.at(-1).tooltip[0].text, 'Magic Missile: ');
+  assert.equal(spell.find(part => part.text === '3').tooltip[0].text, 'Magic Missile: ');
 });

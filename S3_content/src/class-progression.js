@@ -1,6 +1,7 @@
 import { abilityScoreModifier } from './characters.js';
 import { normalizeSpellLookupKey } from './spells.js';
 import { forgottenSpells } from './arcane-effects.js';
+import { ancestryKey, hasAncestryTrait, isRepresentedAncestryBonus } from './ancestry.js';
 
 export const MAX_CHARACTER_LEVEL = 10;
 export const STAT_NAMES = { STR: 'Strength', DEX: 'Dexterity', CON: 'Constitution', INT: 'Intelligence', WIS: 'Wisdom', CHA: 'Charisma' };
@@ -54,32 +55,39 @@ export function initializeImportChoices(character) {
   if (!['fighter','priest','wizard'].includes(key) || character.advancements?.some(event => event.initial)) return;
   character.bonuses ||= []; character.levels ||= [];
   const tasks = [], discarded = [];
+  const classOwned = bonus => /^class$/i.test(bonus.sourceType || '') ||
+    !bonus.sourceType && (!bonus.sourceName || String(bonus.sourceName).toLowerCase() === key);
   if (key === 'fighter') {
     character.bonuses = character.bonuses.filter(bonus => {
-      const remove = /WeaponMastery|\bGrit\b|AdvantageOnStatChecks/i.test(`${bonus.name} ${bonus.bonusName} ${bonus.bonusTo}`);
+      const remove = classOwned(bonus) && /WeaponMastery|\bGrit\b|AdvantageOnStatChecks/i.test(`${bonus.name} ${bonus.bonusName} ${bonus.bonusTo}`);
       if (remove) discarded.push(bonus); return !remove;
     });
     tasks.push({ id: 'mastery', type: 'mastery', grantWeapon: true }, { id: 'grit', type: 'grit' });
     const extraMasteries = discarded.filter(bonus => /WeaponMastery/i.test(bonus.name || '')).length - 1;
     for (let index = 0; index < extraMasteries; index++) tasks.push({ id: `extra-mastery-${index + 1}`, type: 'mastery', grantWeapon: true });
   } else {
-    const spellChoiceTalent = character.bonuses.some(bonus => /adv.*cast.*spell/i.test(`${bonus.name} ${bonus.bonusName}`));
-    const extraSpellTalent = character.levels.some(level => /learn.*(?:extra|additional).*spell/i.test(`${level.talentRolledName} ${level.talentRolledDesc}`));
+    const spellChoiceTalent = character.bonuses.some(bonus => classOwned(bonus) && /adv.*cast.*spell/i.test(`${bonus.name} ${bonus.bonusName}`));
+    const extraSpellTalent = character.levels.some(level => classOwned(level) && /learn.*(?:extra|additional).*spell/i.test(`${level.talentRolledName} ${level.talentRolledDesc}`));
     character.bonuses = character.bonuses.filter(bonus => {
       const text = `${bonus.name} ${bonus.bonusName} ${bonus.bonusTo}`;
-      const remove = /^Spell:/i.test(bonus.name || '') || /Tier:\s*\d.*Spell:/i.test(bonus.bonusTo || '') ||
-        /adv.*cast.*spell|learn.*extra.*spell/i.test(text);
+      const remove = classOwned(bonus) && (/^Spell:/i.test(bonus.name || '') || /Tier:\s*\d.*Spell:/i.test(bonus.bonusTo || '') ||
+        /adv.*cast.*spell|learn.*extra.*spell/i.test(text));
       if (remove) discarded.push(bonus); return !remove;
     });
-    character.spellsKnown = key === 'priest' ? 'Turn Undead' : '';
-    character.learnedScrollSpells = [];
+    const inheritedSpells = character.bonuses.filter(bonus => !classOwned(bonus) &&
+      (/^Spell:/i.test(bonus.name || '') || /Tier:\s*\d.*Spell:|learn.*spell/i.test(`${bonus.bonusTo || ''} ${bonus.name || ''}`)))
+      .map(bonus => bonus.spellName || bonus.bonusName).filter(name => typeof name === 'string' && name && !/^LearnExtraSpell$/i.test(name));
+    character.learnedScrollSpells ||= [];
+    const preservedSpells = [...(key === 'priest' ? ['Turn Undead'] : []), ...inheritedSpells, ...character.learnedScrollSpells];
+    const uniqueSpells = new Map(preservedSpells.map(name => [normalizeSpellLookupKey(name), name]));
+    character.spellsKnown = [...uniqueSpells.values()].join(', ');
     tasks.push({ id: 'spell-1', type: 'spell', tier: 1 }, { id: 'spell-2', type: 'spell', tier: 1 });
     if (extraSpellTalent) tasks.push({ id: 'extra-spell', type: 'extra-spell', tier: 1 });
     if (spellChoiceTalent) tasks.push({ id: 'spell-advantage', type: 'spell-advantage' });
   }
   for (const level of character.levels) {
     const text = `${level.talentRolledName} ${level.talentRolledDesc}`;
-    if (discarded.some(bonus => /Spell:|WeaponMastery|Grit|AdvantageOnStatChecks|adv.*cast.*spell/i.test(`${bonus.name} ${bonus.bonusTo}`)) &&
+    if (classOwned(level) && discarded.some(bonus => /Spell:|WeaponMastery|Grit|AdvantageOnStatChecks|adv.*cast.*spell/i.test(`${bonus.name} ${bonus.bonusTo}`)) &&
       /weapon.*mastery|\bgrit\b|adv.*cast.*spell|learn.*(?:extra|additional).*spell/i.test(text)) {
       level.talentRolledName = ''; level.talentRolledDesc = '';
       level.Rolled12ChosenTalentDesc = ''; level.Rolled12ChosenTalentName = '';
@@ -87,7 +95,7 @@ export function initializeImportChoices(character) {
   }
   character.advancements ||= [];
   character.advancements.unshift({ id: 'initial', initial: true, level: 1, hpRolls: [], hpGain: 0, tasks, completed: false });
-  character.raw ||= {}; character.raw.learnedScrollSpells = []; delete character.raw.spells;
+  character.raw ||= {}; character.raw.learnedScrollSpells = clone(character.learnedScrollSpells || []); delete character.raw.spells;
   save(character);
 }
 
@@ -121,7 +129,7 @@ export function beginLevelUp(character, { random = Math.random } = {}) {
   if (character.level < MAX_CHARACTER_LEVEL && character.XP >= xpTarget(character)) {
     character.XP -= xpTarget(character); character.level++;
     const hpRolls = [die(config.die, random)];
-    if (/\bdwarf\b/i.test(character.ancestry)) hpRolls.push(die(config.die, random));
+    if (hasAncestryTrait(character, 'Stout')) hpRolls.push(die(config.die, random));
     const hpGain = Math.max(1, Math.max(...hpRolls) + abilityScoreModifier(character.stats?.CON));
     character.maxHitPoints += hpGain;
     if (Number(character.hp) > 0) character.hp += hpGain;
@@ -253,7 +261,7 @@ export function resolveAdvancement(character, eventId, taskId, value, context = 
 }
 
 export function classAttackBonus(character, ranged) {
-  const entries = (character.bonuses || []).filter(bonus => /^(?:Plus1ToHit|AttackBonus)$/i.test(bonus.name || ''));
+  const entries = (character.bonuses || []).filter(bonus => (ancestryKey(character) === 'human' || !isRepresentedAncestryBonus(character, bonus)) && /^(?:Plus1ToHit|AttackBonus)$/i.test(bonus.name || ''));
   return entries.reduce((total, bonus) => total + (/melee and ranged/i.test(bonus.bonusTo) || new RegExp(ranged ? 'ranged' : 'melee','i').test(bonus.bonusTo) ? Number(bonus.bonusAmount) || 1 : 0), 0);
 }
 

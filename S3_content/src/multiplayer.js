@@ -47,7 +47,7 @@ export async function roomRequest(id, action = '', body = null, method = 'POST',
   } catch (error) {
     if (timedOut || error?.code === 'request_timeout') throw error;
     if (error?.name === 'AbortError') {
-      const cancelled = new Error('Dungeon request cancelled.');
+      const cancelled = new Error('Dungeon request canceled.');
       cancelled.status = 0;
       cancelled.code = 'request_cancelled';
       throw cancelled;

@@ -1,6 +1,6 @@
 import { hasLineOfSightFrom, isTileVisible, isTilePerceived } from './visibility.js';
 import { isHiddenMonster, isInvisible, isStealthed } from './concealment.js';
-import { isSleeping } from './conditions.js';
+import { isBlind, isSleeping } from './conditions.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { collectLightSources, computeLightPolygon, isTileIlluminated } from './light-geometry.js';
 import { TILE_SIZE_PX } from './constants.js';
@@ -9,7 +9,7 @@ import { canSeeWithDarkvision, hasDarkvision, isTilePhysicallyIlluminated } from
 import { isLightSuppressedAt } from './wizard-mishaps.js';
 import { isShrouded } from './arcane-effects.js';
 
-const lineOfSight = state => (observer, target) => hasLineOfSightFrom(state, observer.x, observer.y, target.x, target.y,
+const lineOfSight = state => (observer, target) => !isBlind(observer) && hasLineOfSightFrom(state, observer.x, observer.y, target.x, target.y,
   { source: observer, target });
 
 export function isMonsterTileIlluminated(state, monster) {
@@ -30,7 +30,7 @@ export function isFeatureCurrentlyVisible(state, entity, { viewer = null } = {})
   if (!isTilePerceived(state, entity.x, entity.y, entity) && !isMonsterTileIlluminated(state, entity)) return false;
   if (!(state.characters || []).length) return canSee(state.player, entity);
   return observers.some(observer => !isFloatingDisc(observer) && !observer.dead && !observer.slain && Number(observer.hp) > 0 &&
-    !isSleeping(observer, state) && sameRoute(state, observer, entity) && canSee(observer, entity) &&
+    !isBlind(observer) && !isSleeping(observer, state) && sameRoute(state, observer, entity) && canSee(observer, entity) &&
     (isTileVisible(state, entity.x, entity.y, entity) || isMonsterTileIlluminated(state, entity)));
 }
 
@@ -46,9 +46,9 @@ export function isMonsterCurrentlyVisible(state, monster, { viewer = null } = {}
   const transitioning = Number.isFinite(state.lightVisualTime) && state.lightTransition && state.lightVisualTime < state.lightTransition.startedAt + 3000;
   if (!lit || transitioning) lit = isMonsterTileIlluminated(state, monster);
   if (!lit) return false;
-  if (!(state.characters || []).length) return hasLineOfSightFrom(state, state.player.x, state.player.y, monster.x, monster.y, { source: state.player, target: monster });
+  if (!(state.characters || []).length) return canSee(state.player, monster);
   return observers.some(character => !isFloatingDisc(character) && !character.dead && !character.slain &&
-    !isSleeping(character, state) && Number(character.hp) > 0 &&
+    !isBlind(character) && !isSleeping(character, state) && Number(character.hp) > 0 &&
     Number.isFinite(Number(character.x)) && Number.isFinite(Number(character.y)) &&
     sameRoute(state, character, monster) && hasLineOfSightFrom(state, Number(character.x), Number(character.y), Number(monster.x), Number(monster.y), { source: character, target: monster }));
 }

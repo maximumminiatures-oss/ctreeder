@@ -1,6 +1,7 @@
 import { canMoveBetweenTiles, rollCheck } from './interactions.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { sameRoute, routeOf } from './underpasses.js';
+import { ancestryKey, ancestryCastingBonus, isRepresentedAncestryBonus } from './ancestry.js';
 
 export function canReceiveHealing(character) {
   return Boolean(character && !character.dead && !character.slain &&
@@ -37,6 +38,7 @@ export function cureWoundsDiceCount(character) {
 export function castingBonus(character, casterClass = 'priest') {
   const bonuses = character.bonuses || [];
   const fromBonuses = bonuses.reduce((total, bonus) => {
+    if (ancestryKey(character) === 'elf' && isRepresentedAncestryBonus(character, bonus)) return total;
     const name = String(bonus.bonusName || bonus.name || '');
     const detail = String(bonus.bonusTo || '');
     if (/advantage/i.test(name)) return total;
@@ -44,7 +46,7 @@ export function castingBonus(character, casterClass = 'priest') {
     const amount = Number(bonus.bonusAmount ?? bonus.bonusValue ?? bonus.value ?? detail.match(/[+-]?\d+/)?.[0]);
     return total + (Number.isFinite(amount) ? amount : 0);
   }, 0);
-  return fromBonuses + (character.levels || []).reduce((total, level) => {
+  return ancestryCastingBonus(character) + fromBonuses + (character.levels || []).reduce((total, level) => {
     const text = level.Rolled12ChosenTalentDesc || `${level.talentRolledName || ''} ${level.talentRolledDesc || ''}`;
     // A rolled choice is not a second bonus; imported selected bonuses resolve it.
     if (/\bor\b|choose/i.test(text)) return total;

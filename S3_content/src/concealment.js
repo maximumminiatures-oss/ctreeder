@@ -2,12 +2,14 @@ import { abilityScoreModifier } from './characters.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { isSleeping } from './conditions.js';
 import { sameRoute } from './underpasses.js';
+import { hasAncestryTrait } from './ancestry.js';
 
 export const isInvisible = creature => creature?.invisible === true || Number(creature?.invisibility?.rounds) > 0;
 export const isStealthed = creature => isInvisible(creature) || creature?.stealthed === true ||
   (creature?.stealthState?.attempted === true && creature.stealthState.revealed !== true);
 export const isHiddenMonster = monster => monster?.stealthState?.attempted === true && monster.stealthState.revealed !== true;
-export const neverSurprised = creature => /\bgoblin\b/i.test(creature?.ancestry || '') ||
+export const neverSurprised = creature => hasAncestryTrait(creature, 'Keen Senses') ||
+  (creature?.type === 'monster' || creature?.companion) && /\bgoblin\b/i.test(creature?.ancestry || '') ||
   /goblin/i.test(creature?.name || '') || /(?:never (?:be )?|can['’]?t be |cannot be )surprised/i.test(JSON.stringify(creature?.abilities || {}));
 export const canDirectlyTarget = (target, range = 1, actor = null) => !isInvisible(target) || Number(range) <= Math.SQRT2 || Boolean(actor?.magicDetectedIds?.includes(target.id));
 
@@ -16,7 +18,7 @@ export function makeInvisible(creature, { rounds = 3, source = 'halfling', break
   return creature.invisibility;
 }
 export function activateHalflingInvisibility(character) {
-  if (character?.companion || !/\bhalfling\b/i.test(character?.ancestry || '') || character.halflingInvisibilityUsed || character.dead ||
+  if (!hasAncestryTrait(character, 'Stealthy') || character.halflingInvisibilityUsed || character.dead ||
       character.slain || character.dyingRounds > 0 || Number(character.hp) <= 0) throw new Error('Halfling invisibility is unavailable.');
   character.halflingInvisibilityUsed = true;
   makeInvisible(character);

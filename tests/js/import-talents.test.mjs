@@ -60,7 +60,7 @@ test('sleep, blindness, paralysis, surprise, invisibility and stealth make an el
   assert.equal(unawareReason(thief,{id:'target'},{combat:{surpriseRound:true,surpriseParticipantIds:['hero']}}),'surprise');
   const parts=attackRollSegments({character:thief,monster:{name:'Stingbat'},weapon:'Dagger',roll:{roll:18,firstRoll:14,secondaryRoll:18,total:21,modifier:3,checkMode:'advantage'},ability:'DEX',abilityModifier:3,hit:true,backstab:true,advantageReason:'sleep',damage:3,
     damageRoll:{terms:[{type:'die',label:'1d4',value:2,sign:1},{type:'die',label:'1d4',value:1,sign:1,isMinimum:true}]}});
-  assert.equal(parts.map(part=>part.text).join(''),'Hero backstabs the stingbat with a dagger.\n21 Hits! Damage: 3');
+  assert.equal(parts.map(part=>part.text).join(''),'Hero backstabs the stingbat with a dagger.\n21 hits for 3 damage.');
   assert.match(parts.find(part=>part.text==='21').tooltip.map(part=>part.text).join(''),/^Advantage from sleep; 2d20 = \(14\)\(18\) \+3 DEX/);
   assert.match(parts.find(part=>part.text==='3').tooltip.map(part=>part.text).join(''),/1d4 = \(2\) \+ 1d4 = \(1\) backstab = 3/);
 });

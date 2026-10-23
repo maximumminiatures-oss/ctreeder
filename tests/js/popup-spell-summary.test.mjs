@@ -7,13 +7,15 @@ import { beginLevelUp, resolveAdvancement } from '../../S3_content/src/class-pro
 import { normalizeCharacterState } from '../../S3_content/src/characters.js';
 import { fieldLore } from '../../S3_content/src/sheet-field-lore.js';
 import { sheetLore } from '../../S3_content/src/sheet-lore.js';
+import { formatFieldName } from '../../S3_content/src/ui-text.js';
+import { ancestryTalents, isRepresentedAncestryBonus } from '../../S3_content/src/ancestry.js';
 
 const source = fs.readFileSync(new URL('../../S3_content/src/main.js', import.meta.url), 'utf8');
 const spells = [1, 2, 3, 4, 5].flatMap(tier => JSON.parse(fs.readFileSync(new URL(`../../S3_content/spells/tier-${tier}.json`, import.meta.url))));
 
 function sheet() {
   const dom = new JSDOM(), opened = [];
-  const context = vm.createContext({ document: dom.window.document, Node: dom.window.Node, fieldLore, sheetLore,
+  const context = vm.createContext({ document: dom.window.document, Node: dom.window.Node, fieldLore, sheetLore, formatFieldName, ancestryTalents, isRepresentedAncestryBonus,
     findSpellRecord: name => spells.find(spell => spell.name.toLowerCase() === name.toLowerCase()),
     getSpellKey: name => String(typeof name === 'string' ? name : name.name).toLowerCase(),
     isCharacterSpellFailed: (character, name) => character?.failedSpells?.includes(name), ensureSpellLibraryLoaded: async () => {},
@@ -22,7 +24,7 @@ function sheet() {
   // Exercise the private production functions without adding test exports or booting the game.
   for (const [name, next] of [['buildTalentSpellLines', 'getCharacterGearSlots'], ['createSpellButton', 'createSpellSummaryLine'],
     ['createSpellSummaryLine', 'createSdField'], ['createSdField', 'buildSheetLines'], ['buildSheetLines', 'createSdPanel'],
-    ['updateTruncatedSheetTitles', 'reorderCharacterGear']]) {
+    ['updateTruncatedSheetTitles', 'reorderCharacterGear'], ['createAncestryTalentRows', 'renderCharacterDetail']]) {
     const start = source.indexOf(`function ${name}(`), end = source.indexOf(`\nfunction ${next}(`, start);
     assert.ok(start >= 0 && end > start, `production function ${name} is available`);
     vm.runInContext(source.slice(start, end), context);
@@ -112,13 +114,62 @@ test('reviewed Name tooltip stays removed, AC heading keeps field help, and coin
     Object.defineProperty(value, 'scrollWidth', { value: 100 });
     Object.defineProperty(value, 'clientWidth', { value: 1 });
     const ac = context.createSdField('AC', 14);ac.title = 'Armor: leather. Shield: none.';
+    const title = context.createSdField('Title', 'Shaman', 'sd-title-box');
+    const titleValue = title.querySelector('.sd-sheet-value');
+    Object.defineProperty(titleValue, 'scrollWidth', { value: 100 });
+    Object.defineProperty(titleValue, 'clientWidth', { value: 1 });
     const coins = document.createElement('div');coins.className = 'sd-free-carry-text';
     coins.dataset.forceTooltip = 'true';coins.dataset.fullText = fieldLore('Coins');
-    document.body.append(name, ac, coins);
+    document.body.append(name, ac, coins, title);
     context.updateTruncatedSheetTitles(document.body);
     assert.equal(name.hasAttribute('title'), false);assert.equal(value.hasAttribute('title'), false);
     assert.equal(ac.querySelector('h3').title, 'Armor Class. How hard are you to hit?');
     assert.equal(ac.title, 'Armor: leather. Shield: none.');
     assert.equal(coins.title, fieldLore('Coins'));
+    assert.equal(title.hasAttribute('title'), false); assert.equal(titleValue.hasAttribute('title'), false);
+    assert.equal(title.querySelector('h3').hasAttribute('title'), false);
+  } finally { dom.window.close(); }
+});
+
+test('ancestry mechanics are visible first even when an export omits ancestry bonus records', () => {
+  const { dom, context, document } = sheet();
+  try {
+    for (const [ancestry, trait] of [['Half-Orc', 'Mighty'], ['Dwarf', 'Stout'], ['Elf', 'Farsight'],
+      ['Goblin', 'Keen Senses'], ['Halfling', 'Stealthy'], ['Human', 'Ambitious']]) {
+      const character = { ancestry, className: 'Priest', bonuses: [], levels: [], languages: 'Common' };
+      const ancestryRows = context.createAncestryTalentRows(character);
+      const classTalent = document.createElement('span'); classTalent.textContent = '+1 to hit with ranged';
+      const block = context.createTalentsContent([...ancestryRows, classTalent], 'Spells: (Tier 1): Cure Wounds, Light', 'Languages: Common', character);
+      const lines = [...block.querySelectorAll('.sd-talents-list > div')];
+      assert.ok(lines[0].querySelector(`[data-ancestry-talent="${trait}"]`), ancestry);
+      assert.equal(lines[1].textContent, '+1 to hit with ranged');
+      assert.equal(block.lastElementChild.textContent, 'Languages: Common');
+    }
+    assert.match(source, /talentRows\.unshift\(\.\.\.createAncestryTalentRows\(character\.impersonation \|\| character\)\)/);
+  } finally { dom.window.close(); }
+});
+
+test('identity fields use field capitalization without recasing character names', () => {
+  const { dom, context } = sheet();
+  try {
+    for (const [label, value, expected] of [['Ancestry', 'half-orc', 'Half-Orc'], ['Class', 'priest', 'Priest'],
+      ['Background', 'orphaned', 'Orphaned'], ['Name', 'McDor', 'McDor'], ['Deity', 'Saint Terrangis', 'Saint Terragnis']]) {
+      assert.equal(context.createSdField(label, value).querySelector('.sd-sheet-value').textContent, expected);
+    }
+  } finally { dom.window.close(); }
+});
+
+test('inherited spell advantage remains mechanical even when its display is folded into Ambitious', () => {
+  const { dom, context } = sheet();
+  try {
+    context.getRemappedMagicMissileAdvantageSpell = () => '';
+    context.normalizeSpellLookupKey = value => String(value).toLowerCase();
+    const start = source.indexOf('function characterHasSpellCastingAdvantage(');
+    const end = source.indexOf('\nfunction refreshOpenCharacterSheet(', start);
+    vm.runInContext(source.slice(start, end), context);
+    const character = { ancestry: 'Human', bonuses: [{ sourceType: 'Ambition', name: 'AdvOnCastOneSpell',
+      bonusName: 'AdvOnCastOneSpell', bonusTo: 'Sleep' }], levels: [] };
+    assert.equal(context.characterHasSpellCastingAdvantage(character, 'Sleep'), true);
+    assert.equal(context.characterHasSpellCastingAdvantage(character, 'Cure Wounds'), false);
   } finally { dom.window.close(); }
 });

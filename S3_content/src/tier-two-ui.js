@@ -27,6 +27,7 @@ export function createTierTwoUi({ getPresentation, resolve, preview, mapHost, st
       dialog.setAttribute('aria-label', view.title);
       dialog.append(node('h2', view.title));
       if (view.message) dialog.append(node('p', view.message));
+      if (view.detail) dialog.append(node('p', view.detail));
       for (const entry of view.choices || view.options || []) {
         const button = node('button', entry.label); button.type = 'button';
         button.disabled = Boolean(entry.disabled); if (entry.description) button.title = entry.description;
@@ -40,6 +41,14 @@ export function createTierTwoUi({ getPresentation, resolve, preview, mapHost, st
     panel = node('section', null, 'tier-two-target-panel');
     panel.setAttribute('aria-label', view.title);
     panel.append(node('h2', view.title), node('p', view.message || 'Pick target.'));
+    for (const entry of view.targets || []) {
+      const row = node('span');
+      if (entry.description) row.title = entry.description;
+      const button = node('button', entry.label); button.type = 'button';
+      button.disabled = Boolean(entry.disabled);
+      button.onclick = () => void submit({ targetId: entry.key });
+      row.append(button); panel.append(row);
+    }
     for (const entry of view.gear || []) {
       const button = node('button', entry.label); button.type = 'button';
       button.onclick = () => void submit({ gearIndex: entry.gearIndex }); panel.append(button);

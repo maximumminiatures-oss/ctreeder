@@ -10,7 +10,7 @@ import { createTreasureDetails, formatTreasureValue } from "./treasure.js";
 import { canCrossOrganicEdge, isOrganicMovementBlockingTile } from "./organic-tiles.js";
 import { isInnerWallBlockingTile } from "./inner-walls.js";
 import { isAngledWallMovementBlockingTile } from "./angled-walls.js";
-import { concealedMimic } from './companions.js';
+import { concealedMimic, ensureMonsterGear, transferredMonsterGear } from './companions.js';
 import { isInvisible } from './concealment.js';
 import { queueFallingDamage, canCastFeatherFall } from './falling.js';
 import { isIncorporeal, isSleeping, isProne, phaseStepAllowed } from './conditions.js';
@@ -363,7 +363,7 @@ function setLockedDoorAction(state, door) {
   return state.lockedDoorAction;
 }
 
-function revealSecretDoor(door, state = null) {
+export function revealSecretDoor(door, state = null, { roomId = null } = {}) {
   if (!door || door.secret !== true) {
     return false;
   }
@@ -376,7 +376,7 @@ function revealSecretDoor(door, state = null) {
     door.secretFoundSide = vertical
       ? { x: side === 'east' ? -1 : 1, y: 0 }
       : { x: 0, y: side === 'south' ? -1 : 1 };
-    const room = getTile(state, state.player.x, state.player.y)?.roomId;
+    const room = roomId || getTile(state, state.player.x, state.player.y)?.roomId;
     if (room !== door.roomId) {
       door.secretFoundSide.x *= -1;
       door.secretFoundSide.y *= -1;
@@ -700,9 +700,11 @@ export function defeatMonster(state, monster, options = {}) {
     monsterName: options.ash ? '' : monster.name || "monster"
   });
   const loot = addMonsterLootDrop(state, monster);
-  for(const [index,item]of(monster.carriedGear||[]).entries())state.entities.push({id:`slain-gear-${monster.id}-${index}`,type:ENTITY_TYPES.TREASURE,
-    subtype:'dropped-equipment',kind:'gear',name:item.name,x:monster.x,y:monster.y,roomId:monster.roomId,visible:true,value:Number(item.value)||0,
-    gearItem:{...item,bound:false,equipped:false},slots:item.slots??1});
+  for(const [index,item]of(ensureMonsterGear(monster)).entries())state.entities.push({id:`slain-gear-${monster.id}-${index}`,type:ENTITY_TYPES.TREASURE,
+    subtype:'dropped-equipment',kind:'gear',name:item.name,x:monster.x,y:monster.y,routeId:routeOf(state,monster),roomId:monster.roomId,
+    visible:true,revealed:true,collected:false,value:Number(item.value)||0,
+    gearItem:transferredMonsterGear(item),slots:item.slots??1});
+  monster.gear=[];
   monster.carriedGear=[];
   return {
     defeated: true,

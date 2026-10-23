@@ -159,13 +159,14 @@ export function collectLightSources(state) {
   const sources = [];
   const seen = new Set();
   const viewerIds = state.viewerCharacterIds instanceof Set ? state.viewerCharacterIds : null;
-  const observers = (state.characters || []).filter(character => (!viewerIds || viewerIds.has(character.id)) && !character.dead && !character.slain && !isSleeping(character, state));
+  const observers = (state.characters || []).filter(character => (!viewerIds || viewerIds.has(character.id)) && !character.dead && !character.slain && !character.conditions?.blind && !isSleeping(character, state));
   if ((state.characters || []).length && !observers.length) return [];
   const viewers = viewerIds
     ? (state.characters || []).filter((character) => (
       viewerIds.has(character.id) &&
       character.dead !== true &&
       character.slain !== true &&
+      !character.conditions?.blind &&
       !isSleeping(character, state) &&
       Number.isFinite(Number(character.x)) &&
       Number.isFinite(Number(character.y))

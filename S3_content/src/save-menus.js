@@ -394,7 +394,7 @@ export function createSaveMenus({ getState, getSession = () => null, isSharedRoo
       if (consensus && !consensus.busy) consensus.close();
       if (proposal.status === 'cancelled' && !completedVotes.has(proposal.id)) {
         completedVotes.add(proposal.id);
-        status(proposal.reason === 'declined' ? 'Group action declined.' : 'Group confirmation cancelled. Please start it again.');
+        status(proposal.reason === 'declined' ? 'Group action declined.' : 'Group confirmation canceled. Please start it again.');
       }
       return;
     }

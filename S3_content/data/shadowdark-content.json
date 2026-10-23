@@ -4080,7 +4080,7 @@
                          "AL":  "C",
                          "talents":  [
                                          "Supreme Undead. Immune to morale checks. Only damaged by magical sources.",
-                                         "Dessicated. Can be damaged by fire. Takes x2 damage from it.",
+                                         "Desiccated. Can be damaged by fire. Takes x2 damage from it.",
                                          "Necrosis. DC 15 CON or drop to 0 HP. Healing spells are DC 15 to cast on target while affected by necrosis."
                                      ],
                          "tags":  [
@@ -17257,7 +17257,7 @@
                                         "slots":  1,
                                         "bonusSlots":  0,
                                         "cost":  0,
-                                        "description":  "This shield is carved as a roaring lion\u0027s face with a ˹owing mane. Once per day, you can command the lion to animate and bellow a ferocious roar. All hostile creatures within near range must immediately make a morale check.",
+                                        "description":  "This shield is carved as a roaring lion\u0027s face with a flowing mane. Once per day, you can command the lion to animate and bellow a ferocious roar. All hostile creatures within near range must immediately make a morale check.",
                                         "priceless":  true,
                                         "source":  [
                                                        "core"
@@ -17312,7 +17312,7 @@
                                         "slots":  1,
                                         "bonusSlots":  0,
                                         "cost":  0,
-                                        "description":  "A tarnished, silver mace with seven ˹anges in the shape of  crescent moons. This weapon deals double damage against creatures with lycanthropy.",
+                                        "description":  "A tarnished, silver mace with seven flanges in the shape of  crescent moons. This weapon deals double damage against creatures with lycanthropy.",
                                         "priceless":  true,
                                         "source":  [
                                                        "core"

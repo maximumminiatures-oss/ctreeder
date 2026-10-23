@@ -1,4 +1,4 @@
-import { isSleeping } from './conditions.js';
+import { isBlind, isSleeping } from './conditions.js';
 import { sameRoute, routeOf } from './underpasses.js';
 import { hasLineOfSightFrom } from './visibility.js';
 
@@ -16,14 +16,14 @@ export function darkvisionObservers(state, { viewer = null } = {}) {
   const viewerIds = state.viewerCharacterIds instanceof Set ? state.viewerCharacterIds : null;
   return (viewer ? [viewer] : state.characters || []).filter(character =>
     (!viewerIds || viewerIds.has(character.id)) && hasDarkvision(character) && !character.dead && !character.slain &&
-    !character.dyingRounds && Number(character.hp) > 0 && !isSleeping(character, state));
+    !character.dyingRounds && Number(character.hp) > 0 && !isBlind(character) && !isSleeping(character, state));
 }
 
 // This is vision, not a light source. Callers supply wall/door-aware line of sight.
 export function canSeeWithDarkvision(state, observer, target, { hasLineOfSight = (from, to) =>
   hasLineOfSightFrom(state, from.x, from.y, to.x, to.y, { source: from, target: to }) } = {}) {
   return Boolean(hasDarkvision(observer) && !observer.dead && !observer.slain && !observer.defeated &&
-    !observer.dyingRounds && Number(observer.hp) > 0 && !isSleeping(observer, state) && sameRoute(state, observer, target) &&
+    !observer.dyingRounds && Number(observer.hp) > 0 && !isBlind(observer) && !isSleeping(observer, state) && sameRoute(state, observer, target) &&
     Math.hypot(target.x - observer.x, target.y - observer.y) <= MONSTER_DARKVISION_RADIUS &&
     typeof hasLineOfSight === 'function' && hasLineOfSight(observer, target));
 }

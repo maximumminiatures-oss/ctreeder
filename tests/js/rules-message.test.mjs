@@ -12,6 +12,16 @@ const context = {
 };
 const format = (message, extra = {}) => formatRulesMessage(message, { ...context, ...extra });
 
+test('plain rules messages initialize the cache without catalogs', () => {
+  assert.equal(formatRulesMessage('out of range with Dagger'), 'Out of range with dagger.');
+});
+
+test('sentences beginning with roll totals keep subsequent prose and dice notation lowercase', () => {
+  assert.equal(format('Dor attacks Kragol with a Warhammer.\n21 hits for 4 damage'),
+    'Dor attacks Kragol with a warhammer.\n21 hits for 4 damage.');
+  assert.equal(format('1d20 = 12.\n8 misses'), '1d20 = 12.\n8 misses.');
+});
+
 test('ordinary rule terms become lowercase except at sentence starts; acronyms and dice remain intact', () => {
   assert.equal(format('Out of range with Dagger'), 'Out of range with dagger.');
   assert.equal(format('the Goblin Wizard has Strength 12, DEX +2, AC 14 and HP 7 at Level 3'),

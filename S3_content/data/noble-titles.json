@@ -1,0 +1,454 @@
+{
+  "cultures": [
+    {
+      "name": "England & Western Feudal Ranks",
+      "weight": 2,
+      "titles": [
+        {"text":"Monarch","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Sovereign","position":"prefix","joiner":"","weight":0.1},
+        {"text":"heir apparent","position":"suffix","joiner":"the","weight":0.25},
+        {"text":"Crown Prince","position":"prefix","joiner":"","weight":0.25},
+        {"text":"Crown Princess","position":"prefix","joiner":"","weight":0.25},
+        {"text":"Castellan","position":"prefix","joiner":"","weight":2},
+        {"text":"Vogt","position":"prefix","joiner":"","weight":2},
+        {"text":"Constable","position":"prefix","joiner":"","weight":2},
+        {"text":"Marshal","position":"prefix","joiner":"","weight":2},
+        {"text":"Steward","position":"prefix","joiner":"","weight":2},
+        {"text":"Seneschal","position":"prefix","joiner":"","weight":2},
+        {"text":"Chamberlain","position":"prefix","joiner":"","weight":2},
+        {"text":"Justiciar","position":"prefix","joiner":"","weight":2},
+        {"text":"Potentate","position":"prefix","joiner":"","weight":2},
+        {"text":"Banneret","position":"prefix","joiner":"","weight":2},
+        {"text":"Palatine","position":"prefix","joiner":"","weight":2},
+        {"text":"Chancellor","position":"prefix","joiner":"","weight":2},
+        {"text":"Burgrave","position":"prefix","joiner":"","weight":2},
+        {"text":"peer","position":"suffix","joiner":"a","weight":2},
+        {"text":"Emperor","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Empress","position":"prefix","joiner":"","weight":0.05},
+        {"text":"King","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Queen","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Archduke","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Archduchess","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Grand Duke","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Grand Duchess","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Duke","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Duchess","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Prince","position":"prefix","joiner":"","weight":0.25},
+        {"text":"Princess","position":"prefix","joiner":"","weight":0.25},
+        {"text":"Marquess","position":"prefix","joiner":"","weight":0.7},
+        {"text":"Marchioness","position":"prefix","joiner":"","weight":0.7},
+        {"text":"Margrave","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Margravine","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Count","position":"prefix","joiner":"","weight":1},
+        {"text":"Countess","position":"prefix","joiner":"","weight":1},
+        {"text":"Earl","position":"prefix","joiner":"","weight":1},
+        {"text":"Landgrave","position":"prefix","joiner":"","weight":1},
+        {"text":"Landgravine","position":"prefix","joiner":"","weight":1},
+        {"text":"Viscount","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Viscountess","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Baron","position":"prefix","joiner":"","weight":2},
+        {"text":"Baroness","position":"prefix","joiner":"","weight":2},
+        {"text":"Baronet","position":"prefix","joiner":"","weight":3},
+        {"text":"Baronetess","position":"prefix","joiner":"","weight":3},
+        {"text":"Dame","position":"prefix","joiner":"","weight":4},
+        {"text":"Sir","position":"prefix","joiner":"","weight":4}
+      ]
+    },
+    {
+      "name": "Indian Subcontinent",
+      "weight": 1,
+      "titles": [
+        {"text":"Samrat","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Chhatrapati","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Maharaja","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Maharani","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Raja","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Rani","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Yuvaraja","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Nawab","position":"prefix","joiner":"","weight":1},
+        {"text":"Subahdar","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Mansabdar","position":"prefix","joiner":"","weight":3},
+        {"text":"Kotwal","position":"prefix","joiner":"","weight":3},
+        {"text":"Thakur","position":"prefix","joiner":"","weight":4},
+        {"text":"Nayaka","position":"prefix","joiner":"","weight":4},
+        {"text":"Jagirdar","position":"prefix","joiner":"","weight":5},
+        {"text":"kshatriya","position":"suffix","joiner":"the","weight":5},
+        {"text":"Zamindar","position":"prefix","joiner":"","weight":8}
+      ]
+    },
+    {
+      "name": "Mesoamerican",
+      "weight": 1,
+      "titles": [
+        {"text":"Huey Tlatoani","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Kaloomte'","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Cihuacoatl","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Tlatoani","position":"prefix","joiner":"","weight":0.3},
+        {"text":"K'uhul Ajaw","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Iya","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Ajaw","position":"prefix","joiner":"","weight":0.7},
+        {"text":"Tlacateccatl","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Tlacochcalcatl","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Sajal","position":"prefix","joiner":"","weight":2},
+        {"text":"Teuctli","position":"prefix","joiner":"","weight":4},
+        {"text":"pilli","position":"suffix","joiner":"the","weight":7}
+      ]
+    },
+    {
+      "name": "Arabian & Levantine",
+      "weight": 1,
+      "titles": [
+        {"text":"Caliph","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Sultan","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Malik","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Malika","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Amir al-Umara","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Vizier","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Hajib","position":"prefix","joiner":"","weight":1},
+        {"text":"Na'ib","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Wali","position":"prefix","joiner":"","weight":2},
+        {"text":"Emir","position":"prefix","joiner":"","weight":2},
+        {"text":"muqta","position":"suffix","joiner":"the","weight":4},
+        {"text":"Sheikh","position":"prefix","joiner":"","weight":6}
+      ]
+    },
+    {
+      "name": "Egyptian",
+      "weight": 1,
+      "titles": [
+        {"text":"Atabeg al-Asakir","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Ustadar","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Dawadar","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Amir Majlis","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Silahdar","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Amir Akhur","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Amir Mi'a","position":"prefix","joiner":"","weight":1},
+        {"text":"Amir Tablkhana","position":"prefix","joiner":"","weight":2},
+        {"text":"Muqaddam","position":"prefix","joiner":"","weight":3},
+        {"text":"Amir Ashara","position":"prefix","joiner":"","weight":4}
+      ]
+    },
+    {
+      "name": "West African",
+      "weight": 1,
+      "titles": [
+        {"text":"Kaya Magan","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Mansa","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Askia","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Buurba","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Alaafin","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Oba","position":"prefix","joiner":"","weight":0.4},
+        {"text":"Bashorun","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Balama","position":"prefix","joiner":"","weight":1},
+        {"text":"Dina Tigi","position":"prefix","joiner":"","weight":1},
+        {"text":"Korey Farma","position":"prefix","joiner":"","weight":1},
+        {"text":"Farba","position":"prefix","joiner":"","weight":2},
+        {"text":"Oloye","position":"prefix","joiner":"","weight":5}
+      ]
+    },
+    {
+      "name": "Ethiopian",
+      "weight": 1,
+      "titles": [
+        {"text":"Negusa Nagast","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Itegue","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Enderase","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Bitwoded","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Negus","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Ras","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Mesfin","position":"prefix","joiner":"","weight":1},
+        {"text":"Balambaras","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Fitawrari","position":"prefix","joiner":"","weight":2},
+        {"text":"Dejazmach","position":"prefix","joiner":"","weight":2},
+        {"text":"Gerazmach","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Qenyazmach","position":"prefix","joiner":"","weight":2.5}
+      ]
+    },
+    {
+      "name": "Byzantine",
+      "weight": 1,
+      "titles": [
+        {"text":"Basileus","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Basilissa","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Autokrator","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Caesar","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Sebastokrator","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Panhypersebastos","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Megas Doux","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Megas Domestikos","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Despot","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Katepano","position":"prefix","joiner":"","weight":1},
+        {"text":"Stratopedarches","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Doux","position":"prefix","joiner":"","weight":2},
+        {"text":"Droungarios","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Tourmarches","position":"prefix","joiner":"","weight":4}
+      ]
+    },
+    {
+      "name": "Turkish",
+      "weight": 1,
+      "titles": [
+        {"text":"Padishah","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Khagan","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Atabeg","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Beylerbey","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Sanjakbey","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Qadi","position":"prefix","joiner":"","weight":2},
+        {"text":"Subasi","position":"prefix","joiner":"","weight":2.5},
+        {"text":"timariot","position":"suffix","joiner":"the","weight":2.5},
+        {"text":"Bey","position":"prefix","joiner":"","weight":3},
+        {"text":"Agha","position":"prefix","joiner":"","weight":3},
+        {"text":"Zaim","position":"prefix","joiner":"","weight":4}
+      ]
+    },
+    {
+      "name": "Chinese (Qing Dynasty)",
+      "weight": 1,
+      "titles": [
+        {"text":"Huangdi","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Huanghou","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Taizi","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Wang","position":"prefix","joiner":"","weight":0.4},
+        {"text":"Beile","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Beizi","position":"prefix","joiner":"","weight":1},
+        {"text":"Zongdu","position":"prefix","joiner":"","weight":1},
+        {"text":"Gong","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Xunfu","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Tidu","position":"prefix","joiner":"","weight":2},
+        {"text":"Jiangjun","position":"prefix","joiner":"","weight":3},
+        {"text":"Zongbing","position":"prefix","joiner":"","weight":3},
+        {"text":"Zhixian","position":"prefix","joiner":"","weight":6},
+        {"text":"shi","position":"suffix","joiner":"the","weight":8},
+        {"text":"shengyuan","position":"suffix","joiner":"a","weight":8}
+      ]
+    },
+    {
+      "name": "Japanese",
+      "weight": 1,
+      "titles": [
+        {"text":"Tenno","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Shogun","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Sessho","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Kanpaku","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Daijo-daijin","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Sadaijin","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Udaijin","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Shugo","position":"prefix","joiner":"","weight":1},
+        {"text":"Daimyo","position":"prefix","joiner":"","weight":2},
+        {"text":"kuge","position":"suffix","joiner":"of the","weight":2.5},
+        {"text":"Jito","position":"prefix","joiner":"","weight":4},
+        {"text":"Gokenin","position":"prefix","joiner":"","weight":5},
+        {"text":"samurai","position":"suffix","joiner":"the","weight":8}
+      ]
+    },
+    {
+      "name": "Korean",
+      "weight": 1,
+      "titles": [
+        {"text":"Taewang","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Wangbi","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Wangseja","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Yeonguijeong","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Jwauijeong","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Uuijeong","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Daegun","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Gongju","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Gun","position":"prefix","joiner":"","weight":1},
+        {"text":"Gwanchalsa","position":"prefix","joiner":"","weight":1.5},
+        {"text":"yangban","position":"suffix","joiner":"of the","weight":5},
+        {"text":"musa","position":"suffix","joiner":"the","weight":7}
+      ]
+    },
+    {
+      "name": "Italian",
+      "weight": 1,
+      "titles": [
+        {"text":"Doge","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Dogaressa","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Gonfaloniere","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Podesta","position":"prefix","joiner":"","weight":1},
+        {"text":"Capitano del Popolo","position":"prefix","joiner":"","weight":1},
+        {"text":"Signore","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Priore","position":"prefix","joiner":"","weight":2},
+        {"text":"Alfiere","position":"prefix","joiner":"","weight":2},
+        {"text":"Condottiero","position":"prefix","joiner":"","weight":3},
+        {"text":"Patrizio","position":"prefix","joiner":"","weight":4},
+        {"text":"Cavaliere","position":"prefix","joiner":"","weight":5}
+      ]
+    },
+    {
+      "name": "German & Holy Roman Empire",
+      "weight": 1,
+      "titles": [
+        {"text":"Kurfürst","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Kurfürstin","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Reichserbschenk","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Reichsgraf","position":"prefix","joiner":"","weight":1},
+        {"text":"Freiherr","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Freifrau","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Burggraf","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Altgraf","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Wildgraf","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Raugraf","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Edler","position":"prefix","joiner":"","weight":3},
+        {"text":"Ritter","position":"prefix","joiner":"","weight":4}
+      ]
+    },
+    {
+      "name": "French",
+      "weight": 1,
+      "titles": [
+        {"text":"Dauphin","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Dauphine","position":"prefix","joiner":"","weight":0.1},
+        {"text":"pair de France","position":"suffix","joiner":"a","weight":0.5},
+        {"text":"Grand Fauconnier","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Grand Louvetier","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Grand Panetier","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Vidame","position":"prefix","joiner":"","weight":1},
+        {"text":"Vicomte","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Sire","position":"prefix","joiner":"","weight":2},
+        {"text":"Prevot","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Ecuyer","position":"prefix","joiner":"","weight":3},
+        {"text":"Chevalier","position":"prefix","joiner":"","weight":4}
+      ]
+    },
+    {
+      "name": "Spanish & Portuguese",
+      "weight": 1,
+      "titles": [
+        {"text":"Príncipe de Asturias","position":"prefix","joiner":"","weight":0.1},
+        {"text":"grande de España","position":"suffix","joiner":"a","weight":0.5},
+        {"text":"Adelantado","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Infante","position":"prefix","joiner":"","weight":1},
+        {"text":"Infanta","position":"prefix","joiner":"","weight":1},
+        {"text":"Alferez","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Rico-hombre","position":"prefix","joiner":"","weight":2},
+        {"text":"Alcalde","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Alguacil","position":"prefix","joiner":"","weight":3},
+        {"text":"Fidalgo","position":"prefix","joiner":"","weight":4},
+        {"text":"Hidalgo","position":"prefix","joiner":"","weight":5},
+        {"text":"Caballero","position":"prefix","joiner":"","weight":5}
+      ]
+    },
+    {
+      "name": "Irish",
+      "weight": 1,
+      "titles": [
+        {"text":"Ard Ri","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Tanist","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Ri Coicid","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Ri Tuaithe","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Brehon","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Ollamh","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Briugu","position":"prefix","joiner":"","weight":2},
+        {"text":"Flaith","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Aire Febe","position":"prefix","joiner":"","weight":3},
+        {"text":"Aire","position":"prefix","joiner":"","weight":4},
+        {"text":"Aire Desa","position":"prefix","joiner":"","weight":4},
+        {"text":"derbfine","position":"suffix","joiner":"of the","weight":4},
+        {"text":"kern","position":"suffix","joiner":"the","weight":5}
+      ]
+    },
+    {
+      "name": "Scottish",
+      "weight": 1,
+      "titles": [
+        {"text":"Mormaer","position":"prefix","joiner":"","weight":0.4},
+        {"text":"Baron of Regality","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Thane","position":"prefix","joiner":"","weight":1},
+        {"text":"Deemster","position":"prefix","joiner":"","weight":1},
+        {"text":"Toisech","position":"prefix","joiner":"","weight":1.5},
+        {"text":"hose-net holder","position":"suffix","joiner":"the","weight":1.5},
+        {"text":"Baillie","position":"prefix","joiner":"","weight":2.5},
+        {"text":"tacksman","position":"suffix","joiner":"the","weight":3},
+        {"text":"Laird","position":"prefix","joiner":"","weight":4}
+      ]
+    },
+    {
+      "name": "Scandinavian",
+      "weight": 1,
+      "titles": [
+        {"text":"Konungr","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Dronning","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Jarl","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Lagman","position":"prefix","joiner":"","weight":1},
+        {"text":"Godi","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Hersir","position":"prefix","joiner":"","weight":2},
+        {"text":"Lendmann","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Bryti","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Riddari","position":"prefix","joiner":"","weight":4},
+        {"text":"hirdmann","position":"suffix","joiner":"the","weight":5},
+        {"text":"sveinn","position":"suffix","joiner":"the","weight":6}
+      ]
+    },
+    {
+      "name": "Slavic & Russian",
+      "weight": 1,
+      "titles": [
+        {"text":"Tsar","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Tsaritsa","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Tsarevich","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Tsarevna","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Velikiy Knyaz","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Knyaz","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Okolnichi","position":"prefix","joiner":"","weight":1},
+        {"text":"Posadnik","position":"prefix","joiner":"","weight":1},
+        {"text":"Tysyatsky","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Voivode","position":"prefix","joiner":"","weight":2},
+        {"text":"Boyar","position":"prefix","joiner":"","weight":2},
+        {"text":"Dyak","position":"prefix","joiner":"","weight":3},
+        {"text":"deti boyarskie","position":"suffix","joiner":"the","weight":4},
+        {"text":"druzhinnik","position":"suffix","joiner":"the","weight":6}
+      ]
+    },
+    {
+      "name": "Caucasian",
+      "weight": 1,
+      "titles": [
+        {"text":"Mepe","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Tagavor","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Eristavt-Eristavi","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Spaspet","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Sparapet","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Mtavari","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Ishkhan","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Eristavi","position":"prefix","joiner":"","weight":1},
+        {"text":"Nakharar","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Sepuh","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Aznauri","position":"prefix","joiner":"","weight":4}
+      ]
+    },
+    {
+      "name": "Central Asian & Steppe Nomadic",
+      "weight": 1,
+      "titles": [
+        {"text":"Khagan","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Khatun","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Khan","position":"prefix","joiner":"","weight":0.3},
+        {"text":"Ilkhan","position":"prefix","joiner":"","weight":0.4},
+        {"text":"Yabgu","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Khong Tayiji","position":"prefix","joiner":"","weight":0.8},
+        {"text":"Shad","position":"prefix","joiner":"","weight":1},
+        {"text":"Beki","position":"prefix","joiner":"","weight":1},
+        {"text":"Noyan","position":"prefix","joiner":"","weight":2},
+        {"text":"Tarkhan","position":"prefix","joiner":"","weight":3},
+        {"text":"Baga'atur","position":"prefix","joiner":"","weight":5}
+      ]
+    },
+    {
+      "name": "Southeast Asian",
+      "weight": 1,
+      "titles": [
+        {"text":"Devaraja","position":"prefix","joiner":"","weight":0.05},
+        {"text":"Yuvarat","position":"prefix","joiner":"","weight":0.1},
+        {"text":"Upayuvraja","position":"prefix","joiner":"","weight":0.2},
+        {"text":"Chao Phraya","position":"prefix","joiner":"","weight":0.5},
+        {"text":"Rakryan","position":"prefix","joiner":"","weight":1},
+        {"text":"Phraya","position":"prefix","joiner":"","weight":1.5},
+        {"text":"Datu","position":"prefix","joiner":"","weight":2},
+        {"text":"Phra","position":"prefix","joiner":"","weight":2.5},
+        {"text":"Luang","position":"prefix","joiner":"","weight":3.5}
+      ]
+    }
+  ]
+}

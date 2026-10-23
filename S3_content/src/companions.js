@@ -4,6 +4,9 @@ import { MONSTER_DARKVISION_RADIUS, MONSTER_DARKVISION_TALENT } from './darkvisi
 import { sameRoute, routeOf, routeStep, routeKey } from './underpasses.js';
 import { isSleeping } from './conditions.js';
 import { isFloatingDisc } from './floating-disc.js';
+import { monsterAlignmentName, monsterGearName, normalizeMonsterGearItem } from './monster-terms.js';
+import { formatFieldName } from './ui-text.js';
+import { STARTING_ROOM_SHOP_ITEMS } from './shop-catalog.js';
 
 const clone=value=>JSON.parse(JSON.stringify(value));
 const CLASS_NAMES=/\b(?:peasant|pirate|assassin|bandit|thief|acolyte|apprentice|knight|guard|soldier|cultist|merchant|wizard|priest|fighter|ranger|berserker|gladiator)\b/i;
@@ -124,7 +127,7 @@ export function ensureMonsterCompanionTraits(character) {
 }
 
 export function nativeAttackLines(monster) {
-  return String(monster.attack||'').split(/\s+(?:or|and)\s+/i).map(segment=>{
+  return String(monster.attack ?? monster['**ATK**'] ?? monster.ATK ?? '').split(/\s+(?:or|and)\s+/i).map(segment=>{
     const match=segment.trim().match(/^\d*\s*(.*?)\s+([+-]\d+)\s*\(([^)]*)\)/);
     if(!match)return null;
     const name=match[1].replace(/\s*\([^)]*\)/g,'').trim();
@@ -137,14 +140,47 @@ export function nativeGear(monster) {
   const gear=[];
   for(const attack of nativeAttackLines(monster)) {
     const name=attack.split(':')[0];
-    if(!/\b(?:dagger|sword|longsword|shortsword|greatsword|mace|club|axe|spear|crossbow|bow|staff|hammer|sling|javelin|polearm)\b/i.test(name))continue;
-    if(gear.some(item=>item.name===name))continue;
-    gear.push({name,type:'weapon',equipped:!gear.some(item=>item.type==='weapon'),attackBonus:Number(attack.match(/:\s*([+-]\d+)/)?.[1])||0,
-      damage:attack.match(/\d+d\d+(?:\s*[+-]\s*\d+)?/)?.[0]||'1',slots:1});
+    if(!/\b(?:dagger|sword|longsword|shortsword|greatsword|mace|club|greatclub|axe|greataxe|spear|crossbow|bow|shortbow|longbow|staff|hammer|warhammer|sling|javelin|polearm|cutlass|falchion|glaive|trident|morningstar|scimitar|scythe|pick|scepter|whip|dart)\b/i.test(name))continue;
+    if(gear.some(item=>item.name.toLowerCase()===name.toLowerCase()))continue;
+    const config = STARTING_ROOM_SHOP_ITEMS.find(item => item.name.toLowerCase() === name.toLowerCase());
+    gear.push({name:formatFieldName(name),type:'weapon',equipped:!gear.some(item=>item.type==='weapon'),attackBonus:Number(attack.match(/:\s*([+-]\d+)/)?.[1])||0,
+      damage:attack.match(/\d+d\d+(?:\s*[+-]\s*\d+)?/)?.[0]||'1',slots:config?.slots ?? 1,
+      nativeMonsterWeapon:true,...(config ? {costGp:config.costCopper/100} : {})});
   }
-  const armor=String(monster.ac||'');
-  for(const name of ['leather','chainmail','plate','shield']) if(new RegExp(name,'i').test(armor))gear.push({name,equipped:true,slots:1});
+  const armor=String(monster.ac ?? monster['**AC**'] ?? monster.AC ?? '');
+  for(const [pattern,name] of [[/\bleather(?:\s+armor)?\b/i,'Leather Armor'],[/\bchain\s*mail\b/i,'Chainmail'],[/\bplate(?:\s+mail)?\b/i,'Plate Mail'],[/\bshield\b/i,'Shield']]) {
+    if (!pattern.test(armor)) continue;
+    const label = /\bmithral\s+/i.test(armor) && /^(?:Chainmail|Plate Mail)$/.test(name) ? `Mithral ${name}` : name;
+    const config = STARTING_ROOM_SHOP_ITEMS.find(item => item.name.toLowerCase() === label.toLowerCase());
+    gear.push({name:label,type:'armor',equipped:true,slots:config?.slots ?? 1,...structuredClone(config?.gear || {}),
+      ...(config ? {costGp:config.costCopper/100} : {})});
+  }
   return gear;
+}
+
+// An explicitly saved inventory (even empty) wins over inferred stat-block gear.
+export function ensureMonsterGear(monster) {
+  const explicit = Array.isArray(monster.gear) || Array.isArray(monster.carriedGear) && monster.carriedGear.length > 0;
+  const inventory = Array.isArray(monster.gear) ? monster.gear
+    : Array.isArray(monster.carriedGear) && monster.carriedGear.length ? monster.carriedGear : nativeGear(monster);
+  const stolen = new Set((monster.stolenGearNames || []).map(name => monsterGearName(name).toLowerCase()));
+  monster.gear = inventory.filter(item => explicit || !stolen.has(monsterGearName(item.name).toLowerCase())).map(normalizeMonsterGearItem);
+  monster.carriedGear = monster.gear;
+  return monster.gear;
+}
+
+export function transferredMonsterGear(item) {
+  const result = normalizeMonsterGearItem(clone(item));
+  // A creature's total attack modifier is not an intrinsic bonus on its weapon.
+  if (result.nativeMonsterWeapon) {
+    delete result.nativeMonsterWeapon;
+    delete result.attackBonus;
+    const config = STARTING_ROOM_SHOP_ITEMS.find(config => config.name.toLowerCase() === result.name.toLowerCase());
+    if (config) { delete result.damage; Object.assign(result, clone(config.gear || {})); }
+  }
+  result.bound = false;
+  result.equipped = false;
+  return result;
 }
 export function buildMonsterCompanion(monster,{id,controllerId,ancestries=['Human','Dwarf','Elf','Halfling','Goblin','Half-Orc'],random=Math.random,kind='friendly',impersonated=null}={}) {
   ensureMonsterLanguages(monster);
@@ -156,8 +192,8 @@ export function buildMonsterCompanion(monster,{id,controllerId,ancestries=['Huma
     className:impersonated?.className||(classLike?monster.name:isAnimalMonster(monster)?'Animal':'Monster'),
     level:Number(impersonated?.level||monster.level)||1,stats,hp:Number.parseInt(monster.hp,10)||1,maxHitPoints:Number(monster.maxHp)||Number.parseInt(monster.hp,10)||1,
     armorClass:Number.parseInt(monster.ac,10)||10,x:monster.x,y:monster.y,routeId:monster.routeId,roomId:monster.roomId,
-    languages:monster.languages.join(', '),alignment:monster.alignment||monster.AL||'',
-    gear:kind==='doppelganger'?[{name:'Dagger',type:'weapon',equipped:true,slots:1,bound:true,attackBonus:2,damage:'1d4'}]:nativeGear(monster),
+    languages:monster.languages.join(', '),alignment:monsterAlignmentName(monster.alignment||monster.AL||monster['**AL**']||''),
+    gear:kind==='doppelganger'?[{name:'Dagger',type:'weapon',equipped:true,slots:1,bound:true,attackBonus:2,damage:'1d4'}]:clone(ensureMonsterGear(monster)),
     attacks:nativeAttackLines(monster),equipmentInitialized:true,spellsKnown:'',
     companion:{kind,sourceMonsterId:monster.id,source:clone(monster),controllerCharacterId:controllerId||null,
       gearCapacity:kind==='doppelganger'?12:monsterScore(monster,'S'),damageTaken:0,departurePending:false},
@@ -173,7 +209,7 @@ export function recordCompanionDamage(character,damage) {
 export function dropCompanionGear(state,character) {
   for(const [index,item]of(character.gear||[]).entries())state.entities.push({
     id:`departure-${character.id}-${index}-${Date.now()}`,type:'treasure',subtype:'dropped-equipment',kind:'gear',name:item.name,
-    x:character.x,y:character.y,routeId:character.routeId,roomId:character.roomId,visible:true,value:Number(item.value)||0,slots:item.slots??1,gearItem:clone(item)
+    x:character.x,y:character.y,routeId:character.routeId,roomId:character.roomId,visible:true,value:Number(item.value)||0,slots:item.slots??1,gearItem:transferredMonsterGear(item)
   });
   character.gear=[];
 }
@@ -181,7 +217,7 @@ export function companionLeaves(state,character) {
   dropCompanionGear(state,character);
   const monster={...clone(character.companion.source),id:character.companion.sourceMonsterId,
     type:'monster',x:character.x,y:character.y,routeId:character.routeId,roomId:character.roomId,hp:character.hp,
-    attitude:'friendly',attitudeChecked:true,hostile:false,departing:true,defeated:false,leftPeacefully:false};
+    attitude:'friendly',attitudeChecked:true,hostile:false,departing:true,defeated:false,leftPeacefully:false,gear:[],carriedGear:[]};
   state.entities=state.entities.filter(entity=>entity.id!==monster.id);state.entities.push(monster);
   state.characters=state.characters.filter(member=>member.id!==character.id);
   return `The friendly ${monster.name} leaves with a tearful goodbye.`;
@@ -197,7 +233,8 @@ export function archiveSlainCharacter(state,character) {
     value:coins.gold+coins.silver/10+coins.copper/100,corpseOwnerId:character.id});
   for(const [index,item]of(character.gear||[]).entries())state.entities.push({
     id:`corpse-gear-${character.id}-${index}`,type:'treasure',subtype:'dropped-equipment',kind:'gear',name:item.name,
-    x:character.x,y:character.y,routeId:character.routeId,roomId:character.roomId,visible:true,value:Number(item.value)||0,gearItem:clone(item),slots:item.slots??1,
+    x:character.x,y:character.y,routeId:character.routeId,roomId:character.roomId,visible:true,value:Number(item.value)||0,
+    gearItem:character.companion ? transferredMonsterGear(item) : clone(item),slots:item.slots??1,
     corpseOwnerId:character.id
   });
   state.characters=state.characters.filter(member=>member.id!==character.id);

@@ -97,7 +97,7 @@ const TREASURE_TYPES = Object.freeze([
     key: "instrument",
     weight: 10,
     valueRangeGp: [0.5, 5000],
-    nouns: ["lute", "flute", "drum", "horn", "trumpet", "harp", "hurdy-gurdy", "fife", "bagpipes", "tambourine", "pan flute", "shawm", "viol", "recorder", "ocarina", "lyre", "mandolin", "sitar", "zither", "dulcimer", "accordion", "maraca", "marimba", "castanets", "gong", "cymbal", "crwth", "theorbo", "bandora", "sludra", "coronet", "psaltery", "crumhorn", "chalumeau", "clarinet", "bassoon", "oud", "ney", "qanun", "daf", "djembe", "tar", "zurna", "riq", "guqin", "guzheng", "pipa", "erhu", "dizi", "sheng", "koto", "biwa", "shakuhachi", "shamisen", "gayageum", "haegeum", "suona", "bianzhong", "tabla", "sarangi", "tambura", "sarod", "kora", "mbira", "kalimba", "angklung", "didgeridoo", "tama", "balafon", "shekere", "udu", "algaita", "siku", "quena", "teponaztli", "huehuetl", "ayotl", "gamelan gong", "bonang gong", "kempul gong"],
+    nouns: ["lute", "flute", "drum", "horn", "trumpet", "harp", "hurdy-gurdy", "fife", "bagpipes", "tambourine", "pan flute", "shawm", "viol", "recorder", "ocarina", "lyre", "mandolin", "sitar", "zither", "dulcimer", "accordion", "maraca", "marimba", "castanets", "gong", "cymbal", "crwth", "theorbo", "bandora", "cornet", "psaltery", "crumhorn", "chalumeau", "clarinet", "bassoon", "oud", "ney", "qanun", "daf", "djembe", "tar", "zurna", "riq", "guqin", "guzheng", "pipa", "erhu", "dizi", "sheng", "koto", "biwa", "shakuhachi", "shamisen", "gayageum", "haegeum", "suona", "bianzhong", "tabla", "sarangi", "tambura", "sarod", "kora", "mbira", "kalimba", "angklung", "didgeridoo", "tama", "balafon", "shekere", "udu", "algaita", "siku", "quena", "teponaztli", "huehuetl", "ayotl", "gamelan gong", "bonang gong", "kempul gong"],
     adjectives: ["beggar's", "broken", "out of tune", "cursed", "goblin", "worn", "student", "rustic", "bard's", "polished", "resonant", "lacquered", "fine", "antique", "varnished", "ornate", "pristine", "masterwork", "exquisite", "elven", "ritual", "holy", "magic"]
   },
   {
@@ -151,7 +151,7 @@ const TREASURE_TYPES = Object.freeze([
 ]);
 
 const HERB_CONTAINERS = Object.freeze(["box", "pouch", "tin", "shaker", "sack"]);
-const DIVINE_SUFFIXES = Object.freeze(["Saint Terrangis", "Gede", "Madeera", "Ord", "Memnon", "Ramlaat", "Shune"]);
+const DIVINE_SUFFIXES = Object.freeze(["Saint Terragnis", "Gede", "Madeera", "Ord", "Memnon", "Ramlaat", "Shune"]);
 const SPECIAL_SUFFIX_ADJECTIVES = new Set(["ceremonial", "holy", "ritual"]);
 
 function clampLevel(level) {
@@ -390,6 +390,30 @@ export function createTreasureDetails(state, rng) {
     return buildEquipmentTreasure(state, rng, category.equipmentTable);
   }
   return buildTypedTreasure(state, rng, category);
+}
+
+// Each distinct ordinary treasure name is one choice, without spawn/category weights.
+// Quantity rolls are not separate choices; herb containers and named divine suffixes are.
+export function unweightedTreasureNames(state) {
+  const rules = getRulesData(state);
+  const names = new Set(['g.p. pouch', 's.p. pouch', 'c.p. pouch']);
+  for (const category of TREASURE_TYPES) {
+    if (category.equipmentTable) {
+      const table = rules?.[category.equipmentTable]?.length
+        ? rules[category.equipmentTable] : DEFAULT_RULES_DATA[category.equipmentTable];
+      for (const item of table) if (typeof item.name === 'string' && item.name.trim()) names.add(item.name);
+      continue;
+    }
+    for (const noun of category.nouns) for (const adjective of category.adjectives?.length ? category.adjectives : ['']) {
+      const base = adjective ? `${adjective} ${noun}` : noun;
+      if (category.key === 'herbs') {
+        for (const container of HERB_CONTAINERS) names.add(`a ${container} of ${base}`);
+      } else if (SPECIAL_SUFFIX_ADJECTIVES.has(adjective)) {
+        for (const deity of DIVINE_SUFFIXES) names.add(`${base} of ${deity}`);
+      } else names.add(base);
+    }
+  }
+  return [...names];
 }
 
 export function formatTreasureValue(valueGp) {

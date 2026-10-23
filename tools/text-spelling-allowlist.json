@@ -1,0 +1,58 @@
+{
+  "properNames": {
+    "ShadowSpawner": "Established project brand.",
+    "ShadowDarklings": "Established external character-generator brand.",
+    "ctreeder": "Site owner's domain name.",
+    "Shrigark": "User-supplied test character name.",
+    "Badzog": "User-supplied test character name.",
+    "Kragol": "User-supplied example character name.",
+    "Ratbilg": "User-supplied character name.",
+    "Erd": "User-supplied character name.",
+    "Dor": "User-supplied example character name."
+  },
+  "acronyms": {
+    "AC": "Armor class.", "HP": "Hit points.", "XP": "Experience points.",
+    "STR": "Strength.", "DEX": "Dexterity.", "CON": "Constitution.",
+    "INT": "Intelligence.", "WIS": "Wisdom.", "CHA": "Charisma.",
+    "GP": "Gold pieces.", "SP": "Silver pieces.", "CP": "Copper pieces.",
+    "DC": "Difficulty class.", "GM": "Game master.", "RPG": "Role-playing game.",
+    "NPC": "Non-player character.", "NPCs": "Non-player characters.",
+    "API": "Application programming interface.", "JSON": "JSON data format.",
+    "HTML": "HTML document format.", "HTTP": "HTTP protocol.", "HTTPS": "HTTPS protocol.",
+    "URL": "Web address.", "ID": "Identifier.", "IDs": "Identifiers.",
+    "PNG": "Image format.", "PDF": "Document format.", "FIN": "Finesse weapon abbreviation.",
+    "MCC": "Portfolio's Mutant Crawl Classics project.",
+    "CSRF": "Cross-site request forgery protection.", "UI": "User interface.",
+    "CLI": "Command-line interface.", "WASD": "Keyboard movement keys.",
+    "UW": "University of Washington, named in the portfolio.",
+    "TCSS": "University course prefix, named in the project footer.",
+    "NFKC": "Unicode normalization form.", "URI": "Uniform resource identifier.",
+    "UTF": "Unicode transformation format.", "IP": "Internet protocol.",
+    "SVG": "Vector image format.", "JPEG": "Image format.", "GIF": "Image format.",
+    "HD": "Hit dice in the separate MCC portfolio rules.",
+    "SV": "Saving throw abbreviation in the separate MCC portfolio rules.",
+    "EMP": "Electromagnetic pulse in the MCC portfolio rules."
+  },
+  "terms": {},
+  "technicalTerms": {
+    "backend": "Established software architecture term used in the portfolio.",
+    "frontend": "Established software architecture term used in the portfolio.",
+    "nginx": "Named web-server software.",
+    "Postgres": "Named database software.",
+    "PostgreSQL": "Named database software.",
+    "SQLModel": "Named Python library used by the website.",
+    "Gunicorn": "Named Python web-server software.",
+    "Pygame": "Named Python library in the portfolio.",
+    "Tkinter": "Named Python interface library in the portfolio.",
+    "Recharts": "Named JavaScript library in the portfolio.",
+    "DigitalOcean": "Named hosting provider.",
+    "LinkedIn": "Named social-network service.",
+    "OAuth": "Named authentication protocol.",
+    "localhost": "Reserved local-development host name.",
+    "tooltip": "Established interface term used by the website.",
+    "numpad": "Numeric-keypad abbreviation used in keyboard help."
+  },
+  "approvedDataFiles": {
+    "S3_content/data/noble-titles.json": "All terms are explicitly user-approved custom noble titles; inventory only, never automatic corrections."
+  }
+}

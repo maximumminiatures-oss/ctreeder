@@ -111,6 +111,7 @@ function monsterDetails(rng, monsterTable) {
     chaModifier: Number(monster.chaModifier ?? monster.Ch ?? monster.CH ?? monster["**CH**"]) || 0,
     abilities: monster.abilities || {},
     tags: monster.tags || [],
+    carriedGear: monster.gear || monster.carriedGear || [],
     diplomacy: monster.diplomacy || monster.Diplomacy || monster["Diplomacy"] || ""
   };
 }

@@ -170,7 +170,7 @@ export function acceptPartyRest(state, memberId, now = Date.now()) {
   return `You've slept for ${rest.hours} of 8 hours.`;
 }
 
-export function cancelPartyRest(state, message = 'Rest cancelled. No recovery was granted.') {
+export function cancelPartyRest(state, message = 'Rest canceled. No recovery was granted.') {
   if (!restInProgress(state)) throw new Error('No rest is in progress.');
   if (state.rest.phase === 'sleeping') state.rest.interrupted = true;
   state.rest.phase = 'interrupted';

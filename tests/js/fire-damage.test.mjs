@@ -1,8 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyFireToTreasure, treasureFireResponse } from '../../S3_content/src/fire-damage.js';
+import { matchesTreasureTypeName } from '../../S3_content/src/treasure.js';
 
 const loot = (name, kind, extra = {}) => ({ type: 'treasure', name, kind, value: 100, ...extra });
+
+test('instrument vocabulary uses cornet and excludes the two confirmed typos', () => {
+  assert.equal(matchesTreasureTypeName('cornet', 'instrument'), true);
+  assert.equal(matchesTreasureTypeName('coronet', 'instrument'), false);
+  assert.equal(matchesTreasureTypeName('sludra', 'instrument'), false);
+  assert.equal(treasureFireResponse(loot('cornet', 'gear')), 'charred');
+});
 
 test('instruments and wooden/leather objects char exactly once and keep half value', () => {
   for (const item of [loot('silver trumpet', 'instrument'), loot('wooden shield', 'shield'), loot('masterwork hide', 'leather'),

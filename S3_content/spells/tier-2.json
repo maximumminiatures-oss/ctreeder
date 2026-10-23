@@ -51,10 +51,10 @@
     "duration": "Instant",
     "range": "Self",
     "rangeBand": "self",
-    "description": "You interpret the meaning of supernatural portents and omens.\n\nAsk the GM one question about a specific course of action. The GM says whether the action will lead to “weal” or “woe.”",
+    "description": "You interpret supernatural portents and omens about a specific course of action. Ask one question to learn whether it will lead to weal or woe.\n\nOn a natural 20, the guidance is clearer and more specific.",
     "paragraphs": [
-      "You interpret the meaning of supernatural portents and omens.",
-      "Ask the GM one question about a specific course of action. The GM says whether the action will lead to “weal” or “woe.”"
+      "You interpret supernatural portents and omens about a specific course of action. Ask one question to learn whether it will lead to weal or woe.",
+      "On a natural 20, the guidance is clearer and more specific."
     ],
     "damage": []
   },
@@ -68,9 +68,9 @@
     "duration": "Instant",
     "range": "Close",
     "rangeBand": "close",
-    "description": "One creature you touch gains a luck token.",
+    "description": "One creature you touch gains a Luck Token.",
     "paragraphs": [
-      "One creature you touch gains a luck token."
+      "One creature you touch gains a Luck Token."
     ],
     "damage": []
   },
@@ -84,11 +84,11 @@
     "duration": "Focus",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You utter a divine censure, blinding or deafening one creature you can see in range.\n\nThe creature has disadvantage on tasks requiring the lost sense.\n\nCritical effects are determined only by a natural 20 on the initial casting check and persist while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
+    "description": "Choose one creature you can see within six squares. It becomes blinded or deafened while you maintain Focus and has disadvantage on tasks requiring the lost sense. A blinded creature cannot see, and attacks against it have advantage.\n\nMaintain Focus with DC 12 spellcasting checks. An ordinary failed Focus check ends the effect without losing the spell. A natural 1 loses the spell and requires penance and a successful rest.\n\nOn a natural 20 on the initial casting check, choose two targets or both blindness and deafness on one target. Range does not increase. The chosen critical effect persists while you maintain Focus; later Focus checks cannot grant or change it.",
     "paragraphs": [
-      "You utter a divine censure, blinding or deafening one creature you can see in range.",
-      "The creature has disadvantage on tasks requiring the lost sense.",
-      "Critical effects are determined only by a natural 20 on the initial casting check and persist while you maintain Focus. Later Focus checks cannot grant or change critical effects."
+      "Choose one creature you can see within six squares. It becomes blinded or deafened while you maintain Focus and has disadvantage on tasks requiring the lost sense. A blinded creature cannot see, and attacks against it have advantage.",
+      "Maintain Focus with DC 12 spellcasting checks. An ordinary failed Focus check ends the effect without losing the spell. A natural 1 loses the spell and requires penance and a successful rest.",
+      "On a natural 20 on the initial casting check, choose two targets or both blindness and deafness on one target. Range does not increase. The chosen critical effect persists while you maintain Focus; later Focus checks cannot grant or change it."
     ],
     "damage": []
   },
@@ -102,9 +102,9 @@
     "duration": "5 rounds",
     "range": "Close",
     "rangeBand": "close",
-    "description": "One weapon you touch is wreathed in purifying flames. It deals an additional 1d4 damage (1d6 vs. undead) for the duration.",
+    "description": "One weapon you touch is blessed for five rounds. Each hit deals an additional 1d4 radiant damage, or 1d6 against undead. This is not fire damage and does not ignite webs or burn treasure.",
     "paragraphs": [
-      "One weapon you touch is wreathed in purifying flames. It deals an additional 1d4 damage (1d6 vs. undead) for the duration."
+      "One weapon you touch is blessed for five rounds. Each hit deals an additional 1d4 radiant damage, or 1d6 against undead. This is not fire damage and does not ignite webs or burn treasure."
     ],
     "damage": [
       {
@@ -291,9 +291,9 @@
     "duration": "Instant",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You call down punishing flames on a creature you can see within range. It takes 1d6 damage.",
+    "description": "You call down divine punishment on one creature you can see within six squares. It takes 1d6 radiant damage, not fire damage.",
     "paragraphs": [
-      "You call down punishing flames on a creature you can see within range. It takes 1d6 damage."
+      "You call down divine punishment on one creature you can see within six squares. It takes 1d6 radiant damage, not fire damage."
     ],
     "damage": [
       {
@@ -323,7 +323,7 @@
   },
   {
     "slug": "zone-of-truth",
-    "name": "Zone Of Truth",
+    "name": "Zone of Truth",
     "tier": 2,
     "classes": [
       "priest"
@@ -331,10 +331,11 @@
     "duration": "Focus",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You compel a creature you can see to speak truth. It can’t utter a deliberate lie while within range.\n\nCritical effects are determined only by a natural 20 on the initial casting check and persist while you maintain Focus. Later Focus checks cannot grant or change critical effects.",
+    "description": "Choose a creature you can see within six squares. It cannot deliberately lie while within range and you maintain Focus. You may ask one question on each successful Focus round.\n\nMaintain Focus with DC 12 spellcasting checks. An ordinary failed Focus check ends the effect without losing the spell. A natural 1 loses the spell and requires penance and a successful rest.\n\nA natural 20 on the initial casting check increases the range to twelve squares. This critical effect persists while you maintain Focus; later Focus checks cannot grant or change it.",
     "paragraphs": [
-      "You compel a creature you can see to speak truth. It can’t utter a deliberate lie while within range.",
-      "Critical effects are determined only by a natural 20 on the initial casting check and persist while you maintain Focus. Later Focus checks cannot grant or change critical effects."
+      "Choose a creature you can see within six squares. It cannot deliberately lie while within range and you maintain Focus. You may ask one question on each successful Focus round.",
+      "Maintain Focus with DC 12 spellcasting checks. An ordinary failed Focus check ends the effect without losing the spell. A natural 1 loses the spell and requires penance and a successful rest.",
+      "A natural 20 on the initial casting check increases the range to twelve squares. This critical effect persists while you maintain Focus; later Focus checks cannot grant or change it."
     ],
     "damage": []
   }

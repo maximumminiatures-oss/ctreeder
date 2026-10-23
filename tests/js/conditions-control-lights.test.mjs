@@ -123,7 +123,7 @@ test('attack segments mark the chosen advantage die, minimum/maximum dice, and c
   assert.equal(tooltip.find(part => part.text === '1').minimum, true);
   assert.equal(tooltip.find(part => part.text === '1').bold, true);
   assert.match(tooltip.map(part=>part.text).join(''), /2d20 = \(20\)\(1\)/);
-  assert.match(parts.map(part => part.text).join(''), /at disadvantage.*\n4 Miss!/);
+  assert.match(parts.map(part => part.text).join(''), /at disadvantage.*\n4 misses\./);
 });
 
 test('stealing reuses the original roll, excludes equipped armor, and removes only the chosen gear', () => {

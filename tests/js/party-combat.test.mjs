@@ -18,8 +18,8 @@ test('combat movement budgets support bonuses and occupied final steps are rejec
 test('attack history describes raw roll, ability, other bonuses, AC and outcome', () => {
   assert.equal(attackNarrative({ character: { name: 'Erd' }, monster: { name: 'Apprentice', ac: 11 }, weapon: 'Dagger',
     roll: { roll: 11, modifier: -1, total: 10 }, ability: 'STR', abilityModifier: -1, hit: false }),
-  'Erd attacks the apprentice with a dagger.\n10 Miss!');
-  assert.match(attackNarrative({ character: { name: 'Erd' }, monster: { ac: 10 }, weapon: 'Sword', roll: { roll: 12, modifier: 3, total: 15 }, ability: 'STR', abilityModifier: 2, hit: true, damage: 4 }), /15 Hits! Damage: 4/);
+  'Erd attacks the apprentice with a dagger.\n10 misses.');
+  assert.match(attackNarrative({ character: { name: 'Erd' }, monster: { ac: 10 }, weapon: 'Sword', roll: { roll: 12, modifier: 3, total: 15 }, ability: 'STR', abilityModifier: 2, hit: true, damage: 4 }), /15 hits for 4 damage\./);
   assert.equal(mixTokenColor('#ff0000', '#ffffff', .1), 'rgb(255, 230, 230)');
 });
 

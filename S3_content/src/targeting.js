@@ -38,7 +38,7 @@ export function canAimAtSquare(state, character, square, range) {
 }
 
 export function hasReadyOffensiveSpell(character) {
-  return (OFFENSIVE_SPELLS.has(character?.pendingSpell?.spell) || ['light','holy weapon','invisibility','charm person','hold portal','sleep','acid arrow','detect thoughts','hold person','alter self','levitate','misty step','fixed object','silence','web'].includes(character?.pendingSpell?.spell)) && ['targeting','placement'].includes(character.pendingSpell.phase);
+  return (OFFENSIVE_SPELLS.has(character?.pendingSpell?.spell) || ['light','holy weapon','invisibility','charm person','hold portal','sleep','acid arrow','detect thoughts','hold person','alter self','levitate','misty step','fixed object','silence','web','bless','cleansing weapon','smite','blind deafen','zone of truth'].includes(character?.pendingSpell?.spell)) && ['targeting','placement'].includes(character.pendingSpell.phase);
 }
 
 export function pendingSpellAllowsCommand(character, type, spellName = '') {

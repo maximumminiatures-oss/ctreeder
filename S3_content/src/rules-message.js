@@ -44,7 +44,7 @@ function lexicon({ state, rulesData, monsters, spells, classes, ancestries, back
   const dynamic = dynamicTerms(state);
   const signature = JSON.stringify([dynamic, classes, ancestries, backgrounds, alignments]);
   const spellSize = spells instanceof Map || spells instanceof Set ? spells.size : spells?.length;
-  if (cached?.rulesData === rulesData && cached?.monsters === monsters && cached?.spells === spells &&
+  if (cached && cached.rulesData === rulesData && cached.monsters === monsters && cached.spells === spells &&
       cached.spellSize === spellSize && cached.signature === signature) return cached;
   const entries = new Map();
   const add = (value, kind, canonical = value) => {
@@ -129,6 +129,7 @@ export function formatRulesMessage(message, context = {}) {
     for (let index = 0; index < segment.text.length; index++) {
       let character = segment.text[index];
       if (/\p{L}/u.test(character)) { if (initial) character = character.toUpperCase(); initial = false; }
+      else if (/\p{N}/u.test(character)) initial = false;
       else if (character === '\n' || /[!?]/.test(character) || character === '.' && !/\d/.test(segment.text[index + 1] || '')) initial = true;
       output += character;
     }

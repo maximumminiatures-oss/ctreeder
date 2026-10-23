@@ -359,7 +359,7 @@ test('empty attacks log a miss and melee door attacks deplete AC 10 / HP 15 door
   const state = discScene(); const actor = state.characters[0];
   Object.assign(actor, { className: 'Fighter', stats: { STR: 18 }, equipmentInitialized: true, lightSpellLit: true, gear: [{ name: 'Dagger', type: 'weapon', equipped: true }] });
   let result = await withRandom(.8, () => executeGameCommand(state, { type: 'attack_empty', character_id: actor.id, x: 1, y: 2, attack_index: 0 }));
-  assert.match(result.state_json.rollHistory[0].detail, /attacks nothing.*\n17 Miss!/);
+  assert.match(result.state_json.rollHistory[0].detail, /attacks nothing.*\n17 misses\./);
   result.state_json.entities.push({ id: 'door', type: 'feature', subtype: 'door', x: 3, y: 2, roomId: 'room', wallSide: 'east', doorState: 'closed', breakDc: 10, visible: true });
   result = await withRandom(.9, () => executeGameCommand(result.state_json, { type: 'attack_door', character_id: actor.id, entity_id: 'door', attack_index: 0 }));
   assert.ok(result.state_json.entities.find(entity => entity.id === 'door').hp < 15);
@@ -629,7 +629,7 @@ test('weapon enchantments work while hidden and are named in roll history only a
     const result=await withRandom(.4,()=>executeGameCommand(normalized.state_json,{type:'attack',character_id:'priest',monster_id:'foe',attack_index:0}));
     assert.equal(result.state_json.entities.find(e=>e.id==='foe').hp,95);
     const history=result.state_json.rollHistory.find(entry=>entry.label==='Attack'||entry.detail.includes('attacks the'));
-    assert.match(history.detail,/13 Hits!/);
+    assert.match(history.detail,/13 hits/);
     const tooltip=history.segments.find(part=>part.tooltip).tooltip.map(part=>part.text).join('');
     if(identified)assert.match(tooltip,/\+2 magic/);else assert.doesNotMatch(tooltip,/\+2 magic|other/);
   }
@@ -695,7 +695,7 @@ test('a sleeping target receives base and stacked talent backstab dice, with com
     let result;try{result=await executeGameCommand(state,{type:'attack',character_id:'priest',monster_id:'foe',attack_index:0});}finally{Math.random=old;}
     const entry=result.state_json.rollHistory.find(item=>item.detail.startsWith('Shrigark backstabs'));
     assert.ok(entry,JSON.stringify(result.state_json.rollHistory));
-    assert.equal(entry.detail,`Shrigark backstabs the stingbat with a dagger.\n21 Hits! Damage: ${3+extra}`);
+    assert.equal(entry.detail,`Shrigark backstabs the stingbat with a dagger.\n21 hits for ${3+extra} damage.`);
     const tips=entry.segments.filter(part=>part.tooltip).map(part=>part.tooltip.map(item=>item.text).join(''));
     assert.match(tips[0],/Advantage from sleep; 2d20 = \(14\)\(18\) \+3 DEX/);
     assert.equal((tips[1].match(/1d4/g)||[]).length,2+extra);assert.match(tips[1],/backstab = /);

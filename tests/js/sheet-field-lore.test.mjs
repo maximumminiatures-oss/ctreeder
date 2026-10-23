@@ -47,7 +47,7 @@ test('all twenty rulebook backgrounds have distinct, concise summaries and norma
   assert.notEqual(fieldLore('Background', 'Acolyte'), fieldLore('Title', 'Acolyte'));
 });
 
-test('every core class title identifies its correct class, alignment, and level band without granting mechanics', () => {
+test('class titles and the Title field no longer have hover descriptions', () => {
   const groups = [
     ['Fighter', 'lawful', ['Squire', 'Cavalier', 'Knight', 'Thane', 'Lord/Lady']],
     ['Fighter', 'chaotic', ['Knave', 'Bandit', 'Slayer', 'Reaver', 'Warlord']],
@@ -62,19 +62,15 @@ test('every core class title identifies its correct class, alignment, and level 
     ['Wizard', 'chaotic', ['Adept', 'Channeler', 'Witch/Warlock', 'Diabolist', 'Sorcerer']],
     ['Wizard', 'neutral', ['Shaman', 'Seer', 'Warden', 'Sage', 'Druid']]
   ];
-  for (const [className, alignment, names] of groups) names.forEach((name, rank) => {
-    const text = fieldLore('Title', name);
-    concise(text);
-    assert.ok(text.startsWith(`${className} title for a ${alignment}`));
-    assert.ok(text.includes(`levels ${rank * 2 + 1}-${rank * 2 + 2}`));
-  });
+  for (const [, , names] of groups) names.forEach(name => assert.equal(fieldLore('Title', name), ''));
+  assert.equal(fieldLore('Title'), '');
   assert.equal(fieldLore('Title', 'Lady'), fieldLore('Title', 'Lord/Lady'));
   assert.equal(fieldLore('Title', 'Warlock'), fieldLore('Title', 'Witch/Warlock'));
   assert.equal(fieldLore('Title', 'Bandit Queen'), fieldLore('Title', 'Bandit King/Queen'));
 });
 
 test('all popup field headings and common internal field aliases return concise text', () => {
-  for (const field of ['Ancestry', 'Class', 'Alignment', 'Deity', 'Level', 'XP', 'Title', 'Background', 'Stats', 'HP', 'AC',
+  for (const field of ['Ancestry', 'Class', 'Alignment', 'Deity', 'Level', 'XP', 'Background', 'Stats', 'HP', 'AC',
     'Attacks', 'Gear', 'Gear Slots', 'Coins', 'GP', 'SP', 'CP', 'Free To Carry', 'Talents', 'Spells', 'TALENTS / SPELLS', 'Languages']) concise(fieldLore(field));
   for (const [alias, field] of [['className', 'Class'], ['maxHitPoints', 'HP'], ['armor_class', 'AC'], ['gearSlotsTotal', 'Gear Slots'],
     ['Equipment', 'Gear'], ['Experience Points', 'XP'], ['Gold Pieces', 'GP'], ['Total Coins', 'Coins'], ['FreeCarry', 'Free To Carry'],
