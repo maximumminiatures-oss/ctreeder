@@ -3504,6 +3504,10 @@ async function chooseMonsterAttack(monster, target) {
 }
 
 function applyMonsterAttack(monster, target, attack) {
+  // Animated turns yield while sheet refreshes can replace normalized actors.
+  monster = state.entities.find(entity => entity.type === 'monster' && entity.id === monster?.id);
+  target = state.characters.find(character => character.id === target?.id);
+  if (!monster || !target || !isLiveMonster(monster) || !isCharacterTargetableByMonster(target)) return '';
   if (!sameRoute(state, monster, target)) return `${monster.name} cannot attack across separate passages.`;
   if (attack.rangeInfo.maxRange <= 1 && transformationMovementRules(state, target).levitating) return `${target.name} levitates beyond melee reach.`;
   if (blocksMindControl(state, target, attack.name || '')) return `${monster.name}'s ${attack.name} fails against the protection aura.`;
