@@ -1,0 +1,45 @@
+@font-face {
+  font-family: "JBlack";
+  src: url("/site/JBLACK.TTF") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cinzel Decorative";
+  src: url("/gary_con/fonts/CinzelDecorative-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+* { box-sizing: border-box; }
+html { color-scheme: dark; background: #000; }
+body {
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 1.25rem;
+  line-height: 1.6;
+}
+main { width: min(100% - 3rem, 62rem); margin: 0 auto; padding: clamp(3rem, 8vw, 6rem) 0 3rem; }
+h1 { margin: 0; text-align: center; font-weight: 400; line-height: 1.15; }
+.shadowspawner { font-family: "JBlack", Impact, "Arial Black", sans-serif; font-weight: 400; }
+.gary-con { font-family: "Cinzel Decorative", Georgia, serif; font-weight: 400; }
+.title-brand { display: block; font-size: clamp(2.25rem, 8vw, 5.5rem); }
+.event-title { display: block; margin-top: .3em; font-size: clamp(1.75rem, 5.5vw, 3.5rem); }
+.at { font-family: "JBlack", Impact, sans-serif; font-size: .65em; }
+.details { max-width: 45rem; margin: clamp(2.5rem, 6vw, 4.5rem) auto 0; }
+.details p { margin: 0 0 1.25em; }
+.announcement { margin: clamp(3rem, 7vw, 5rem) auto; max-width: 28em; text-align: center; font-size: clamp(1.75rem, 3.6vw, 2.6rem); line-height: 1.5; text-wrap: balance; }
+nav { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 1.25rem 2.5rem; padding-top: 1.75rem; border-top: 1px solid #555; text-align: center; }
+a { color: #fff; text-underline-offset: .3em; text-decoration-thickness: 1px; }
+nav .shadowspawner { font-size: 1.5rem; }
+nav .gary-con { font-size: 1.35rem; }
+a:hover { text-decoration-thickness: 2px; }
+a:focus-visible { outline: 2px solid #fff; outline-offset: 6px; }
+@media (max-width: 420px) {
+  main { width: calc(100% - 2rem); }
+  body { font-size: 1.125rem; }
+  nav { flex-direction: column; gap: 1.5rem; }
+}
