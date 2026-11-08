@@ -51,8 +51,10 @@ export function suspiciousProvoked(state, monster, { treasure = null, actorId = 
 }
 
 export const moraleImmune = monster => /\b(?:undead|ooze\w*|demon\w*|devil\w*|golem\w*)\b/.test(monsterTraits(monster));
+export const isDungeonMoraleSubject = (state, monster) => monster?.type === 'monster' &&
+  !(state.characters || []).some(character => character.id === monster.id);
 export function initializeMorale(state) {
-  for (const monster of state.entities || []) if (monster.type === 'monster' && !monster.morale) {
+  for (const monster of state.entities || []) if (isDungeonMoraleSubject(state, monster) && !monster.morale) {
     monster.maxHp = Number(monster.maxHp) || Number.parseInt(monster.hp,10) || 1;
     monster.morale = { halfChecked: false, deathChecked: monster.defeated === true };
   }
@@ -60,7 +62,7 @@ export function initializeMorale(state) {
 export function processMorale(state, { sourceId = null, random = Math.random } = {}) {
   if (!state.combat?.active) return [];
   initializeMorale(state);
-  const monsters = state.entities.filter(entity => entity.type === 'monster' && !entity.leftPeacefully);
+  const monsters = state.entities.filter(entity => isDungeonMoraleSubject(state, entity) && !entity.leftPeacefully);
   const events = [];
   for (const cue of monsters) {
     let trigger = false;

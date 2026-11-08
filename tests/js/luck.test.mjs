@@ -29,6 +29,25 @@ const reroll = (state, roll, applyOutcome = () => {}, options = {}) => consumeLu
   ownerId: 'a', rollD20: () => roll, applyOutcome, ...options
 });
 
+test('unchanged capture fields do not consume the saved Luck outcome patch budget', () => {
+  const state = fixture(), pending = event(state);
+  for (let index = 0; index < 300; index++) state.characters[1][`field${index}`] = 0;
+  captureLuckChange(state, pending, ref('b'), Array.from({ length: 300 }, (_, index) => `field${index}`));
+  state.characters[1].field0 = 1;
+  const record = finishLuckEvent(state, pending, { succeeded: false });
+  assert.equal(record.patches.length, 1);
+  assert.equal(record.patches[0].path[0], 'field0');
+});
+
+test('saved Luck outcomes still reject more than 256 real field changes', () => {
+  const state = fixture(), pending = event(state);
+  const fields = Array.from({ length: 257 }, (_, index) => `field${index}`);
+  for (const field of fields) state.characters[1][field] = 0;
+  captureLuckChange(state, pending, ref('b'), fields);
+  for (const field of fields) state.characters[1][field] = 1;
+  assert.throws(() => finishLuckEvent(state, pending, { succeeded: false }), /Too many Luck outcome changes/);
+});
+
 test('latest unfavorable roll from any party member remains after favorable later rolls', () => {
   const state = fixture();
   const first = missedAttack(state);

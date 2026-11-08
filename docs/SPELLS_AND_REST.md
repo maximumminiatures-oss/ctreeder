@@ -105,6 +105,116 @@ event with target IDs and a history message; they do not substitute unrelated
 damage or pretend to resolve the spell. Higher-tier spell implementations should
 consume this same forced-resolution path when added.
 
+## Tier 3 wizard blasts
+
+Fireball and Lightning Bolt use DC 13 INT casting and the existing action, wand,
+scroll, Luck, and tier-3 mishap rules. A successful cast remains ready while the
+caster repositions on the same turn. Choose a map square, inspect the affected
+cells, and confirm to release; cancelling spends the already-used casting action.
+Previews are clipped to explored cells and do not reveal unknown terrain.
+
+Fireball targets a point within twelve squares and clear line of sight. It deals
+4d6 fire damage in a centered 7-by-7 square, including allies and the caster.
+Its initial natural-20 choices are 8d6 damage OR a 13-by-13 square. Walls and
+closed doors block rays from the impact point; flames do not spread around them.
+Exposed treasure uses the existing charring/ash rules and affected Webs ignite.
+
+Lightning Bolt is a one-square-wide directed ray. It always extends the full
+twelve squares, not merely to the clicked square, unless geometry or a map edge
+stops it. It deals 3d6 lightning damage to creatures along the ray, including
+allies but not its origin caster. Initial critical choices are 6d6 damage OR
+twenty-four-square length. Neither spell grants a saving throw or attack roll.
+Damage is rolled once for each blast, with each target's resistance applied.
+Upper and lower routes remain independent for placement, previews, and damage.
+
+## Multiplayer Illusion presentation
+
+Other players see the apparent creature, floor, or pit normally. The caster's
+Illusion casting, placement, and Focus messages are private to the caster's owner,
+including when another player is the host or spends Luck on that check. Successful
+physical exposure still makes that projection vanish for everyone. Party characters
+never make morale checks, including recruited monsters; only dungeon monsters do.
+The existing shared-state client still receives mechanical projection metadata for
+rendering and simulation. This is a no-spoilers UI rule, not anti-cheat encryption.
+
+## Spell template artwork
+
+Web and Silence use their supplied PNGs across their ordinary 6-by-6 live areas,
+under creature markers and fog. Their existing duration, Focus, restraint, sound,
+and burning rules do not change. Burning Web art fades with its existing red
+overlay. Ending or dispelling an area removes its artwork.
+
+Fireball uses its PNG as a translucent targeting preview across the ordinary
+7-by-7 bounds. The artwork is clipped to the actual affected, explored cells;
+walls, doors, map bounds, and independent routes still determine valid effects.
+It disappears when the spell is released or cancelled, never becoming persistent
+fire. The double-damage critical uses the ordinary footprint and artwork.
+
+Enlarged critical footprints (12-by-12 Web/Silence and 13-by-13 Fireball) retain
+geometric rendering. Do not stretch or tile the ordinary artwork to imply an
+approved enlarged template. Magic Circle's artwork is ready for explicit live
+area records in `spellEffects`; its casting and protection mechanics are not yet
+automated. Preserve the current artist filename `mqgic-circle.png`.
+
+## Dispel Magic and effect tracking
+
+Dispel Magic uses DC 13 INT casting, Near range (six squares), visible targets,
+line of sight, and separate underpass routes. After casting, select a target and
+then choose its live magical effect. Initial critical choices remove two effects
+from one target or one effect from each of two targets. It never dispels all
+effects simply because a creature or square was clicked.
+
+`magic-effect-registry.js` adapts existing source records instead of replacing
+their mechanics. Removing Sleep or a multi-target debuff from one creature leaves
+other recipients affected. Web and Silence are whole board effects. A Floating
+Disc expires through the normal cargo-drop path; a summoned creature is removed
+individually. Innate abilities are not spells. Generic source-tracked records are
+available for future monster spells; monster spellcasting AI is still separate.
+Detect Magic uses the same catalog to reveal active effects and their sources.
+
+Permanent magical items, traps, and locks are suppressed for ten existing rounds.
+Weapons and armor retain ordinary properties but lose intrinsic bonuses and
+elemental effects/resistance. Their names become "non-magical [gear name]" and
+restore on expiry. A wand becomes "non-magical wand" and cannot activate. A potion
+becomes "Potion of No Effect"; drinking wastes it, leaves an empty flask, and
+reports "Nothing happens." Scroll items cannot be dispelled; ongoing spells cast
+from scrolls can. Separate mundane door locks still apply. Suppressed traps do
+not trigger and reactivate after expiry unless destroyed or disarmed. Suppression
+metadata survives saves without restoring consumed items or duplicating gear.
+
+## Illusion
+
+Illusion uses DC 13 INT, Focus and twelve-square placement range. Choose Horrible
+Behemoth, Skeleton, Marilith, Vampire, Tyrannosaurus, Blank Floor or Illusory Pit,
+then confirm its map position. An initial natural 20 permits two independently
+chosen/placed projections, including duplicates, under one Focus. Exposing one
+does not end the other. Later Focus checks never add critical choices; ordinary
+failure ends the projections without losing the spell, and natural 1 uses the
+tier 3 wizard mishap rules. Caster death, dying, sleep or another Focus ends them.
+
+Creature decoys occupy a party slot and can be selected, moved and reordered
+outside combat. They do not block movement, trigger traps, carry real gear,
+receive XP, consume rest supplies, or take watches. On their combat turn they
+automatically approach/attack the nearest enemy with physical attacks. Every
+attack rolls exactly 1, never gains advantage/disadvantage and never deals damage.
+The behemoth is 3x3, AC 20, HP 60, six-square movement and all ability scores 18;
+its fake acid claw/bile spit list +10 and 5d6+20. Other forms use their stat blocks
+and 1x1 markers. Behemoth arrival checks nearby non-immune monster morale DC 15.
+
+Any successful hit or monster contact dismisses a decoy immediately. This
+supersedes its earlier HP 0 regeneration proposal. Suspicious monsters can spend
+their turn inspecting an illusion: WIS versus the caster's latest successful
+Focus total. Success dismisses the entire selected projection for everyone.
+
+Blank Floor covers 3x3 tiles and hides underlying dungeon artwork, not its actual
+movement or trap mechanics. Party members inside automatically count as stealthed
+and gain the associated attack advantage; leaving makes one ordinary DEX stealth
+check, with thief advantage. Attacking from cover makes the victim suspicious.
+Monsters can walk into it, dismissing the projection, and still trigger real pits
+or traps normally. Illusory Pit is 3x3: grounded monsters avoid it; flying and
+incorporeal monsters may cross it. Forced entry dismisses it without real falling
+damage. Upper/lower routes, fog, Detect Magic, Dispel Magic and saves stay separate.
+
 ## Mage Armor
 
 Mage Armor uses the normal Wizard DC 11 check and one combat action. It targets

@@ -401,8 +401,10 @@ test('Steal stores one advantage roll, prevents armor theft and takes one item w
   Object.assign(state.characters[0], { className: 'Thief', stats: { DEX: 18 }, stealthed: true });
   Object.assign(state.entities[1], { x: 3, y: 2, W: 1, gear: [{ name: 'Chainmail', type: 'armor', equipped: true }, { name: 'Rope', slots: 1 }] });
   let result = await withRandom(.7, () => executeGameCommand(state, { type: 'steal', character_id: 'priest' }));
+  assert.equal(result.state_json.characters[0].pendingSteal.check, undefined);
+  assert.equal(result.state_json.combat.actionUsed, false);
+  result = await withRandom(.7, () => executeGameCommand(result.state_json, { type: 'steal_target', character_id: 'priest', target_id: 'foe' }));
   assert.equal(result.state_json.characters[0].pendingSteal.check.total, 19);
-  result = await withRandom(0, () => executeGameCommand(result.state_json, { type: 'steal_target', character_id: 'priest', target_id: 'foe' }));
   await assert.rejects(executeGameCommand(result.state_json, { type: 'steal_take', character_id: 'priest', gear_index: 0 }), /cannot be stolen/);
   result = await withRandom(0, () => executeGameCommand(result.state_json, { type: 'steal_take', character_id: 'priest', gear_index: 1 }));
   assert.equal(result.state_json.characters[0].pendingSteal, null);
@@ -414,7 +416,9 @@ test('failed theft ends ordinary stealth without breaking even spell invisibilit
   const state = scene();
   Object.assign(state.characters[0], { className: 'Thief', stats: { DEX: 10 }, stealthed: true,
     invisibility: { rounds: 10, source: 'spell', breakOnOffense: true } });
-  const result = await withRandom(0, () => executeGameCommand(state, { type: 'steal', character_id: 'priest' }));
+  state.entities[1].x = 3;
+  const targeting = await executeGameCommand(state, { type: 'steal', character_id: 'priest' });
+  const result = await withRandom(0, () => executeGameCommand(targeting.state_json, { type: 'steal_target', character_id: 'priest', target_id: 'foe' }));
   assert.equal(result.state_json.characters[0].stealthed, false);
   assert.equal(result.state_json.characters[0].invisibility.rounds, 10);
   assert.equal(result.state_json.characters[0].pendingSteal, null);

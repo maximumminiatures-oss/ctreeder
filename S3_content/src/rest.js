@@ -6,12 +6,14 @@ import { isFloatingDisc } from './floating-disc.js';
 import { planRestScene } from './rest-scene.js';
 
 export const REST_HOUR_MS = 1000;
+const isRestParticipant = character => !isFloatingDisc(character) && character.illusion?.kind !== 'creature' && !character.dead && !character.slain;
 export function restWatchSchedule(state, order = state.rest?.watchOrderIds || state.rest?.participantIds || []) {
+  const eligibleOrder = order.filter(id => !state.characters.some(character => character.id === id && character.illusion?.kind === 'creature'));
   return Array.from({ length: 4 }, (_, shift) => ({
     firstHour: shift * 2 + 1,
     lastHour: shift * 2 + 2,
-    characterIds: order.filter((id, index) => index % 4 === shift && state.characters.some(character =>
-      character.id === id && !isFloatingDisc(character) && !character.dead && !character.slain))
+    characterIds: eligibleOrder.filter((id, index) => index % 4 === shift && state.characters.some(character =>
+      character.id === id && isRestParticipant(character)))
   }));
 }
 
@@ -22,6 +24,9 @@ export function restWatchCharacters(state, hour = Math.min(8, (state.rest?.hours
 }
 
 export function buildRestWatchOrder(party, preferred = [], { ownership = {}, memberIds = [], initiatorId = null } = {}) {
+  const illusionIds = new Set(party.filter(character => character.illusion?.kind === 'creature').map(character => character.id));
+  if (Array.isArray(preferred)) preferred = preferred.filter(id => !illusionIds.has(id));
+  party = party.filter(character => character.illusion?.kind !== 'creature');
   const ids = party.map(character => character.id);
   if (!Array.isArray(preferred) || preferred.length > 16 || preferred.some(id => typeof id !== 'string' || !ids.includes(id)) || new Set(preferred).size !== preferred.length) {
     throw new Error('Invalid rest watch order.');
@@ -59,7 +64,7 @@ function supplyHolders(state, party) {
 }
 
 export function restSupplyStatus(state) {
-  const party=(state.characters||[]).filter(character=>!isFloatingDisc(character)&&!character.dead&&!character.slain);
+  const party=(state.characters||[]).filter(isRestParticipant);
   const reusing=state.rest?.phase==='interrupted'&&state.rest.suppliesPaid&&
     state.rest.participantIds?.length===party.length&&party.every(character=>state.rest.participantIds.includes(character.id));
   const holders=supplyHolders(state,party);
@@ -84,7 +89,7 @@ function consume(character, pattern, amount) {
 }
 
 export function restingParty(state) {
-  const party = state.characters.filter(character => !isFloatingDisc(character) && !character.dead && !character.slain);
+  const party = state.characters.filter(isRestParticipant);
   if (party.some(character => character.conditions?.sinkhole)) throw new Error('Rescue or climb out of the pit before resting.');
   if (!party.length || party.some(character => Number(character.hp) <= 0 || character.pendingSpell)) {
     throw new Error('Heal dying characters and finish pending spells before resting.');
@@ -109,8 +114,10 @@ export function beginPartyRest(state, { memberId = 'solo', requiredMemberIds = [
   const suppliesPaid = Boolean(state.rest?.suppliesPaid && state.rest.phase === 'interrupted' &&
     state.rest.participantIds.length === party.length && party.every(character => state.rest.participantIds.includes(character.id)));
   const previousRest = state.rest;
+  const watchOrder = Array.isArray(watchOrderIds) ? watchOrderIds.filter(id =>
+    !state.characters.some(character => character.id === id && character.illusion?.kind === 'creature')) : watchOrderIds;
   const orderedIds = suppliesPaid ? previousRest.watchOrderIds || previousRest.participantIds
-    : buildRestWatchOrder(party, watchOrderIds, { ownership, memberIds, initiatorId: memberId });
+    : buildRestWatchOrder(party, watchOrder, { ownership, memberIds, initiatorId: memberId });
   state.rest = { phase: 'voting', roomId: party[0].roomId, participantIds: party.map(character => character.id),
     requiredMemberIds: [...new Set([...requiredMemberIds, memberId])], acceptedMemberIds: [],
     hours: Math.min(...party.map(character => Number(character.restHours) || 0)), safe, suppliesPaid,
@@ -151,7 +158,7 @@ export function acceptPartyRest(state, memberId, now = Date.now()) {
     torches -= taken;
   }
   rest.phase = 'sleeping';
-  for (const character of state.characters.filter(member => rest.participantIds.includes(member.id))) {
+  for (const character of state.characters.filter(member => member.illusion?.kind !== 'creature' && rest.participantIds.includes(member.id))) {
     character.stealthed = false;
     if (character.stealthState) character.stealthState.revealed = true;
     if (character.raw) character.raw.stealthed = false;
@@ -163,7 +170,7 @@ export function acceptPartyRest(state, memberId, now = Date.now()) {
     if (!fresh) scene.startedAt = now - (scene.durationMs || 0);
     for (const place of scene.placements) {
       const character = state.characters.find(member => member.id === place.characterId);
-      if (character) Object.assign(character, { x: place.x, y: place.y, roomId: rest.roomId });
+      if (character && character.illusion?.kind !== 'creature') Object.assign(character, { x: place.x, y: place.y, roomId: rest.roomId });
     }
     rest.nextHourAt = now + REST_HOUR_MS + (fresh ? scene.durationMs || 0 : 0);
   } else rest.nextHourAt = now + REST_HOUR_MS;
@@ -182,7 +189,7 @@ export function interruptPartyRest(state, check = rollCheck, { hour = Math.min(8
   const rest = state.rest;
   rest.interruptedWatchIds = restWatchCharacters(state, hour).map(character => character.id);
   rest.ambushPending = true;
-  rest.interruptionChecks = state.characters.filter(character => rest.participantIds.includes(character.id) && !rest.interruptedWatchIds.includes(character.id) && !character.dead && !character.slain).map(character => {
+  rest.interruptionChecks = state.characters.filter(character => isRestParticipant(character) && rest.participantIds.includes(character.id) && !rest.interruptedWatchIds.includes(character.id)).map(character => {
     character.conditions ||= {}; character.conditions.prone = true;
     const result = check(abilityScoreModifier(character.stats?.CON));
     const passed = result.total >= 12;
@@ -197,7 +204,7 @@ export function advancePartyRest(state, { now = Date.now(), encounter = () => fa
   if (rest?.phase !== 'sleeping' || now < rest.nextHourAt) return null;
   while (rest.hours < 8 && now >= rest.nextHourAt) {
     rest.hours += 1;
-    for (const character of state.characters.filter(character => rest.participantIds.includes(character.id))) {
+    for (const character of state.characters.filter(character => character.illusion?.kind !== 'creature' && rest.participantIds.includes(character.id))) {
       character.restHours = Math.min(8, (Number(character.restHours) || 0) + 1);
     }
     rest.nextHourAt += REST_HOUR_MS;
@@ -210,7 +217,7 @@ export function advancePartyRest(state, { now = Date.now(), encounter = () => fa
   if (rest.hours < 8) return `You've slept for ${rest.hours} of 8 hours.`;
   const recovered = [], failed = [];
   rest.studyResults = [];
-  for (const character of state.characters.filter(character => rest.participantIds.includes(character.id))) {
+  for (const character of state.characters.filter(character => character.illusion?.kind !== 'creature' && rest.participantIds.includes(character.id))) {
     if (!character.dead && !character.slain && Number(character.hp) > 0 && !character.restFailed) {
       setCharacterHp(character, character.maxHitPoints);
       character.halflingInvisibilityUsed = false;

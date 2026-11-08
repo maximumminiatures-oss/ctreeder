@@ -1,3 +1,5 @@
+import { isMagicSuppressed } from './magic-suppression.js';
+
 export const ELEMENTS = ['lightning', 'fire', 'cold', 'acid', 'poison'];
 const aliases = {
   lightning: /\b(?:lightning|electric(?:ity|al)?|thunderbolt|shock)\b/i,
@@ -14,7 +16,7 @@ export function matchingElements(source) {
 
 export function resistanceType(creature, source) {
   const elements = matchingElements(source);
-  return (creature?.gear || []).find(item => item.equipped && elements.includes(item.magic?.resistance))?.magic.resistance || null;
+  return (creature?.gear || []).find(item => item.equipped && !isMagicSuppressed(item) && elements.includes(item.magic?.resistance))?.magic.resistance || null;
 }
 
 export function elementalDamage(creature, amount, source) {

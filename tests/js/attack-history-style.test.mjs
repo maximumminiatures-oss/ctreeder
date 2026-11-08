@@ -16,7 +16,11 @@ const text = segments => segments.map(segment => segment.text).join('');
 test('attack history uses sentence prose while preserving capitalized field labels and actor color identity', () => {
   const input = options(), before = structuredClone(input), parts = attackRollSegments(input);
   assert.equal(text(parts), 'Dor attacks Kragol with a warhammer.\n21 hits for 4 damage.');
-  assert.deepEqual(parts[0], { text: 'Dor', bold: true, characterId: 'dor' });
+  const { rollCard, ...actorSegment } = parts[0];
+  assert.deepEqual(actorSegment, { text: 'Dor', bold: true, characterId: 'dor' });
+  assert.equal(rollCard.actorId, 'dor'); assert.equal(rollCard.actorName, 'Dor');
+  assert.equal(rollCard.heading, 'Warhammer'); assert.equal(rollCard.type, 'Attack');
+  assert.equal(rollCard.results[0].value, 21); assert.equal(rollCard.damage.value, 4);
   const hit = parts.find(part => part.text === '21'), damage = parts.find(part => part.text === '4');
   assert.equal(hit.bold, true); assert.equal(damage.bold, true);
   assert.equal(text(hit.tooltip), '1d20 = 19 +2 STR = To hit: 21');

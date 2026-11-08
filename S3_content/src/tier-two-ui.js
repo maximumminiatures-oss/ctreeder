@@ -22,6 +22,7 @@ export function createTierTwoUi({ getPresentation, resolve, preview, mapHost, st
     signature = key;
     closeDialog(); closePanel();
     if (!view) { selected = null; preview(null); return; }
+    if (view.area && selected && preview({ ...selected, ...view.area }) === false) selected = null;
     if (view.choices?.length || view.options?.length) {
       dialog = node('dialog', null, 'tier-two-dialog');
       dialog.setAttribute('aria-label', view.title);
@@ -30,7 +31,7 @@ export function createTierTwoUi({ getPresentation, resolve, preview, mapHost, st
       if (view.detail) dialog.append(node('p', view.detail));
       for (const entry of view.choices || view.options || []) {
         const button = node('button', entry.label); button.type = 'button';
-        button.disabled = Boolean(entry.disabled); if (entry.description) button.title = entry.description;
+        button.disabled = Boolean(entry.disabled || view.busy); if (entry.description) button.title = entry.description;
         button.onclick = () => void submit({ [view.choices ? 'choice' : 'option']: entry.key });
         dialog.append(button);
       }
@@ -54,18 +55,18 @@ export function createTierTwoUi({ getPresentation, resolve, preview, mapHost, st
       button.onclick = () => void submit({ gearIndex: entry.gearIndex }); panel.append(button);
     }
     if (view.area) {
-      const confirm = node('button', 'Confirm'); confirm.type = 'button'; confirm.disabled = !selected;
+      const confirm = node('button', 'Confirm'); confirm.type = 'button'; confirm.disabled = !selected || Boolean(view.busy);
       confirm.onclick = () => { if (selected) void submit({ ...selected, confirmed: true }); };
       panel.append(confirm);
     }
-    const cancel = node('button', 'Cancel'); cancel.type = 'button'; cancel.onclick = () => void submit({ dismiss: true });
+    const cancel = node('button', 'Cancel'); cancel.type = 'button'; cancel.disabled = Boolean(view.busy); cancel.onclick = () => void submit({ dismiss: true });
     panel.append(cancel); mapHost.parentElement.append(panel);
-    if (view.area && selected) preview({ ...selected, ...view.area });
   }
   function click(x, y, targetId = null) {
     const view = getPresentation();
     if (!view || view.choices?.length || view.options?.length) return false;
-    if (view.area) { selected = { x, y }; preview({ x, y, ...view.area }); sync(true); }
+    if (view.busy) return true;
+    if (view.area) { selected = preview({ x, y, ...view.area }) === false ? null : { x, y }; sync(true); }
     else void submit({ x, y, targetId });
     return true;
   }

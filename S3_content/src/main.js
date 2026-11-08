@@ -2,6 +2,7 @@ import { DEFAULT_LIGHT_RADIUS, MAX_SEARCH_MODIFIER, MIN_SEARCH_MODIFIER, TILE_SI
 import { loadLocalJson } from './data-loader.js';
 import { formatRulesMessage } from './rules-message.js';
 import { formatFieldName } from './ui-text.js';
+import { canReadFeedback } from './private-feedback.js';
 import { SHOP_CATEGORIES, STARTING_ROOM_SHOP_ITEMS, createShopGearItem } from './shop-catalog.js';
 import { createBackgroundCatalog, initializeCharacterBackground } from './backgrounds.js';
 import { ancestryTalents, isRepresentedAncestryBonus, ancestryAttackModifiers, hasAncestryTrait } from './ancestry.js';
@@ -23,7 +24,7 @@ import {
   attemptLockedDoor,
   getPendingLockedDoorAction,
   getDoorClickContext,
-  getDoorBetween, getDoorAt, setDoorState,
+  getDoorBetween, getDoorAt, setDoorState, isMagicallyLocked,
   getRoomLoot,
   getRoomTraps,
   movePlayer,
@@ -93,6 +94,13 @@ import { isInvisible, isStealthed, isHiddenMonster, neverSurprised, activateHalf
 import { castInvisibility, resolveInvisibility } from './invisibility.js';
 import { TIER_TWO_SPELLS, TIER_TWO_CHOICES, castTierTwoSpell, resolveTierTwoSpell, tierTwoPresentation } from './tier-two-spells.js';
 import { createTierTwoUi } from './tier-two-ui.js';
+import { TIER_THREE_SPELLS, castTierThreeSpell, resolveTierThreeSpell, tierThreePresentation, tierThreeCells, applyTierThreeBlast } from './tier-three-spells.js';
+import { castDispelMagic, resolveDispelMagic, dispelMagicPresentation } from './dispel-magic.js';
+import { castIllusion, resolveIllusion, maintainIllusion, illusionPresentation, illusionPlacement,
+  cleanupIllusions, dismissIllusion, syncIllusionStealth, touchIllusions, inspectIllusion, illusionAttack } from './illusion.js';
+import { isIllusionCreature, illusionCells, illusionsAt } from './illusion-geometry.js';
+import { listMagicEffects, endMagicEffect } from './magic-effect-registry.js';
+import { isMagicSuppressed, hasMagicSuppression, advanceMagicSuppression } from './magic-suppression.js';
 import { PRIEST_TIER_TWO_SPELLS, castPriestTierTwoSpell, resolvePriestTierTwoSpell,
   isPriestTierTwoFocus, maintainPriestTierTwoFocus, cleanupPriestTierTwoFocus, advancePriestTierTwoRounds,
   cleansingWeaponDice, priestTierTwoPresentation } from './priest-tier-two.js';
@@ -104,12 +112,12 @@ import { syncTransformationEffects, advanceTransformationRounds, maintainLevitat
 import { syncAreaSpellConditions, advanceAreaSpells, areaSpellPlacement, silenceBlocksAction, silenceStealthSuccess, noiseIsSilenced, isRestrainedByWeb, escapeWeb, igniteWebsAt } from './area-spells.js';
 import { initializeDisguises, concealedMimic, isDoppelganger, displayMonsterName, buildMonsterCompanion,
   recordCompanionDamage, companionLeaves, archiveSlainCharacter, dropCompanionGear, concealedAnimatedArmor,
-  updateAnimatedArmorDisguises, shouldAnimatedArmorWait, animatedArmorCanEnter, planWanderingArmorRetreat, nativeGear, transferredMonsterGear } from './companions.js';
+  updateAnimatedArmorDisguises, shouldAnimatedArmorWait, animatedArmorCanEnter, planWanderingArmorRetreat, nativeGear, nativeAttackLines, transferredMonsterGear } from './companions.js';
 import { initializeMorale, processMorale, automaticallyHostile, reactionSpeaker, resolveReaction, suspiciousProvoked, monsterScore, isAnimalMonster, creatureLanguages } from './encounters.js';
 import { advanceWizardTime, hasWizardEffect, isLightSuppressedAt, processWizardTurn, spellLockRemaining, SPELL_ROUND_MS, wizardCastingMode, rollWizardMishaps } from './wizard-mishaps.js';
 import { isRaving, availableHands, blocksSpellTier, forgottenSpells, attackDamageMultiplier } from './arcane-effects.js';
 import { applyHigherMishap, queueForcedSpell, ordBalanceOptions, resolveOrdBalance, checkSinkholeFall } from './higher-mishaps.js';
-import { climbFromPit, safePitRim, ropeRescues, rescueWithRope, pushTargets, pushIntoPit, avoidsFalling, knownPitAt, pitAtBottom, ropeDescents, descendWithRope, resolvePitSave } from './pits.js';
+import { climbFromPit, safePitRim, ropeRescues, rescueWithRope, pushTargets, pushIntoPit, avoidsFalling, knownPitAt, pitAtBottom, ropeDescents, descendWithRope, resolvePitSave, isPit, pitContains, openPit } from './pits.js';
 import { resolveLuckSave, captureRuntimeLuckActor } from './luck-runtime.js';
 import { makePitTunnel } from './pit-tunnels.js';
 import { routeOf, routeAt, routeStep, sameRoute, makeUnderpass, routeKey } from './underpasses.js';
@@ -131,7 +139,7 @@ import {
   syncElapsedTime,
   TORCH_SEARCH_ADVANCE_MS
 } from "./timers.js";
-import { hasLineOfSightFrom, isTileVisible, recomputeVisibility } from "./visibility.js";
+import { hasLineOfSightFrom, isTileVisible, recomputeVisibility as recomputeDungeonVisibility } from "./visibility.js";
 import { characterMovementBudget, characterOccupant, combatStepBlock, attackNarrative, attackRollSegments, mixTokenColor, colorChannels } from './combat-rules.js';
 import { planMarchingSteps } from './marching-order.js';
 import { reorderGear } from './gear-order.js';
@@ -140,7 +148,7 @@ import { portalHeld, forceHeldDoor, advancePortalRounds } from './control-spells
 import { findPursuitStep, planFiringPosition, planDarkReposition } from './pursuit.js';
 import { isMonsterCurrentlyVisible, isFeatureCurrentlyVisible } from './monster-perception.js';
 import { resetBurningLights, releaseUnequippedTorches } from './light-lifecycle.js';
-import { stealableGear, selectStealTarget, takeStolenItem } from './thievery.js';
+import { stealableGear, selectStealTarget, takeStolenItem, validStealTarget, findStealTarget } from './thievery.js';
 import { rollTextSegments, damageRollSegments } from './roll-history.js';
 import { restTourFrame } from './rest-scene.js';
 import { unawareReason, backstabMultiplier } from './backstab.js';
@@ -165,8 +173,12 @@ let missileDisplay = null;
 let targetingMode = null;
 let shiftAttackHeld = false;
 let tierTwoUi = null;
+let tierThreeUi = null;
+let dispelUi = null;
+let illusionUi = null;
 let priestTierTwoUi = null;
 let areaPreview = null;
+let tierThreePreview = null;
 let spellLuckContext = null;
 const seenSpellDialogs = new Set();
 let monsterTurnRadius = null;
@@ -513,6 +525,7 @@ const MIN_ZOOM_INSET = 0.92;
 let dragState = null;
 let mapHoverPointer = null;
 let attackCursorImage = null;
+let stealCursorImage = null;
 const attackCursorCache = new Map();
 
 async function loadShadowdarkContent() {
@@ -751,10 +764,12 @@ function zoomMapBy(multiplier) {
   applyViewportScale(viewport.scale * multiplier, getMapViewCenter(panel));
 }
 
+let statusPrivateCharacterId = null;
 function setStatus(resultOrMessage) {
   const result = typeof resultOrMessage === "string"
     ? { message: resultOrMessage }
     : resultOrMessage || { message: "" };
+  statusPrivateCharacterId = result.privateCharacterId || null;
   ui.statusText.classList.toggle("trap-sprung-status", result.trapSprung === true);
   ui.statusText.classList.toggle("no-free-slots-status", result.noFreeSlots === true);
   const messageContext = { state, rulesData, monsters: shadowdarkContent?.monsters || monsterTable, spells: spellLookup };
@@ -1123,8 +1138,36 @@ function updateRestCamera(scene, frame, visible) {
   restCamera.last = now;
   commitViewportTransform();
 }
+function processIllusionContact(world, monster) {
+  const touched = touchIllusions(world, monster);
+  if (!touched.some(projection => projection.illusion.kind === 'floor') || avoidsFalling(monster)) return touched;
+  for (const trap of world.entities.filter(entity => !entity.disarmed && !entity.destroyed && !isMagicSuppressed(entity) &&
+    sameRoute(world, entity, monster) && (isPit(entity) ? pitContains(entity, monster.x, monster.y) :
+      entity.type === 'trap' && !entity.triggered && (!entity.targetType || entity.targetType === 'tile') && entity.x === monster.x && entity.y === monster.y))) {
+    if (isPit(trap)) {
+      openPit(world, trap, { check: rollCheck, canStep: (x, y, nx, ny) => canMoveBetweenTiles(world, x, y, nx, ny, { ignorePits: true, creature: monster }).ok });
+      if (Number(monster.hp) <= 0) defeatMonster(world, monster);
+    } else {
+      Object.assign(trap, { triggered: true, wasSprung: true, visible: true, revealed: true, targetMonsterId: monster.id });
+      if (world === state) pushDiceHistory('Trap', `${monster.name} sets off ${trap.name}. ${trap.effect || ''} Resolve the trap damage manually.`);
+    }
+  }
+  return touched;
+}
+
+function recomputeVisibility(world) {
+  if ([...(world.characters || []), ...(world.entities || [])].some(object => object.illusion)) {
+    cleanupIllusions(world);
+    for (const monster of (world.entities || []).filter(entity => entity.type === 'monster' && !entity.defeated)) processIllusionContact(world, monster);
+  }
+  const results = syncIllusionStealth(world);
+  if (world === state) for (const result of results) pushDiceHistory('Stealth', result.message, result.actorId,
+    result.check ? rollTextSegments(result.message, result.check) : null);
+  return recomputeDungeonVisibility(world);
+}
+
 function render(options = {}) {
-  if (SERVER_RUNTIME) return;
+  if (SERVER_RUNTIME || !state || !layers) return;
   const now = Date.now(), scene = state.rest?.scene, frame = restTourFrame(scene, now);
   const restVisible = Boolean(scene && state.rest.suppliesPaid && (['sleeping', 'voting'].includes(state.rest.phase) ||
     !document.getElementById('rest-modal').hidden && state.rest.phase === 'completed'));
@@ -1137,7 +1180,7 @@ function render(options = {}) {
     forceBlackout: state.lightTransition && Date.now() - state.lightTransition.startedAt < 1000 || forceBlackoutWhenTorchOut && !hasAnyVisibleLightSource() && getActiveCharacter(state)?.companion?.kind!=='doppelganger',
     motionOnly: options.motionOnly === true,
     lightPolygons: options.lightPolygons,
-    targeting: currentTargetingOverlay(), areaPreview, restNow: now, restSceneVisible: restVisible
+    targeting: currentTargetingOverlay(), areaPreview: tierThreePreview || areaPreview, restNow: now, restSceneVisible: restVisible
   });
   if (caster) { [caster.visualX, caster.visualY] = visual; }
   delete state.lightVisualTime;
@@ -1355,7 +1398,8 @@ function applyMonsterAttackRoll(monster, attack) {
   const message = `The ${monsterName} attacks and rolls a ${result.total}.`;
   markUserActivity();
   setStatus(message);
-  showCheckResult(result, "Attack", {
+  showCheckResult(result, attack.name, {
+    actor: monster, rollType: 'Attack',
     headline: message,
     message: `${attack.name} ${attack.bonusText || formatModifier(attack.bonus || 0)}`
   });
@@ -1573,7 +1617,7 @@ function inventoryController(character) {
 }
 
 function canUseCharacterInventory(character) {
-  return Boolean(character) && !isIncorporeal(character) && !isTied(inventoryController(character)) && isCharacterAbleToAct(inventoryController(character));
+  return Boolean(character) && !isIllusionCreature(character) && !isIncorporeal(character) && !isTied(inventoryController(character)) && isCharacterAbleToAct(inventoryController(character));
 }
 
 function isCharacterTargetableByMonster(character) {
@@ -2109,6 +2153,12 @@ function startCurrentCombatTurn() {
   combat.lastUnoccupiedPosition = { x: Number(character.x), y: Number(character.y), roomId: character.roomId, routeId: routeOf(state, character) };
   combat.actionUsed = character.openingSpellActionSpent === true;
   character.openingSpellActionSpent = false;
+  if (isIllusionCreature(character)) {
+    runIllusionCombatTurn(character);
+    announceCurrentTurn(entry);
+    scheduleAutoEndTurnIfNeeded(1000);
+    return;
+  }
   if (isCharacterDying(character)) {
     combat.movementRemaining = 0;
     combat.actionUsed = false;
@@ -2290,12 +2340,9 @@ function beginSteal(character) {
   if (sendSharedCommand('steal', {}, character)) return;
   if (!isThief(character) || !isStealthed(character) || !isCharacterAbleToAct(character) || isIncorporeal(character)) throw new Error('A hidden corporeal thief is required.');
   targetingMode = null;
-  if (!consumeCharacterCombatAction(character)) return;
-  const check = rollCheck(abilityScoreModifier(character.stats?.DEX), { doubleRoll: true });
-  const message = `${character.name} attempts to steal at advantage: (${check.firstRoll})(${check.secondaryRoll}) +${check.modifier} DEX = ${check.total} vs DC 15.`;
-  pushDiceHistory('Steal', message, character.id, rollTextSegments(message, check)); setStatus(message);
-  if (check.total < 15) { setCharacterStealthed(character, false); character.pendingSteal = null; }
-  else character.pendingSteal = { check, phase: 'targeting', turnKey: targetingTurnKey() };
+  if (isCombatActive() && (!isCurrentCharacterTurn(character) || state.combat.actionUsed)) return;
+  character.pendingSteal = { phase: 'targeting', turnKey: targetingTurnKey() };
+  setStatus('Pick an adjacent creature to steal from.');
   if (!SERVER_RUNTIME && character.pendingSteal) targetingMode = { kind: 'steal', characterId: character.id, turnKey: targetingTurnKey() };
   markRunDirty(); updatePanels(); render();
 }
@@ -2303,10 +2350,26 @@ function beginSteal(character) {
 function resolveSteal(character, { targetId, index, cancel = false } = {}) {
   const type = cancel ? 'steal_cancel' : Number.isInteger(index) ? 'steal_take' : 'steal_target';
   if (sendSharedCommand(type, { target_id: targetId, gear_index: index }, character)) return;
-  if (cancel) { character.pendingSteal = null; targetingMode = null; }
+  if (cancel) { character.pendingSteal = null; targetingMode = null; setStatus('Steal canceled.'); }
   else {
     if (!character.pendingSteal || character.pendingSteal.turnKey !== targetingTurnKey()) throw new Error('The steal attempt has ended.');
-    if (!Number.isInteger(index)) setStatus(selectStealTarget(state, character, getMonsterById(targetId)).message);
+    if (!Number.isInteger(index)) {
+      const target = findStealTarget(state, targetId);
+      if (!validStealTarget(state, character, target)) throw new Error('Choose an adjacent creature to steal from.');
+      if (character.pendingSteal.phase !== 'targeting') throw new Error('Choose an item or cancel this attempt.');
+      if (!consumeCharacterCombatAction(character, { stealCommit: true })) return;
+      const check = rollCheck(abilityScoreModifier(character.stats?.DEX), { doubleRoll: true });
+      const message = `${character.name} attempts to steal at advantage: (${check.firstRoll})(${check.secondaryRoll}) ${formatModifier(check.modifier)} DEX = ${check.total} vs DC 15.`;
+      pushDiceHistory('Steal', message, character.id, rollTextSegments(message, check));
+      character.pendingSteal.check = check;
+      if (check.total < 15) {
+        setCharacterStealthed(character, false); character.pendingSteal = null;
+        targetingMode = null; setStatus(message);
+      } else {
+        setStatus(selectStealTarget(state, character, target).message);
+        targetingMode = null;
+      }
+    }
     else {
       const { item, monster } = takeStolenItem(state, character, index);
       if (getCharacterGearFreeSlots(character) >= getPickupSlotCost(character, item)) character.gear.push(item);
@@ -2331,7 +2394,7 @@ function syncStealUi() {
   modal.hidden = !thief;
   const list = document.getElementById('steal-items'); list.replaceChildren();
   if (!thief) return;
-  const monster = getMonsterById(thief.pendingSteal.targetId);
+  const monster = findStealTarget(state, thief.pendingSteal.targetId);
   if (monster) for (const { item, index } of stealableGear(monster)) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = item.name;
     button.addEventListener('click', () => resolveSteal(thief, { index })); list.append(button);
@@ -2421,7 +2484,7 @@ function getWeaponOutOfRangeMessage(weaponName) {
   return `Out of range with ${String(weaponName || "weapon").toLowerCase()}.`;
 }
 
-function consumeCharacterCombatAction(character, { teleport = false, clawAttack = false } = {}) {
+function consumeCharacterCombatAction(character, { teleport = false, clawAttack = false, stealCommit = false } = {}) {
   character = inventoryController(character);
   if (isTied(character) && !teleport) { setStatus('Escape or break the rope before acting.'); return false; }
   if(state.encounterPrompt){setStatus('Resolve the monster reaction first.');return false;}
@@ -2429,6 +2492,10 @@ function consumeCharacterCombatAction(character, { teleport = false, clawAttack 
   if (character?.pendingSpell) {
     setStatus(pendingSpellMessage(character));
     return false;
+  }
+  if (!stealCommit && character?.pendingSteal?.phase === 'targeting') {
+    character.pendingSteal = null;
+    if (!SERVER_RUNTIME && targetingMode?.kind === 'steal') targetingMode = null;
   }
   if (!isCombatActive()) {
     return true;
@@ -2469,6 +2536,12 @@ function getAlertingMonstersFromAttack(originMonster) {
 }
 
 function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, { blindSquare = false } = {}) {
+  if (isIllusionCreature(character)) {
+    const result = illusionAttack(state, character);
+    if (isCombatActive()) state.combat.actionUsed = true;
+    pushDiceHistory('Attack', result.message, character.id); setStatus(result.message);
+    return result;
+  }
   if (monster && !sameRoute(state, character, monster)) throw new Error('That target is in a different passage.');
   if (isIncorporeal(character)) throw new Error('Become corporeal before attacking.');
   const partyTarget = state.characters.includes(monster);
@@ -2518,6 +2591,9 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
   if (!SERVER_RUNTIME) targetingMode = null;
 
   const wasStealthed = isStealthed(character);
+  if (character.illusionStealthIds?.length) {
+    monster.suspectedIllusionIds = [...new Set([...(monster.suspectedIllusionIds || []), ...character.illusionStealthIds])];
+  }
   const advantageReason = unawareReason(character, monster, state);
   const backstab = advantageReason ? getBackstabMultiplier(character) : 0;
   const surprisedMimic=concealedMimic(monster);
@@ -2551,9 +2627,15 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
   revealAfterOffense(character);
   const ac = partyTarget ? Number(monster.armorClass) : getMonsterAc(monster);
   const hit = roll.total >= ac;
+  if (hit && isIllusionCreature(monster)) {
+    dismissIllusion(state, monster); recomputeVisibility(state);
+    const message = `${character.name} hits the illusion. It vanishes.`;
+    pushDiceHistory('Illusion', message, character.id); setStatus(message); updatePanels(); render();
+    return { message, hit: true };
+  }
   const luck = beginLuckEvent(state, { kind: 'party-attack', actor: luckActorRef(character), target: luckActorRef(monster), roll, dc: ac,
     context: { weapon: weaponName, expression: addDamageBonus(getAttackDamageExpression(combatAttack.attack), extraBonus - thoughts.attack + thoughts.damage + modeDamageBonus), backstab: backstab || 1,
-      paralyzed: Boolean(monster.conditions?.paralyzed), elementalDice: item?.magic?.elementDice || null, element: item?.magic?.element || null,
+      paralyzed: Boolean(monster.conditions?.paralyzed), elementalDice: !isMagicSuppressed(item) && item?.magic?.elementDice || null, element: !isMagicSuppressed(item) && item?.magic?.element || null,
       cleansingDice: cleansingWeaponDice(item, monster) } });
   const parts = [];
   let rolledDamage = null;
@@ -2566,7 +2648,7 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
     if (expression) {
       const diceMultiplier = (backstab || 1) * (monster.conditions?.paralyzed ? 2 : 1);
       const damage = rollDamageExpression(diceMultiplier > 1 ? multiplyDamageDice(expression, diceMultiplier) : expression);
-      if (item?.magic?.elementDice) {
+      if (!isMagicSuppressed(item) && item?.magic?.elementDice) {
         const elemental = rollDamageExpression(item.magic.elementDice);
         damage.total += elemental.total; damage.subtotal += elemental.total;
         damage.terms.push(...elemental.terms.map(term => ({ ...term, element: item.magic.element })));
@@ -2582,13 +2664,13 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
       if (giantStrengthActive(character) && (combatAttack.range.maxRange === 1 || (!ammoType && distance <= 1))) { damage.total *= 2; damage.multiplier *= 2; radiantTotal *= 2; }
       const damageMultiplier = attackDamageMultiplier(monster);
       damage.total *= damageMultiplier; damage.multiplier *= damageMultiplier; radiantTotal *= damageMultiplier;
-      const resistance = elementalDamage(monster, damage.total - radiantTotal, item?.magic?.element || '');
+      const resistance = elementalDamage(monster, damage.total - radiantTotal, !isMagicSuppressed(item) && item?.magic?.element || '');
       if (resistance.resistance) { damage.unresistedTotal = damage.total; damage.resistance = resistance.resistance; damage.total = resistance.total + radiantTotal; }
       rolledDamage = damage.total;
       damageRoll = damage;
       if (partyTarget) setCharacterHp(monster, Number(monster.hp) - damage.total, { sourceId: character.id });
       else { monster.hp = Math.max(0, (Number.parseInt(monster.hp, 10) || 0) - damage.total); if (damage.total > 0) wakeCreature(monster, state); }
-      if (/fire|flame|burn/i.test(item?.magic?.element || '')) {
+      if (!isMagicSuppressed(item) && /fire|flame|burn/i.test(item?.magic?.element || '')) {
         igniteWebsAt(state, monster);
         for (const target of state.entities.filter(entity => entity.type === 'monster' && entity.id !== monster.id && !entity.defeated && entity.hp <= 0)) defeatMonster(state, target);
       }
@@ -2657,6 +2739,7 @@ function selectedWeaponAttack(character, index = null) {
 }
 
 function attackEmptyTile(character, x, y, index = null) {
+  if (isIllusionCreature(character)) { const result = illusionAttack(state, character); if (isCombatActive()) state.combat.actionUsed = true; setStatus(result.message); return result; }
   const attack = selectedWeaponAttack(character, index);
   if (!attack || !Number.isInteger(x) || !Number.isInteger(y) || !canTargetAtRange(state, character, { x, y, routeId: routeOf(state, character) }, attack.range.maxRange, { requireLight: false })) throw new Error('That square is outside attack range.');
   if (state.characters.some(member => member.x === x && member.y === y && sameRoute(state, member, character)) || getDoorAt(state, x, y)) throw new Error('Choose an empty square.');
@@ -2708,6 +2791,7 @@ function attackEmptyTile(character, x, y, index = null) {
 function performMapAttack(x, y) {
   const actor = getActiveCharacter(state);
   if (!actor || !canControlCharacter(actor)) return;
+  if (isIllusionCreature(actor)) { const result = illusionAttack(state, actor); pushDiceHistory('Attack', result.message, actor.id); setStatus(result.message); return; }
   try {
     const victim = getCharacterAtTile(x, y);
     if (victim) { if (victim.id !== actor.id) confirmPartyAttack(actor, victim); return; }
@@ -2719,6 +2803,7 @@ function performMapAttack(x, y) {
 }
 
 function attackDoor(character, doorId, index = null) {
+  if (isIllusionCreature(character)) { const result = illusionAttack(state, character); if (isCombatActive()) state.combat.actionUsed = true; setStatus(result.message); return result; }
   const door = state.entities.find(entity => entity.id === doorId && entity.subtype === 'door');
   const attack = selectedWeaponAttack(character, index);
   const profile = getWeaponProfileFromText(attack?.attack?.name);
@@ -2959,7 +3044,7 @@ function monsterCanPlanStep(monster, fromX, fromY, x, y, { forceDoors = true, ro
   if (isIncorporeal(monster)) return phaseStepAllowed(state, fromX, fromY, x, y);
   const door = getDoorBetween(state, fromX, fromY, x, y) || getDoorAt(state, x, y);
   if (door && !['open', 'gone'].includes(door.doorState) &&
-      (door.secret && !door.secretFound && !door.revealed || !forceDoors && (portalHeld(door) || door.doorState === 'locked'))) return false;
+      (door.secret && !door.secretFound && !door.revealed || !forceDoors && (portalHeld(door) || door.doorState === 'locked' || isMagicallyLocked(door)))) return false;
   return canMoveBetweenTiles(state, fromX, fromY, x, y, { ignoreClosedDoors: true, creature: monster, routeId }).ok;
 }
 
@@ -3050,7 +3135,7 @@ function progressEncounterCreatures(milliseconds) {
       });
       if (step) {
         const door = getDoorBetween(state, monster.x, monster.y, step.x, step.y) || getDoorAt(state, step.x, step.y);
-        if (!isIncorporeal(monster) && door && door.doorState === 'closed') setDoorState(door, 'open');
+        if (!isIncorporeal(monster) && door && door.doorState === 'closed' && !isMagicallyLocked(door)) setDoorState(door, 'open');
         monster.x = step.x; monster.y = step.y; monster.routeId = step.routeId; monster.roomId = getTileAt(step.x, step.y)?.roomId ?? null;
         changed = true; recomputeVisibility(state); syncThiefStealthProximity(); updateMonsterStealth(state);
         if (beginHiddenMonsterAmbush(monster)) break;
@@ -3285,7 +3370,7 @@ function getMonsterMoveSquares(monster) {
 }
 
 function isMonsterMoveOccupied(monster, x, y, routeId = routeStep(state, monster, { x, y })?.routeId ?? routeOf(state, monster)) {
-  return (state.characters || []).some((character) => routeOf(state, character) === routeId && !isFloatingDisc(character) && !isCharacterDead(character) && hasCharacterMapPosition(character) && Number(character.x) === x && Number(character.y) === y) ||
+  return (state.characters || []).some((character) => routeOf(state, character) === routeId && !isFloatingDisc(character) && !isIllusionCreature(character) && !isCharacterDead(character) && hasCharacterMapPosition(character) && Number(character.x) === x && Number(character.y) === y) ||
     getLiveMonsters().some((candidate) => routeOf(state, candidate) === routeId && candidate.id !== monster.id && Number(candidate.x) === x && Number(candidate.y) === y);
 }
 
@@ -3350,7 +3435,7 @@ function moveMonsterPlannedStep(monster, step) {
       const attempt = forceHeldDoor(door, { ...monster, stats: { STR: monsterScore(monster, 'S') } }, rollCheck);
       monster.doorActionUsed = true; pushDiceHistory('Hold Portal', attempt.message);
       if (!attempt.opened) return false;
-    } else if (door.doorState === 'locked') {
+    } else if (door.doorState === 'locked' || isMagicallyLocked(door)) {
       monster.doorActionUsed = true;
       if (rollCheck(abilityScoreModifier(monsterScore(monster, 'S'))).total < (door.breakDc || 15)) return false;
       setDoorState(door, 'open');
@@ -3359,6 +3444,7 @@ function moveMonsterPlannedStep(monster, step) {
   }
   monster.x = step.x; monster.y = step.y; monster.routeId = next.routeId;
   monster.roomId = getTileAt(step.x, step.y)?.roomId ?? null;
+  processIllusionContact(state, monster);
   checkSinkholeFall(state, monster);
   return true;
 }
@@ -3519,6 +3605,11 @@ function applyMonsterAttack(monster, target, attack) {
   revealAfterOffense(monster);monster.ambushAttack=null;
   const ac = Number(target?.armorClass || 10) + detectThoughtsModifiers(state, target, monster).armorClass;
   const hit = roll.total >= ac;
+  if (hit && isIllusionCreature(target)) {
+    dismissIllusion(state, target); recomputeVisibility(state);
+    const message = `${monster.name} hits ${target.name}. The illusion vanishes.`;
+    pushDiceHistory('Illusion', message); return message;
+  }
   const luck = beginLuckEvent(state, { kind: 'monster-attack', actor: luckActorRef(monster), target: luckActorRef(target), roll, dc: ac,
     context: { weapon: attack.name, damage: 0 }, scope: state.characters.map(luckActorRef) });
   captureLuckActor(luck, target);
@@ -3578,6 +3669,16 @@ async function runMonsterTurn(monster) {
     }
   }
   if (isSleeping(monster, state)) return `${monster.name} sleeps.`;
+  if (!(monster.moraleFlight?.rounds > 0) && monster.suspectedIllusionIds?.length) {
+    const inspection = inspectIllusion(state, monster, { ids: monster.suspectedIllusionIds });
+    if (inspection) {
+      recomputeVisibility(state);
+      const projection = [...state.characters, ...state.entities].find(actor => actor.id === inspection.projectionId);
+      pushDiceHistory('Illusion', inspection.message, null, null, inspection.exposed ? null : projection?.illusion?.casterId);
+      return inspection.exposed ? `${monster.name} exposes an illusion. It vanishes.` : `${monster.name} studies the area.`;
+    }
+    monster.suspectedIllusionIds = [];
+  }
   const sleeper = !isIncorporeal(monster) && getLiveMonsters().find(ally => ally.id !== monster.id && isSleeping(ally, state) &&
     Math.max(Math.abs(ally.x - monster.x), Math.abs(ally.y - monster.y)) <= 1 && creatureSight(monster, ally));
   if (sleeper) { wakeCreature(sleeper, state); return `${monster.name} wakes ${sleeper.name}.`; }
@@ -3780,21 +3881,25 @@ function updateMonsterHoverCursor() {
   if (panel.title !== title) panel.title = title;
   let cursor = dragState ? 'grabbing' : 'grab';
   const character = state && getActiveCharacter(state);
-  if (shiftAttackHeld || targetingMode?.kind === 'weapon') {
+  const stealing = state?.characters?.some(member => member.pendingSteal?.phase === 'targeting' &&
+    member.pendingSteal.turnKey === targetingTurnKey() && canControlCharacter(member));
+  if (stealing || shiftAttackHeld || targetingMode?.kind === 'weapon') {
+    const cursorImage = stealing ? stealCursorImage : attackCursorImage;
     const color = character && ownsCharacter(character) ? getCharacterColorValue(character) : '#000000';
-    if (!attackCursorCache.has(color) && attackCursorImage?.naturalWidth) {
+    const cacheKey = `${stealing ? 'steal' : 'attack'}:${color}`;
+    if (!attackCursorCache.has(cacheKey) && cursorImage?.naturalWidth) {
       const canvas = document.createElement("canvas");
-      canvas.width = attackCursorImage.naturalWidth;
-      canvas.height = attackCursorImage.naturalHeight;
+      canvas.width = cursorImage.naturalWidth;
+      canvas.height = cursorImage.naturalHeight;
       const context = canvas.getContext("2d");
-      context.drawImage(attackCursorImage, 0, 0);
+      context.drawImage(cursorImage, 0, 0);
       context.globalCompositeOperation = "source-in";
       context.fillStyle = color;
       context.fillRect(0, 0, canvas.width, canvas.height);
-      attackCursorCache.set(color, `url("${canvas.toDataURL("image/png")}") 1 1, crosshair`);
+      attackCursorCache.set(cacheKey, `url("${canvas.toDataURL("image/png")}") 1 1, crosshair`);
     }
-    const source = attackCursorImage?.src || new URL('../assets/attack-alpha.png', import.meta.url).href;
-    cursor = attackCursorCache.get(color) || `url("${source}") 1 1, crosshair`;
+    const source = cursorImage?.src || new URL(`../assets/${stealing ? 'bag' : 'attack'}-alpha.png`, import.meta.url).href;
+    cursor = attackCursorCache.get(cacheKey) || `url("${source}") 1 1, crosshair`;
   }
   if (panel.style.cursor !== cursor) panel.style.cursor = cursor;
 }
@@ -4146,6 +4251,7 @@ function getAttackGearIndex(character, attack) {
 }
 
 function isAttackEquipped(character, attack) {
+  if (isIllusionCreature(character)) return true;
   if (transformationAttackOptions(state, character).some(option => option.name.toLowerCase() === String(attack?.name).toLowerCase())) return true;
   if(character.companion&&getAttackGearIndex(character,attack)<0&&!getWeaponProfileFromText(attack?.name))return true;
   const index = getAttackGearIndex(character, attack);
@@ -4430,10 +4536,7 @@ function canUseWeapon(character, itemOrName) {
 }
 
 function characterArmorDescription(character) {
-  const armor=(character.gear||[]).filter(item=>item.equipped&&isArmorItem(item)&&canUseArmor(character,item)).map(item=>item.name);
-  const shield=(character.gear||[]).find(item=>isShieldItem(item)&&item.equipped&&canUseShield(character));
-  const magicalArmor = mageArmorEffect(character);
-  return `${magicalArmor ? `Mage Armor: AC ${magicalArmor.armorClass}, ${magicalArmor.rounds} rounds remaining. ` : ''}Armor: ${armor.join(', ')||'none'}. Shield: ${shield?.name||'none'}.`;
+  return characterArmorCalculation(character).parts.join(', ') || 'Base AC 10';
 }
 
 function performHalflingInvisibility(character) {
@@ -4545,7 +4648,7 @@ function buildWeaponAttackText(character, item) {
     + (talents || (characterHasFighterMeleeRangedTalent(character) ? 1 : 0))
     + mastery + holyWeaponBonus(item) + revealedMagicBonus(item) + lineage.attack;
   const baseDamage = addDamageBonus(getWeaponDamageExpression(character, item, profile), mastery + holyWeaponBonus(item) + revealedMagicBonus(item) + lineage.damage);
-  const damage = `${baseDamage}${item?.magic?.identified && item.magic.elementDice ? ` + ${item.magic.elementDice} ${item.magic.element} damage` : ''}`;
+  const damage = `${baseDamage}${!isMagicSuppressed(item) && item?.magic?.identified && item.magic.elementDice ? ` + ${item.magic.elementDice} ${item.magic.element} damage` : ''}`;
   const flag = profile.versatileDamage ? " (V)" : "";
   return `${getWeaponDisplayName(item, profile)}${flag}: ${formatModifier(bonus)}, ${damage}`;
 }
@@ -4577,6 +4680,10 @@ function mergeUniqueAttack(attacks, attackText) {
 }
 
 function rebuildCharacterAttacks(character) {
+  if (isIllusionCreature(character)) {
+    character.attacks = nativeAttackLines(character.companion.source);
+    character.raw.attacks = structuredClone(character.attacks); return;
+  }
   ensureEquipmentBaseline(character);
   const nextAttacks = [];
   const spellcaster=/\b(?:priest|wizard)\b/i.test(character.className)&&!character.companion;
@@ -4594,21 +4701,22 @@ function rebuildCharacterAttacks(character) {
   character.raw.attacks = JSON.parse(JSON.stringify(nextAttacks));
 }
 
-function rebuildCharacterArmorClass(character) {
-  ensureEquipmentBaseline(character);
-  const magicalArmor = mageArmorEffect(character);
-  if (magicalArmor) {
-    character.armorClass = magicalArmor.armorClass;
-    character.raw.armorClass = character.armorClass;
-    character.raw.ac = character.armorClass;
-    return;
-  }
-  if(character.companion?.kind === 'doppelganger') {
-    character.armorClass=(Number.parseInt(character.companion.source.ac,10)||10)+faithArmorBonus(character);
-    character.raw.armorClass=character.armorClass;character.raw.ac=character.armorClass;
-    return;
+function characterArmorCalculation(character) {
+  if (isIllusionCreature(character)) {
+    const total = Number(character.companion.source.ac) || 10;
+    return { total, parts: [`Natural AC ${total}`] };
   }
   const dexModifier = abilityScoreModifier(character?.stats?.DEX);
+  const contribution = (value, label) => value ? `${formatModifier(value)} ${label}` : '';
+  const magicalArmor = mageArmorEffect(character);
+  if (magicalArmor) {
+    return { total: magicalArmor.armorClass, parts: [contribution(dexModifier, 'DEX'),
+      magicalArmor.armorClass === 18 ? 'Crit Mage Armor sets to 18!' : `Mage Armor sets to ${magicalArmor.armorClass}`].filter(Boolean) };
+  }
+  if(character.companion?.kind === 'doppelganger') {
+    const base = Number.parseInt(character.companion.source.ac,10)||10;
+    return { total: base + faithArmorBonus(character), parts: [`Natural AC ${base}`, contribution(faithArmorBonus(character), 'Shield of Faith')].filter(Boolean) };
+  }
   let naturalArmor = 10 + dexModifier;
   if (character.companion) {
     const originalGear = nativeGear(character.companion.source);
@@ -4619,6 +4727,8 @@ function rebuildCharacterArmorClass(character) {
   let armorClass = naturalArmor;
   let armorMasteryApplies = false;
   let armorTalent = 0;
+  let armorContribution = 0, knownArmorMagic = 0, appliedDex = dexModifier;
+  let naturalContribution = naturalArmor - 10 - dexModifier;
   const masteryTarget = getArmorMasteryTarget(character);
   for (const item of character.gear || []) {
     if (!item.equipped || !isArmorItem(item) || !canUseArmor(character, item)) {
@@ -4631,16 +4741,33 @@ function rebuildCharacterArmorClass(character) {
     const itemAc = (character.companion ? Math.max(naturalArmor, wornAc) : wornAc) + magicBonus(item);
     if (itemAc > armorClass) {
       armorClass = itemAc;
+      appliedDex = armorDex; naturalContribution = 0;
+      armorContribution = wornAc - 10 - armorDex;
+      knownArmorMagic = revealedMagicBonus(item);
       armorMasteryApplies = masteryTarget && masteryTarget === profile?.key;
       armorTalent = classArmorBonus(character, profile?.key || 'none', Number.isFinite(explicit) ? explicit : profile?.ac);
     }
   }
+  let shieldBonus = 0, shieldMagic = 0, knownShieldMagic = 0, shieldTalent = 0;
   if (characterHasShield(character) && canUseShield(character) && shouldReadyShield(character)) {
-    armorClass += 2 + magicBonus(character.gear.find(item => isShieldItem(item) && item.equipped));
-    armorClass += classArmorBonus(character, 'shield') || (masteryTarget === 'shield' ? 1 : 0);
+    shieldBonus = 2;
+    shieldMagic = magicBonus(character.gear.find(item => isShieldItem(item) && item.equipped));
+    knownShieldMagic = revealedMagicBonus(character.gear.find(item => isShieldItem(item) && item.equipped));
+    shieldTalent = classArmorBonus(character, 'shield') || (masteryTarget === 'shield' ? 1 : 0);
+    armorClass += shieldBonus + shieldMagic + shieldTalent;
   }
+  const talent = (armorTalent || (armorMasteryApplies ? 1 : 0)) + shieldTalent;
   armorClass += armorTalent || (armorMasteryApplies ? 1 : 0);
-  character.armorClass = Math.max(0, Math.min(99, armorClass + faithArmorBonus(character)));
+  return { total: Math.max(0, Math.min(99, armorClass + faithArmorBonus(character))), parts: [
+    contribution(appliedDex, 'DEX'), contribution(talent, 'Talent'), contribution(armorContribution, 'armor'),
+    contribution(shieldBonus, 'shield'), contribution(naturalContribution, 'natural armor'),
+    contribution(knownArmorMagic + knownShieldMagic, 'Magic'), contribution(faithArmorBonus(character), 'Shield of Faith')
+  ].filter(Boolean) };
+}
+
+function rebuildCharacterArmorClass(character) {
+  ensureEquipmentBaseline(character);
+  character.armorClass = characterArmorCalculation(character).total;
   character.raw.armorClass = character.armorClass;
   character.raw.ac = character.armorClass;
   character.raw.shieldReadied = character.shieldReadied !== false;
@@ -4897,17 +5024,18 @@ function attemptLightSource(source, gearIndex = null, { resetTimer = null } = {}
   if (resetTimer === null && ensureTimers(state).lightEverLit) { promptExtinguishOld(source, gearIndex); return; }
   if (sendSharedCommand("light", { source, gear_index: gearIndex, reset_timer: resetTimer === true })) return;
   if (!consumeCharacterCombatAction(active)) return;
-  if (ensureTimers(state).lightEverLit && !isCharacterInLiveLight(active) && characterHasFlintAndSteel(inventoryController(active))) {
-    const modifier = getCharacterActionModifier(inventoryController(active), "dex");
-    const disadvantage = !isThief(inventoryController(active));
-    const check = rollCheck(modifier, { disadvantage });
-    if (check.total < 12) {
-      setStatus(`Light ${check.total} vs DC 12: failed.`);
-      return;
-    }
-    setStatus(`Light ${check.total} vs DC 12: success.`);
-  }
+  if (!checkCombatLighting(active, source)) return;
   applyLightRequest(source, { extinguishOld: resetTimer === true, gearIndex });
+}
+
+function checkCombatLighting(character, source) {
+  if (!isCombatActive()) return true;
+  const controller = inventoryController(character);
+  const check = rollCheck(getCharacterActionModifier(controller, 'dex'), { disadvantage: !isThief(controller) });
+  const message = `${controller.name} lights a ${source}: ${check.total} vs DC 12: ${check.total < 12 ? 'failed' : 'success'}.`;
+  pushDiceHistory(source === 'lantern' ? 'Light Lantern' : 'Light Torch', message, controller.id, rollTextSegments(message, check));
+  setStatus(message);
+  return check.total >= 12;
 }
 
 function clearActiveCharacterLight() {
@@ -5438,8 +5566,6 @@ function clearInvalidCharacterLight(character) {
   if (character.lightSource === "torch" && !characterHasTorch(character)) {
     setCharacterLight(character, "");
   } else if (character.lightSource === "lantern" && !characterHasLantern(character)) {
-    setCharacterLight(character, "");
-  } else if (character.lightSource === "light-spell" && !characterHasLightSpell(character)) {
     setCharacterLight(character, "");
   }
 }
@@ -6801,6 +6927,7 @@ function syncActiveCharacterToPlayer() {
   active.roomId = state.player.roomId;
   syncActiveCharacterLightFromPlayer();
   syncFloatingDiscFollowers();
+  syncIllusionStealth(state);
 }
 
 function getCharacterAtTile(x, y, { includeDiscs = false } = {}) {
@@ -6810,8 +6937,8 @@ function getCharacterAtTile(x, y, { includeDiscs = false } = {}) {
     (includeDiscs || !isFloatingDisc(character)) &&
     hasCharacterMapPosition(character) &&
     sameRoute(state, character, state.player) &&
-    Number(character.x) === x &&
-    Number(character.y) === y
+    (Number(character.x) === x && Number(character.y) === y ||
+      isIllusionCreature(character) && illusionCells(character).some(cell => cell.x === x && cell.y === y))
   )) || null;
 }
 
@@ -7032,7 +7159,6 @@ function renderCharacterCard(character) {
     localStorage.setItem(roomOrderKey(), JSON.stringify(ids));
     updateCharactersUi();
   });
-  header.append(reorder);
   const name = document.createElement("span");
   name.className = "character-mini-name";
   name.textContent = character.name;
@@ -7052,6 +7178,7 @@ function renderCharacterCard(character) {
   sheetButton.title = disc ? 'Floating Disc color follows its caster' : `Change ${character.name} color`; sheetButton.setAttribute('aria-label', sheetButton.title);
   const sheetIcon = document.createElement('img'); sheetIcon.src = './assets/pop-up-sheet-icon.png'; sheetIcon.alt = '';
   sheetButton.append(sheetIcon);
+  header.append(reorder);
   if (!disc) header.append(createCharacterColorControl(character, sheetButton));
   else sheetButton.disabled = true;
   header.append(sheetButton);
@@ -7115,12 +7242,13 @@ function renderCharacterCard(character) {
     const condition = document.createElement('span'); condition.className = 'arcane-condition';
     condition.textContent = isRaving(character) ? 'Mad Raving' : `Petrified limbs (${availableHands(character)} usable hands)`; abilities.append(condition);
   }
+  let advanceButton = null;
   if (canLevelUp(character) || character.advancements?.some(event => !event.completed)) {
     const advance = document.createElement('button'); advance.type = 'button'; advance.textContent = advancementButtonLabel(character);
     advance.className = 'level-up-button';
     advance.disabled = !ownsCharacter(character) || isCombatActive() || restInProgress(state);
     advance.addEventListener('click', event => { event.stopPropagation(); openAdvancement(character.id); });
-    abilities.append(advance);
+    advanceButton = advance;
   }
   if (canPhase(character)) {
     const phase = document.createElement('button'); phase.type = 'button'; phase.textContent = isIncorporeal(character) ? 'Become Corporeal' : 'Become Incorporeal';
@@ -7141,7 +7269,9 @@ function renderCharacterCard(character) {
     spellcasting.addEventListener('click', event => { event.stopPropagation(); void openSpellcastingMenu(character); });
     abilities.append(spellcasting);
   }
-  if (abilities.childElementCount) card.append(abilities);
+  if (advanceButton) abilities.append(advanceButton);
+  stats.append(...abilities.childNodes);
+  for (const button of stats.querySelectorAll('button')) button.classList.add('mini-command');
   const dyingBanner = createDyingBanner(character);
   if (dyingBanner) {
     card.append(dyingBanner);
@@ -7763,23 +7893,22 @@ function createMiniAttackNode(attackText, character) {
   if (!attack) {
     return null;
   }
-  const rawName = String(attackText || "").replace(/^ATTACKS?:\s*/i, "").split(":")[0] || attack.name;
-  const ammoType = /bolt|crossbow/i.test(rawName)
-    ? "bolts"
-    : /bow|arrow/i.test(rawName)
-      ? "arrows"
-      : "";
   const attackNode = document.createElement("span");
   attackNode.className = "character-mini-attack-entry";
-  attackNode.append(createAttackButton(character, attack));
-  if (attack.bonusText) {
-    attackNode.append(document.createTextNode(` ${attack.bonusText}`));
-  }
-  if (attack.detail) {
-    appendCompactAttackDetail(attackNode, attack, character);
-  }
-  const backstab=getBackstabMultiplier(character);
-  if(backstab)attackNode.title=`Backstab: ${multiplyDamageDice(getAttackDamageExpression(attack),backstab)} damage`;
+  const button = createAttackButton(character, attack);
+  button.title = '';
+  const item = character.gear?.[getAttackGearIndex(character, attack)];
+  const profile = getWeaponProfile(item);
+  const damage = getAttackDamageExpression(attack);
+  const tooltip = [{ text: attack.bonusText || formatModifier(attack.bonus || 0) }];
+  if (profile?.key === 'dagger') tooltip.push({ text: ' finesse', italic: true });
+  tooltip.push({ text: ` | ${damage.replace(/([+-])/g, ' $1 ')}` });
+  if (profile?.versatileDamage && !hasOccupiedOffHand(character)) tooltip.push({ text: ' versatile', italic: true });
+  if (item?.magic) tooltip.push({ text: ' | ' }, { text: 'Magic', magic: true });
+  const backstab = getBackstabMultiplier(character);
+  if (backstab) tooltip.push({ text: ` | ${multiplyDamageDice(damage, backstab)} Backstab` });
+  attachRichTooltip(button, tooltip);
+  attackNode.append(button);
   applyAttackEquipmentState(attackNode, character, attack);
   return attackNode;
 }
@@ -8172,12 +8301,14 @@ function performMagicGearAction(type, character, index, targetId = null) {
       if (!canIdentify(caster) || !caster.gear[index].magic || caster.gear[index].magic.identified) throw new Error('Choose an unidentified magic item while Detect Magic is available.');
       if (!SERVER_RUNTIME && !consumeCharacterCombatAction(caster)) return;
       outcome = identifyGear(state, caster, index, { advantage: characterHasSpellCastingAdvantage(caster, findSpellRecord('detect magic')), disadvantage: protectionDisadvantage(state, caster) });
-      for (const result of outcome.checks) pushDiceHistory('Identify check', result.message, caster.id);
+      for (const result of outcome.checks) pushDiceHistory('Detect Magic', result.message, caster.id,
+        result.check ? rollTextSegments(result.message, result.check) : null, null, { type: 'Spellcasting' });
     } else if (type === 'read_scroll' || type === 'read_wand') {
       if (caster.companion?.kind === 'doppelganger') throw new Error('This creature cannot cast spells.');
       const item = caster.gear[index], spell = findSpellRecord(item.magic?.spellName);
       const casterClass = /wizard/i.test(caster.className) ? 'wizard' : /priest/i.test(caster.className) ? 'priest' : '';
       const wand = type === 'read_wand';
+      if (wand && isMagicSuppressed(item)) throw new Error('This wand is non-magical until its ten-round suppression ends.');
       if (item.magic?.kind !== (wand ? 'wand' : 'scroll') || !spell || !spell.classes.includes(casterClass)) throw new Error('That magic item is not on this caster\'s spell list.');
       if (wand && item.magic.disabledUntilRest) throw new Error('This wand cannot be used again until its caster completes a successful rest.');
       if (blocksSpellTier(caster, spell.tier)) throw new Error('A wizard mishap blocks this spell tier until a successful rest.');
@@ -8446,7 +8577,8 @@ function addMagicGearControls(row, character, index) {
   const add = (label, type, enabled = true) => {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
     button.disabled = !enabled || !canControlCharacter(character) || !isCharacterAbleToAct(character);
-    if (type === 'read_wand' && item.magic.disabledUntilRest) button.title = 'This wand needs a successful rest before it can be used again.';
+    if (type === 'read_wand' && isMagicSuppressed(item)) button.title = 'This wand is non-magical until its ten-round suppression ends.';
+    else if (type === 'read_wand' && item.magic.disabledUntilRest) button.title = 'This wand needs a successful rest before it can be used again.';
     button.addEventListener('click', event => {
       event.stopPropagation();
       if (type === 'read_scroll' || type === 'read_wand') {
@@ -8460,7 +8592,7 @@ function addMagicGearControls(row, character, index) {
   if (item.magic.kind === 'potion') add('Drink', 'drink_potion');
   if (['scroll','wand'].includes(item.magic.kind) && character.companion?.kind !== 'doppelganger') {
     const casterClass = /wizard/i.test(character.className) ? 'wizard' : /priest/i.test(character.className) ? 'priest' : '';
-    if (item.magic.classes.includes(casterClass)) add(item.magic.kind === 'wand' ? 'Cast' : 'Read', item.magic.kind === 'wand' ? 'read_wand' : 'read_scroll', !item.magic.disabledUntilRest && (!isCombatActive() || !state.combat.actionUsed));
+    if (item.magic.classes.includes(casterClass)) add(item.magic.kind === 'wand' ? 'Cast' : 'Read', item.magic.kind === 'wand' ? 'read_wand' : 'read_scroll', !item.magic.disabledUntilRest && !(item.magic.kind === 'wand' && isMagicSuppressed(item)) && (!isCombatActive() || !state.combat.actionUsed));
     if (item.magic.kind === 'scroll' && casterClass === 'wizard' && item.magic.identified && item.magic.classes.includes('wizard') && !String(character.spellsKnown).split(/,\s*/).includes(item.magic.spellName)) {
       add(item.magic.learnOnRest ? 'Queued' : 'Learn', 'learn_scroll', !item.magic.learnOnRest && !forgottenSpells(character).has(getSpellKey(item.magic.spellName)));
     }
@@ -8967,6 +9099,11 @@ function refreshOpenCharacterSheet(character) {
 }
 
 function pendingSpellMessage(character) {
+  if (character?.pendingSpell?.spell === 'illusion') return 'Choose an illusion and confirm its placement.';
+  if (character?.pendingSpell?.spell === 'dispel magic') return character.pendingSpell.phase === 'critical'
+    ? 'Choose the critical Dispel Magic effect first.' : 'Choose a target and the magical effect to end or suppress.';
+  if (TIER_THREE_SPELLS.has(character?.pendingSpell?.spell)) return character.pendingSpell.phase === 'critical'
+    ? 'Choose the critical spell effect first.' : 'Choose the spell placement, then confirm.';
   if (PRIEST_TIER_TWO_SPELLS.has(character?.pendingSpell?.spell)) return character.pendingSpell.phase === 'targeting'
     ? 'Pick a valid target for the ready spell, or cancel it.' : 'Resolve the spell choices first.';
   if (character?.pendingSpell?.spell === 'light') return LIGHT_TARGET_PROMPT;
@@ -8991,6 +9128,16 @@ function targetingTurnKey() {
 }
 
 function currentTargetingOverlay() {
+  const illusionCaster = state?.characters.find(character => character.pendingSpell?.spell === 'illusion' &&
+    character.pendingSpell.phase === 'placement' && canControlCharacter(character));
+  if (illusionCaster) return { kind: 'spell', characterId: illusionCaster.id, spellKey: 'illusion', range: 12 };
+  const dispeller = state?.characters.find(character => character.pendingSpell?.spell === 'dispel magic' &&
+    character.pendingSpell.phase === 'targeting' && canControlCharacter(character));
+  if (dispeller) return { kind: 'spell', characterId: dispeller.id, spellKey: 'dispel magic', range: 6 };
+  const blastCaster = state?.characters.find(character => TIER_THREE_SPELLS.has(character.pendingSpell?.spell) &&
+    character.pendingSpell.phase !== 'critical' && canControlCharacter(character));
+  if (blastCaster) return { kind: 'spell', characterId: blastCaster.id, spellKey: blastCaster.pendingSpell.spell,
+    range: blastCaster.pendingSpell.range || 12 };
   const priest = state?.characters.find(character => PRIEST_TIER_TWO_SPELLS.has(character.pendingSpell?.spell) &&
     character.pendingSpell.phase === 'targeting' && canControlCharacter(character));
   if (priest) return { kind: 'spell', characterId: priest.id, spellKey: priest.pendingSpell.spell, range: priest.pendingSpell.radius };
@@ -9033,6 +9180,7 @@ function beginWeaponTargeting(character, attack) {
   if (!canControlCharacter(actor) || !isCharacterAbleToAct(actor) || !isAttackEquipped(actor, attack)) return;
   if (actor.pendingSpell || (isCombatActive() && state.combat.actionUsed)) { setStatus(actor.pendingSpell ? pendingSpellMessage(actor) : 'This character has already acted this turn.'); return; }
   if (!activateCharacter(actor)) return;
+  if (actor.pendingSteal?.phase === 'targeting') resolveSteal(actor, { cancel: true });
   clickMoveGeneration += 1;
   targetingMode = { kind: 'weapon', characterId: actor.id, attack, turnKey: targetingTurnKey() };
   ui.characterSheetModal.hidden = true;
@@ -9294,6 +9442,13 @@ function resolveForcedMishapSpell(caster, name, targets) {
       if (state.characters.includes(target)) setCharacterHp(target, target.hp - damage, { sourceId: caster.id });
       else { target.hp = Math.max(0, target.hp - damage); wakeCreature(target, state); if (target.hp <= 0) defeatMonster(state, target); }
       messages.push(`${name} strikes ${target.name} for ${damage} damage.`);
+    } else if (key === 'dispel magic') {
+      const effect = listMagicEffects(state).find(effect => effect.targetId === target.id);
+      messages.push(effect ? endMagicEffect(state, effect.id).message : 'Dispel Magic finds no effect to end.');
+    } else if (TIER_THREE_SPELLS.has(key)) {
+      const outcome = applyTierThreeBlast(state, caster, key, target);
+      processTierThreeHits(caster, outcome, { startCombat: false });
+      messages.push(outcome.message);
     } else if (key === 'burning hands') messages.push(applyBurningHands(state, caster, { center: target, includeCaster: true }).message);
     else if (key === 'mage armor') {
       target.wizardEffects = (target.wizardEffects || []).filter(effect => effect.type !== 'mage-armor');
@@ -9375,6 +9530,7 @@ function updateMiniPitActions(container, character) {
   container.dataset.signature = signature; container.hidden = !entries.length; container.replaceChildren();
   for (const [text, command] of entries) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = text; button.disabled = disabled;
+    button.className = 'mini-command';
     button.onclick = event => { event.stopPropagation(); try {
       const current = getCurrentCharacter(character);
       if (command.action === 'descend') showPitDescentOffer(current, state.entities.find(pit => pit.id === command.pit_id));
@@ -9677,6 +9833,166 @@ function getTierTwoUi() {
   });
 }
 
+function processTierThreeHits(caster, outcome, { startCombat = true } = {}) {
+  if (!outcome.hits?.length) return;
+  state.lastDamageSourceId = caster.id;
+  const concealed = isStealthed(caster) || caster.castFromConcealment;
+  revealAfterOffense(caster);
+  const surprised = [];
+  for (const hit of outcome.hits) {
+    if (hit.type === 'character') {
+      const target = state.characters.find(member => member.id === hit.id);
+      if (hit.damage > 0 && target?.companion?.kind === 'charmed') endCharacterCharm(target, true);
+      continue;
+    }
+    const monster = getMonsterById(hit.id);
+    if (!monster) continue;
+    if (concealedMimic(monster) || concealedAnimatedArmor(monster)) { monster.disguiseRevealed = true; surprised.push(monster.id); }
+    if (Number(monster.hp) <= 0) defeatMonster(state, monster);
+    else { monster.attitude = 'combat'; monster.hostile = true; monster.attitudeChecked = true; }
+  }
+  if (startCombat && !isCombatActive() && outcome.hits.some(hit => hit.type === 'monster' && !hit.defeated)) {
+    caster.openingSpellActionSpent = true;
+    beginCombat('Combat begins after the spell.', { initiator: concealed || surprised.length ? caster : null,
+      forcedSurprisedIds: surprised, extraMonsterIds: outcome.hits.filter(hit => hit.type === 'monster' && !hit.defeated).map(hit => hit.id) });
+    if (!isCombatActive()) caster.openingSpellActionSpent = false;
+  } else if (isCombatActive()) { detectAdditionalCombatMonsters(); checkCombatEnd(); }
+  for (const member of state.characters) { clearMagicLightIfIncapacitated(member); syncCharacterDyingRaw(member); }
+  cleanupWizardTierTwoFocus(state); cleanupPriestTierTwoFocus(state);
+  syncTransformationEffects(state); syncAreaSpellConditions(state);
+}
+
+function finishTierThreeSpell(character, selection = {}) {
+  if (!character) return;
+  if (sendSharedCommand('resolve_spell', { choice: selection.choice, x: selection.x, y: selection.y,
+    confirmed: selection.confirmed === true, dismiss: selection.dismiss === true }, character)) return;
+  const outcome = resolveTierThreeSpell(state, character, selection);
+  processTierThreeHits(character, outcome);
+  if (selection.confirmed || selection.dismiss) tierThreePreview = null;
+  syncAllCharacterEquipmentDerivedStats(); syncPlayerToActiveCharacter(); recomputeVisibility(state);
+  prepareEncounterState(); checkCombatEnd(); markRunDirty(); markUserActivity();
+  setStatus(outcome.message || 'Spell resolved.');
+  if (outcome.hits) { pushDiceHistory('Spell', outcome.message, character.id); pushCombatLog(outcome.message); }
+  updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+}
+
+function getTierThreeUi() {
+  if (SERVER_RUNTIME) return null;
+  const getCaster = () => state?.characters.find(member => TIER_THREE_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member));
+  return tierThreeUi ||= createTierTwoUi({
+    getPresentation: () => {
+      const caster = getCaster(), view = tierThreePresentation(state, caster);
+      if (view) {
+        view.busy = sharedCommandPending > 0;
+        view.origin = { x: caster.x, y: caster.y, routeId: routeOf(state, caster) };
+        ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true;
+      }
+      return view;
+    },
+    resolve: selection => finishTierThreeSpell(getCaster(), selection),
+    preview: selection => {
+      const caster = getCaster();
+      try {
+        const radius = caster?.pendingSpell?.radius;
+        tierThreePreview = selection && caster ? { cells: tierThreeCells(state, caster, selection),
+          ...(caster.pendingSpell.spell === 'fireball' ? { rect: { x: selection.x - radius, y: selection.y - radius, width: radius * 2 + 1, height: radius * 2 + 1 } } : {}),
+          routeId: routeOf(state, caster), color: getCharacterColorValue(caster), spell: caster.pendingSpell.spell } : null;
+        if (selection && caster && !tierThreePreview.cells.length) throw new Error('Choose a valid spell placement within range and clear line of sight.');
+      } catch (error) { tierThreePreview = null; setStatus(error.message); render(); return false; }
+      render(); return true;
+    }, mapHost: ui.mapHost, status: setStatus
+  });
+}
+
+function finishDispelMagic(character, selection = {}) {
+  if (!character) return;
+  if (sendSharedCommand('resolve_spell', { choice: selection.choice, option: selection.back ? '__back__' : selection.effectId,
+    target_id: selection.targetId, x: selection.x, y: selection.y,
+    dismiss: selection.dismiss === true }, character)) return;
+  const outcome = resolveDispelMagic(state, character, selection, {
+    onCharmEnd: (_world, target) => { if (target?.companion?.kind === 'charmed') endCharacterCharm(target, true); }
+  });
+  progressFloatingDiscTime(0);
+  cleanupWizardTierTwoFocus(state); cleanupPriestTierTwoFocus(state);
+  syncTransformationEffects(state); syncAreaSpellConditions(state); syncAllCharacterEquipmentDerivedStats();
+  refreshMagicDetection(state); syncPlayerToActiveCharacter(); recomputeVisibility(state);
+  prepareEncounterState(); checkCombatEnd(); markRunDirty(); markUserActivity();
+  setStatus(outcome.message); if (outcome.effect) pushDiceHistory('Dispel Magic', outcome.message, character.id);
+  updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+}
+
+function runIllusionCombatTurn(character) {
+  const combat = ensureCombatState(), key = `${combat.round}:${combat.turnIndex}`;
+  if (character.illusion.lastTurn === key) { combat.actionUsed = true; combat.movementRemaining = 0; return; }
+  character.illusion.lastTurn = key;
+  let result = illusionAttack(state, character);
+  if (result.needsMovement) {
+    const preference = getMonsterAttackPreference(character.companion.source);
+    const range = preference.bestNear?.rangeInfo.maxRange || 1;
+    const plan = planFiringPosition(state, character, result.target, {
+      movement: characterMovementBudget(character), preferRange: Boolean(preference.bestNear),
+      canStep: (fromX, fromY, x, y, point) => canMoveBetweenTiles(state, fromX, fromY, x, y, { creature: character, routeId: point.routeId }).ok,
+      canAttackFrom: (x, y, point) => canTargetAtRange(state, { ...character, x, y, routeId: point.routeId }, result.target, range, { requireLight: false }),
+      stepCost: () => 1
+    });
+    if (plan?.steps.length) {
+      const end = plan.steps.at(-1); character.x = end.x; character.y = end.y; character.routeId = end.routeId;
+      character.roomId = getTileAt(end.x, end.y)?.roomId; syncPlayerToActiveCharacter();
+      result = illusionAttack(state, character);
+    }
+  }
+  if (result.target) result.target.suspectedIllusionIds = [...new Set([...(result.target.suspectedIllusionIds || []), character.id])];
+  combat.actionUsed = true; combat.movementRemaining = 0;
+  pushDiceHistory('Attack', result.message, character.id); setStatus(result.message); recomputeVisibility(state);
+}
+
+function finishIllusion(character, selection = {}) {
+  if (!character) return;
+  if (sendSharedCommand('resolve_spell', { option: selection.option, x: selection.x, y: selection.y,
+    confirmed: selection.confirmed === true, dismiss: selection.dismiss === true }, character)) return;
+  const outcome = resolveIllusion(state, character, selection, { monsters: shadowdarkContent?.monsters || [] });
+  areaPreview = null;
+  if (outcome.projection && isIllusionCreature(outcome.projection)) queueCharactersForNextCombatRound([outcome.projection]);
+  ensureCharacterPresentation(); syncAllCharacterEquipmentDerivedStats(); syncPlayerToActiveCharacter(); recomputeVisibility(state);
+  markRunDirty(); markUserActivity(); setStatus(outcome); updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+}
+
+function getIllusionUi() {
+  if (SERVER_RUNTIME) return null;
+  const getCaster = () => state?.characters.find(member => member.pendingSpell?.spell === 'illusion' && canControlCharacter(member));
+  return illusionUi ||= createTierTwoUi({
+    getPresentation: () => {
+      const view = illusionPresentation(state, getCaster());
+      if (view) { view.busy = sharedCommandPending > 0; ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true; }
+      return view;
+    }, resolve: selection => finishIllusion(getCaster(), selection),
+    preview: selection => {
+      const caster = getCaster();
+      try { areaPreview = selection && caster ? { ...illusionPlacement(state, caster, selection), color: caster.colorValue, spell: 'illusion' } : null; }
+      catch (error) { areaPreview = null; setStatus(error.message); render(); return false; }
+      render(); return true;
+    }, mapHost: ui.mapHost, status: setStatus
+  });
+}
+
+function getDispelUi() {
+  if (SERVER_RUNTIME) return null;
+  const getCaster = () => state?.characters.find(member => member.pendingSpell?.spell === 'dispel magic' && canControlCharacter(member));
+  return dispelUi ||= createTierTwoUi({
+    getPresentation: () => {
+      const view = dispelMagicPresentation(state, getCaster());
+      if (view) {
+        view.busy = sharedCommandPending > 0;
+        ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true;
+      }
+      return view;
+    },
+    resolve: selection => finishDispelMagic(getCaster(), { ...selection,
+      effectId: selection.option === '__back__' ? undefined : selection.option, back: selection.option === '__back__' }),
+    preview() {}, mapHost: ui.mapHost, status: setStatus
+  });
+}
+
 function rememberSpellDialogs(outcome) {
   if (!outcome.dialogs?.length) return;
   state.spellDialogMessages ||= [];
@@ -9685,6 +10001,7 @@ function rememberSpellDialogs(outcome) {
 }
 
 function recordFocusCheck(character, reason) {
+  if (character.focusSpell?.spell === 'illusion' && !character.focusSpell.illusionIds?.length && character.pendingSpell?.spell === 'illusion') return null;
   if (character.focusSpell && silenceBlocksAction(state, character, { spellcasting: true })) {
     character.focusSpell = null; cleanupWizardTierTwoFocus(state); cleanupPriestTierTwoFocus(state); syncTransformationEffects(state); syncAreaSpellConditions(state);
     return { message: `${character.name} loses Focus inside Silence.` };
@@ -9696,19 +10013,22 @@ function recordFocusCheck(character, reason) {
     if (!isLuckResolution(state)) {
       luck = beginLuckEvent(state, { kind: 'cast', actor: luckActorRef(character), roll: check,
         dc: 10 + Number(findSpellRecord(spell)?.tier || 1), context: { spell, focus: true, reason },
-        scope: [...state.characters, ...state.entities.filter(entity => entity.type === 'monster')].map(luckActorRef) });
-      for (const actor of [...state.characters, ...state.entities.filter(entity => entity.type === 'monster')]) captureLuckActor(luck, actor);
+        scope: [...state.characters, ...state.entities.filter(entity => entity.type === 'monster' || entity.illusion)].map(luckActorRef) });
+      for (const actor of [...state.characters, ...state.entities.filter(entity => entity.type === 'monster' || entity.illusion)]) captureLuckActor(luck, actor);
     }
     return check;
   };
-  const focusCheck = isPriestTierTwoFocus(character.focusSpell) ? maintainPriestTierTwoFocus : character.focusSpell?.spell === 'levitate' ? maintainLevitationFocus : isTierTwoFocus(character.focusSpell) ? maintainTierTwoFocus : character.focusSpell?.spell === 'detect magic' ? maintainDetectMagic : maintainFocus;
+  const focusCheck = spell === 'illusion' ? maintainIllusion : isPriestTierTwoFocus(character.focusSpell) ? maintainPriestTierTwoFocus : character.focusSpell?.spell === 'levitate' ? maintainLevitationFocus : isTierTwoFocus(character.focusSpell) ? maintainTierTwoFocus : character.focusSpell?.spell === 'detect magic' ? maintainDetectMagic : maintainFocus;
   const outcome = focusCheck(state, character, { reason,
     ...tierTwoOptions(), ...(isPriestTierTwoFocus(character.focusSpell) ? priestTierTwoOptions() : {}), checkRoll, rollCheck: checkRoll,
     disadvantage: protectionDisadvantage(state, character),
     advantage: characterHasSpellCastingAdvantage(character, findSpellRecord(character.focusSpell?.spell)) });
   if (outcome) {
     rememberSpellDialogs(outcome);
-    pushDiceHistory('Focus', outcome.message, character.id); pushCombatLog(outcome.message); setStatus(outcome.message);
+    pushDiceHistory('Focus', outcome.message, character.id, outcome.check ? rollTextSegments(outcome.message, outcome.check) : null,
+      outcome.privateCharacterId, { heading: findSpellRecord(spell)?.name || formatFieldName(spell), type: 'Spellcasting' });
+    if (!outcome.privateCharacterId) pushCombatLog(outcome.message);
+    setStatus(outcome);
     markRunDirty();
   }
   if (luck) finishLuckEvent(state, luck, { succeeded: outcome?.succeeded === true });
@@ -9717,6 +10037,7 @@ function recordFocusCheck(character, reason) {
 }
 
 setCharacterDamageListener((character,damage,sourceId) => {
+  if (isIllusionCreature(character) && damage > 0) { dismissIllusion(state, character); return; }
   if (state?.characters.includes(character)) recordCompanionDamage(character,damage);
   if (character.companion?.charm && sourceId !== character.id && state?.characters.some(member => member.id === sourceId)) {
     character.companion.charm.brokenByParty = true;
@@ -9727,6 +10048,7 @@ setCharacterDamageListener((character,damage,sourceId) => {
 });
 
 function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = false } = {}) {
+  const illusionsChanged = cleanupIllusions(state);
   const discsChanged = progressFloatingDiscTime(milliseconds);
   const hasItems = state.characters.some(character => character.potionEffects?.length || character.companion?.charm || character.transformationEffects?.length) || state.entities.some(entity => entity.charm || entity.fixedObject) || state.areaSpells?.length;
   if (hasItems) advanceCharmTime(milliseconds);
@@ -9735,7 +10057,8 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
   const hasFaith = hasCleansing || state.entities.some(portalHeld) || state.characters.some(character => character.invisibility || character.faithEffects?.length || character.focusSpell || character.gear?.some(item => item.holyWeapon || item.cleansingWeapon)) ||
     state.entities.some(entity => entity.invisibility || entity.moraleFlight || entity.turnedUndead || entity.gearItem?.holyWeapon || entity.gearItem?.cleansingWeapon);
   const phenomena = state.entities.some(entity => entity.subtype === 'arcane-shred' || entity.subtype === 'arcane-gate' && !entity.closed || entity.arcaneSummonRounds > 0);
-  if (!hasItems && !hasFaith && !phenomena && !state.characters.some(character => character.wizardEffects?.length || Object.keys(character.spellLocks || {}).length)) return discsChanged;
+  const suppressionActive = hasMagicSuppression(state);
+  if (!hasItems && !hasFaith && !phenomena && !suppressionActive && !state.characters.some(character => character.wizardEffects?.length || Object.keys(character.spellLocks || {}).length)) return discsChanged || illusionsChanged;
   const lightingMayChange = phenomena || state.characters.some(character => hasWizardEffect(character, 'light-suppression'));
   const armoredIds = new Set(state.characters.filter(mageArmorEffect).map(character => character.id));
   state.arcaneTime ||= { crawlRemainderMs: 0, elapsedMs: 0 };
@@ -9745,6 +10068,8 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
     rounds = Math.floor(state.arcaneTime.crawlRemainderMs / SPELL_ROUND_MS);
     state.arcaneTime.crawlRemainderMs %= SPELL_ROUND_MS;
   }
+  const suppressionChanged = rounds > 0 && advanceMagicSuppression(state, rounds);
+  if (suppressionChanged) { syncAllCharacterEquipmentDerivedStats(); markRunDirty(); }
   if ((hasFaith || hasItems) && rounds > 0) {
     advanceTransformationRounds(state, rounds); advanceAreaSpells(state, rounds);
     cleanupWizardTierTwoFocus(state); syncTransformationEffects(state); syncAreaSpellConditions(state);
@@ -9782,7 +10107,7 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
     }
   });
   if (changed) { syncAllCharacterEquipmentDerivedStats(); if (lightingMayChange) recomputeVisibility(state); markRunDirty(); }
-  return discsChanged || changed || ((hasFaith || hasItems) && rounds > 0);
+  return discsChanged || illusionsChanged || changed || suppressionChanged || ((hasFaith || hasItems) && rounds > 0);
 }
 
 function syncFloatingDiscFollowers() {
@@ -10132,7 +10457,8 @@ function progressPartyRest() {
   }
   if(state.rest.phase==='completed')triggerPartyDoppelgangers();
   if (state.rest.phase === 'completed') for (const result of state.rest.studyResults || []) {
-    pushDiceHistory('Scroll study', `${result.message}. INT ${result.check.total} vs DC 15.`, result.characterId);
+    const text = `${result.message}. INT ${result.check.total} vs DC 15.`;
+    pushDiceHistory('Intelligence', text, result.characterId, rollTextSegments(text, result.check));
   }
   syncAllCharacterEquipmentDerivedStats();
   syncPlayerLightFromActiveCharacter();
@@ -10144,12 +10470,14 @@ function progressPartyRest() {
 
 function recordRestInterruptionChecks() {
   for (const entry of state.rest.interruptionChecks || []) {
-    pushDiceHistory('Rest interruption', `${entry.name}: 1d20 = (${entry.result.roll}) ${formatSignedModifier(entry.result.modifier)} CON = ${entry.result.total} vs DC 12: ${entry.passed ? 'passed' : 'failed; no benefit from this eight-hour rest'}.`, entry.characterId);
+    const text = `${entry.name}: 1d20 = (${entry.result.roll}) ${formatSignedModifier(entry.result.modifier)} CON = ${entry.result.total} vs DC 12: ${entry.passed ? 'passed' : 'failed; no benefit from this eight-hour rest'}.`;
+    pushDiceHistory('Constitution', text, entry.characterId, rollTextSegments(text, entry.result), null, { type: 'Saving Throw' });
   }
 }
 
 function luckActorRef(actor) { return { collection: state.characters.includes(actor) ? 'characters' : 'entities', id: actor.id }; }
 function captureLuckActor(event, actor) {
+  if (actor.illusion || event.context.spell === 'illusion') { captureLuckChange(state, event, luckActorRef(actor), [], { lifecycle: true }); return; }
   captureRuntimeLuckActor(state, event, actor);
   captureLuckChange(state, event, luckActorRef(actor), ['invisibility', 'lightSpellLit', 'lightSource']);
 }
@@ -10186,7 +10514,7 @@ function performLuck(character) {
       const options = { checkRoll: () => check, rollCheck: () => check, knownSpells: getCharacterKnownSpellNames(actor), monsterAttacks: getMonsterAttackOptions };
       let result;
       if (event.context.focus) {
-        const maintain = isPriestTierTwoFocus(actor.focusSpell) ? maintainPriestTierTwoFocus : key === 'levitate' ? maintainLevitationFocus : isTierTwoFocus(actor.focusSpell) ? maintainTierTwoFocus : key === 'detect magic' ? maintainDetectMagic : maintainFocus;
+        const maintain = key === 'illusion' ? maintainIllusion : isPriestTierTwoFocus(actor.focusSpell) ? maintainPriestTierTwoFocus : key === 'levitate' ? maintainLevitationFocus : isTierTwoFocus(actor.focusSpell) ? maintainTierTwoFocus : key === 'detect magic' ? maintainDetectMagic : maintainFocus;
         result = maintain(draft, actor, { ...options, ...(isPriestTierTwoFocus(actor.focusSpell) ? priestTierTwoOptions() : {}), reason: event.context.reason, turnKey: `luck:${event.id}`,
           criticalChoices: TIER_TWO_CHOICES, grantLuck: (world, owner) => grantLuckToken(world, owner.id),
           onCriticalChoice: (world, owner, focus, choice) => {
@@ -10194,6 +10522,9 @@ function performLuck(character) {
             if (zone && choice === 'area') { zone.x -= 3; zone.y -= 3; zone.width = zone.height = 12; }
           } });
       } else if (PRIEST_TIER_TWO_SPELLS.has(key)) result = castPriestTierTwoSpell(draft, actor, key, { ...priestTierTwoOptions(), ...options });
+      else if (key === 'illusion') result = castIllusion(draft, actor, options);
+      else if (key === 'dispel magic') result = castDispelMagic(draft, actor, options);
+      else if (TIER_THREE_SPELLS.has(key)) result = castTierThreeSpell(draft, actor, key, options);
       else if (TIER_TWO_SPELLS.has(key)) result = castTierTwoSpell(draft, actor, key, options);
       else if (WIZARD_TIER_ONE.has(key)) result = castWizardTierOne(draft, actor, key, options);
       else if (FAITH_SPELLS.has(key)) result = castFaithSpell(draft, actor, key, options);
@@ -10203,7 +10534,7 @@ function performLuck(character) {
       else if (key === 'magic missile') result = castMagicMissile(draft, actor, options);
       else if (key === 'burning hands') result = castBurningHands(draft, actor, options);
       else throw new Error('That spell does not yet support a Luck reroll.');
-      return { message: result.message };
+      return { message: result.message, ...(result.privateCharacterId ? { privateCharacterId: result.privateCharacterId } : {}) };
     }
     if (event.kind === 'save') return resolveLuckSave(draft, info, { resolvePitSave,
       canStep: (world, creature, x, y, nx, ny) => canMoveBetweenTiles(world, x, y, nx, ny, { creature, routeId: routeOf(world, creature), ignorePits: true }).ok });
@@ -10213,7 +10544,8 @@ function performLuck(character) {
   syncTransformationEffects(state); syncAreaSpellConditions(state); cleanupPriestTierTwoFocus(state); syncAllCharacterEquipmentDerivedStats();
   syncPlayerToActiveCharacter(); recomputeVisibility(state); prepareEncounterState(); checkCombatEnd();
   const message = outcome.result?.message || `Luck reroll: ${outcome.check.roll}.`;
-  pushDiceHistory('Luck', message, character.id); setStatus(message); markRunDirty(); updatePanels(); render();
+  pushDiceHistory('Luck', message, character.id, null, outcome.result?.privateCharacterId);
+  setStatus({ message, privateCharacterId: outcome.result?.privateCharacterId }); markRunDirty(); updatePanels(); render();
 }
 
 function spellLuckOptions(caster, spell) {
@@ -10224,7 +10556,7 @@ function spellLuckOptions(caster, spell) {
       context.event = beginLuckEvent(state, { kind: 'cast', actor: luckActorRef(caster), roll: result, dc: 10 + Number(spell.tier || 1),
         context: { spell: getSpellKey(spell), targetId: context.targetId }, scope: [...state.characters, ...state.entities.filter(entity => entity.type === 'monster')].map(luckActorRef) });
       for (const actor of [...state.characters, ...state.entities.filter(entity => entity.type === 'monster')]) captureLuckActor(context.event, actor);
-      captureLuckChange(state, context.event, luckActorRef(caster), ['spellPenance']);
+      if (getSpellKey(spell) !== 'illusion') captureLuckChange(state, context.event, luckActorRef(caster), ['spellPenance']);
       context.result = result;
     }
     return result;
@@ -10237,7 +10569,7 @@ function performSpellCast(character, spell, targetId = null) {
   try { return performSpellCastInternal(character, spell, targetId); }
   finally {
     spellLuckContext = previous;
-    if (context.event) finishLuckEvent(state, context.event, { succeeded: context.result.roll !== 1 && (context.result.roll === 20 || context.result.total >= 10 + Number(spell.tier || 1)) });
+    if (context.event && context.result) finishLuckEvent(state, context.event, { succeeded: context.result.roll !== 1 && (context.result.roll === 20 || context.result.total >= 10 + Number(spell.tier || 1)) });
   }
 }
 function performSpellCastInternal(character, spell, targetId = null) {
@@ -10286,6 +10618,45 @@ function performSpellCastInternal(character, spell, targetId = null) {
       if (outcome.check) showCheckResult(outcome.check, spell.name + ' cast', { message: outcome.message });
       if (!SERVER_RUNTIME) { ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true; }
       render(); updatePanels(); scheduleAutoEndTurnIfNeeded();
+    } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
+    return;
+  }
+  if (getSpellKey(spell) === 'illusion') {
+    try {
+      if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
+      const outcome = castIllusion(state, currentCharacter, { ...higherMishapContext(currentCharacter, spell), ...spellLuckOptions(currentCharacter, spell),
+        advantage: characterHasSpellCastingAdvantage(currentCharacter, spell), disadvantage: protectionDisadvantage(state, currentCharacter) });
+      markRunDirty(); markUserActivity(); setStatus(outcome);
+      showCheckResult(outcome.check, 'Illusion cast', { message: outcome.message, characterId: currentCharacter.id,
+        privateCharacterId: outcome.privateCharacterId });
+      updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+    } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
+    return;
+  }
+  if (getSpellKey(spell) === 'dispel magic') {
+    try {
+      if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
+      const outcome = castDispelMagic(state, currentCharacter, {
+        ...higherMishapContext(currentCharacter, spell), ...spellLuckOptions(currentCharacter, spell),
+        advantage: characterHasSpellCastingAdvantage(currentCharacter, spell), disadvantage: protectionDisadvantage(state, currentCharacter) });
+      markRunDirty(); markUserActivity(); setStatus(outcome.message);
+      showCheckResult(outcome.check, 'Dispel Magic cast', { message: outcome.message });
+      if (!SERVER_RUNTIME) { ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true; }
+      updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+    } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
+    return;
+  }
+  if (TIER_THREE_SPELLS.has(getSpellKey(spell))) {
+    try {
+      if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
+      const outcome = castTierThreeSpell(state, currentCharacter, getSpellKey(spell), {
+        ...higherMishapContext(currentCharacter, spell), ...spellLuckOptions(currentCharacter, spell),
+        advantage: characterHasSpellCastingAdvantage(currentCharacter, spell), disadvantage: protectionDisadvantage(state, currentCharacter) });
+      syncAllCharacterEquipmentDerivedStats(); recomputeVisibility(state);
+      markRunDirty(); markUserActivity(); setStatus(outcome.message);
+      showCheckResult(outcome.check, spell.name + ' cast', { message: outcome.message });
+      if (!SERVER_RUNTIME) { ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true; }
+      updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
     } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
     return;
   }
@@ -10505,9 +10876,26 @@ function getDiceHistoryAgeLabel(index) {
 
 let diceHistoryRenderKey = '';
 let rollTooltip = null;
+function attachRichTooltip(node, segments) {
+  node.classList.add('roll-hover-value');
+  node.setAttribute('aria-description', segments.map(part => part.text).join(''));
+  const close = () => { rollTooltip?.remove(); rollTooltip = null; };
+  const show = () => {
+    close(); rollTooltip = document.createElement('div'); rollTooltip.className = 'roll-hover-tooltip';
+    rollTooltip.setAttribute('role', 'tooltip'); appendRollSegments(rollTooltip, segments); document.body.append(rollTooltip);
+    const rect = node.getBoundingClientRect(), tip = rollTooltip.getBoundingClientRect();
+    rollTooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - tip.width - 8, rect.left))}px`;
+    rollTooltip.style.top = `${Math.max(8, rect.top >= tip.height + 12 ? rect.top - tip.height - 8 : Math.min(window.innerHeight - tip.height - 8, rect.bottom + 8))}px`;
+  };
+  node.addEventListener('pointerenter', show); node.addEventListener('pointerleave', close);
+  node.addEventListener('focus', show); node.addEventListener('blur', close);
+}
+
 function appendRollSegments(target, segments) {
   for (const segment of segments) {
     const node = document.createElement(segment.bold ? 'strong' : 'span'); node.textContent = segment.text;
+    if (segment.italic) node.style.fontStyle = 'italic';
+    if (segment.magic) node.classList.add('magic-label');
     if (segment.maximum) node.classList.add('die-maximum');
     else if (segment.minimum) node.classList.add('die-minimum');
     else if (segment.characterId) {
@@ -10515,18 +10903,9 @@ function appendRollSegments(target, segments) {
       if (character) node.style.color = getCharacterColorValue(character);
     } else if (!segment.bold) { node.textContent = ''; appendCharacterColoredText(node, segment.text); }
     if (Array.isArray(segment.tooltip)) {
-      node.classList.add('roll-hover-value'); node.tabIndex = 0;
+      node.tabIndex = 0;
       node.setAttribute('aria-label', segment.tooltip.map(part => part.text).join(''));
-      const close = () => { rollTooltip?.remove(); rollTooltip = null; };
-      const show = () => {
-        close(); rollTooltip = document.createElement('div'); rollTooltip.className = 'roll-hover-tooltip';
-        rollTooltip.setAttribute('role', 'tooltip'); appendRollSegments(rollTooltip, segment.tooltip); document.body.append(rollTooltip);
-        const rect = node.getBoundingClientRect(), tip = rollTooltip.getBoundingClientRect();
-        rollTooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - tip.width - 8, rect.left))}px`;
-        rollTooltip.style.top = `${Math.max(8, rect.top >= tip.height + 12 ? rect.top - tip.height - 8 : Math.min(window.innerHeight - tip.height - 8, rect.bottom + 8))}px`;
-      };
-      node.addEventListener('pointerenter', show); node.addEventListener('pointerleave', close);
-      node.addEventListener('focus', show); node.addEventListener('blur', close);
+      attachRichTooltip(node, segment.tooltip);
     }
     target.append(node);
   }
@@ -10537,20 +10916,47 @@ function renderDiceHistory() {
   if (!ui.diceHistory) {
     return;
   }
+  const visibleHistory = diceHistory.filter(entry => canReadFeedback(state, entry));
   if (ui.diceHistoryToggle) {
-    ui.diceHistoryToggle.hidden = diceHistory.length === 0;
+    ui.diceHistoryToggle.hidden = true;
   }
-  const key = JSON.stringify([diceHistory, state.characters.map(character => [character.id, getCharacterColorValue(character)])]);
-  if (diceHistoryRenderKey === key && ui.diceHistory.childElementCount === diceHistory.length) return;
+  ui.diceHistory.hidden = false;
+  const key = JSON.stringify([visibleHistory, state.characters.map(character => [character.id, getCharacterColorValue(character)])]);
+  if (diceHistoryRenderKey === key && ui.diceHistory.childElementCount === visibleHistory.length) return;
   diceHistoryRenderKey = key; rollTooltip?.remove(); rollTooltip = null;
   ui.diceHistory.innerHTML = "";
-  diceHistory.forEach((entry, index) => {
+  visibleHistory.forEach((entry, index) => {
     const item = document.createElement("li");
-    const detail = document.createElement("div");
-    detail.className = "dice-history-detail";
-    if (Array.isArray(entry.segments)) appendRollSegments(detail, entry.segments);
-    else appendCharacterColoredText(detail, entry.detail || entry.label || '');
-    item.append(detail);
+    item.className = 'roll-card';
+    const card = entry.rollCard || entry.segments?.find(part => part.rollCard)?.rollCard;
+    const actor = state.characters.find(member => member.id === (card?.actorId || entry.characterId));
+    item.style.setProperty('--roll-color', actor ? getCharacterColorValue(actor) : entry.actorColor || '#be2d2d');
+    const heading = document.createElement('h3'); heading.className = 'roll-card-heading';
+    heading.textContent = card?.heading || entry.label?.replace(/\s+\d+$/, '') || 'Roll'; item.append(heading);
+    const actorName = actor?.name || card?.actorName || entry.actorName;
+    if (actorName) {
+      const name = document.createElement('div'); name.className = 'roll-card-actor'; name.textContent = actorName; item.append(name);
+    }
+    if (card?.results?.length) {
+      const result = document.createElement('div'); result.className = 'roll-card-result';
+      const label = document.createElement('em'); label.textContent = `${card.type || 'Check'}: `; result.append(label);
+      card.results.forEach((value, i) => {
+        if (i) result.append(document.createTextNode(' | '));
+        appendRollSegments(result, [{ ...value, text: String(value.value) }]);
+      });
+      item.append(result);
+    }
+    if (card?.damage) {
+      const damage = document.createElement('div'); damage.className = 'roll-card-result';
+      const label = document.createElement('em'); label.textContent = 'Damage: '; damage.append(label);
+      appendRollSegments(damage, [{ ...card.damage, bold: true, text: String(card.damage.value) }]); item.append(damage);
+    }
+    if (!card || !card.results?.length && !card.damage) {
+      const detail = document.createElement('div'); detail.className = 'roll-card-detail dice-history-detail';
+      if (Array.isArray(entry.segments)) appendRollSegments(detail, entry.segments);
+      else appendCharacterColoredText(detail, entry.detail || entry.label || '');
+      item.append(detail);
+    }
     ui.diceHistory.append(item);
   });
 }
@@ -10575,23 +10981,29 @@ function characterSheetInteractionKey(character) {
   return `${state.combat?.active}:${getCurrentCombatEntry()?.id}:${state.combat?.actionUsed}:${canControlCharacter(character)}`;
 }
 
-function pushDiceHistory(label, detail, characterId = null, segments = null) {
+function pushDiceHistory(label, detail, characterId = null, segments = null, privateCharacterId = null, presentation = {}) {
   if (!segments) { const parsed = rollTextSegments(detail || label || ''); if (parsed.length > 1) segments = parsed; }
+  const rollCard = segments?.find(part => part.rollCard)?.rollCard;
+  const actor = state?.characters?.find(member => member.id === (rollCard?.actorId || characterId));
+  if (rollCard) {
+    rollCard.heading ||= String(label).replace(/\s+\d+$/, '').replace(/ cast$/i, '');
+    rollCard.actorId ||= characterId;
+    rollCard.actorName ||= actor?.name;
+    rollCard.type ||= /cast|spell|focus/i.test(label) ? 'Spellcasting'
+      : /sav(?:e|ing)|fall|rest interruption|resistance/i.test(label) ? 'Saving Throw' : 'Check';
+    Object.assign(rollCard, presentation);
+  }
   diceHistory = Array.isArray(state?.rollHistory) ? state.rollHistory : diceHistory;
-  diceHistory.unshift({ label, detail, characterId, ...(segments ? { segments } : {}) });
+  diceHistory.unshift({ label, detail, characterId, ...(segments ? { segments: segments.map(({ rollCard: _card, ...part }) => part) } : {}),
+    ...(rollCard ? { rollCard } : {}), ...(actor ? { actorName: actor.name, actorColor: getCharacterColorValue(actor) } : {}),
+    ...(privateCharacterId ? { privateCharacterId } : {}) });
   diceHistory = diceHistory.slice(0, 100);
   if (state) state.rollHistory = diceHistory;
   renderDiceHistory();
 }
 
 function toggleDiceHistory() {
-  if (!ui.diceHistory || !ui.diceHistoryToggle) {
-    return;
-  }
-  const isOpening = ui.diceHistory.hidden;
-  ui.diceHistory.hidden = !isOpening;
-  ui.diceHistoryToggle.setAttribute("aria-expanded", `${isOpening}`);
-  ui.diceHistoryToggle.textContent = isOpening ? "Hide Roll History" : "Roll History";
+  if (ui.diceHistory) ui.diceHistory.hidden = false;
 }
 
 function rollManualDie(sides, count, modifier) {
@@ -11075,7 +11487,7 @@ function renderSpellDetail(spell, character, { scrollIndex = null, readOnly = fa
     castButton.textContent = fromScroll ? wand ? 'Use Wand' : 'Read Scroll' : 'Cast';
     castButton.title = `Cast ${spell.name} against DC ${getSpellCastingDc(spell)}`;
     castButton.disabled = !canControlCharacter(currentCharacter) || !isCharacterAbleToAct(currentCharacter) || Boolean(currentCharacter.pendingSpell) ||
-      (wand && currentCharacter.gear[scrollIndex]?.magic?.disabledUntilRest) ||
+      (wand && (currentCharacter.gear[scrollIndex]?.magic?.disabledUntilRest || isMagicSuppressed(currentCharacter.gear[scrollIndex]))) ||
       (getSpellKey(spell) === 'feather fall' && !currentCharacter.pendingFall) ||
       (isCombatActive() && state.combat.actionUsed) || (targetPicker && !targetPicker.options.length);
     castButton.addEventListener("click", () => fromScroll ? performMagicGearAction(wand ? 'read_wand' : 'read_scroll', currentCharacter, scrollIndex, targetPicker?.value) : performSpellCast(currentCharacter, spell, targetPicker?.value));
@@ -12102,6 +12514,9 @@ function updateSelectedPartyControls() {
 function updatePanels(options = {}) {
   if (SERVER_RUNTIME) return;
   getTierTwoUi().sync();
+  getTierThreeUi().sync();
+  getDispelUi().sync();
+  getIllusionUi().sync();
   getPriestTierTwoUi().sync();
   const dialogs = (state.spellDialogMessages || []).filter(message => !seenSpellDialogs.has(message.id));
   if (dialogs.length) { for (const message of dialogs) seenSpellDialogs.add(message.id); showNotice(dialogs.map(message => message.text).join('\n')); }
@@ -12198,11 +12613,14 @@ function formatRollTooltip(result, action) {
 
 function showCheckResult(result, action = "check", options = {}) {
   if (activeItemCast) activeItemCast.check = result;
+  const historyActorId = options.actor?.id || options.characterId || getActiveCharacter(state)?.id || null;
+  const presentation = { ...(options.actor ? { actorId: options.actor.id, actorName: formatFieldName(options.actor.name) } : {}),
+    ...(options.rollType ? { type: options.rollType } : {}) };
   if (SERVER_RUNTIME) {
     lastDamageRoll = { kind: "check", result, actionLabel: action, total: result?.total };
     if (options.recordHistory !== false) {
       const message = options.message || result?.message || formatRollText(result);
-      pushDiceHistory(action, message, null, rollTextSegments(message, result));
+      pushDiceHistory(action, message, historyActorId, rollTextSegments(message, result), options.privateCharacterId, presentation);
     }
     return;
   }
@@ -12224,7 +12642,7 @@ function showCheckResult(result, action = "check", options = {}) {
   renderDamageDetail(lastDamageRoll);
   if (options.recordHistory !== false) {
     const message = options.message || result.message || formatRollText(result);
-    pushDiceHistory(`${actionLabel} ${result.total}`, message, null, rollTextSegments(message, result));
+    pushDiceHistory(`${actionLabel} ${result.total}`, message, historyActorId, rollTextSegments(message, result), options.privateCharacterId, presentation);
   }
   setDamageDetailVisibility(false);
 }
@@ -13348,7 +13766,8 @@ function applyMultiplayerSessionState(payload, options = {}) {
       applySharedCharacterVisualPositions();
       recomputeVisibility(state);
       replayPendingSharedMoves();
-      redrawFromHydratedState(options.message || payload.state_json.activity?.at(-1)?.message || "");
+      const activity = payload.state_json.activity?.filter(entry => canReadFeedback(state, entry)).at(-1);
+      redrawFromHydratedState(options.message || activity?.message || "");
       if (!ui.spellDetailModal.hidden) {
         const caster = state.characters.find(character => character.id === ui.spellDetailModal.dataset.characterId);
         const spell = findSpellRecord(ui.spellDetailModal.dataset.spellKey);
@@ -13746,6 +14165,12 @@ function hookInputEvents() {
       if (activeShopPanel || activeSellPanel) { event.preventDefault(); closeActiveShopPanel(); closeActiveSellPanel(); return; }
       if (!document.getElementById('party-attack-modal').hidden) { pendingPartyAttack = null; document.getElementById('party-attack-modal').hidden = true; return; }
       if (!ui.extinguishOldModal.hidden) { closeExtinguishOldModal(); return; }
+      const blastCaster = state.characters.find(character => TIER_THREE_SPELLS.has(character.pendingSpell?.spell) && canControlCharacter(character));
+      const illusionCaster = state.characters.find(character => character.pendingSpell?.spell === 'illusion' && canControlCharacter(character));
+      if (illusionCaster) { event.preventDefault(); finishIllusion(illusionCaster, { dismiss: true }); return; }
+      const dispeller = state.characters.find(character => character.pendingSpell?.spell === 'dispel magic' && canControlCharacter(character));
+      if (dispeller) { event.preventDefault(); finishDispelMagic(dispeller, { dismiss: true }); return; }
+      if (blastCaster) { event.preventDefault(); finishTierThreeSpell(blastCaster, { dismiss: true }); return; }
       const thief = state.characters.find(character => character.pendingSteal && canControlCharacter(character));
       if (thief) { event.preventDefault(); resolveSteal(thief, { cancel: true }); return; }
       if (currentTargetingOverlay()) { event.preventDefault(); targetingMode = null; dismissedTurnRadius = targetingTurnKey(); syncMagicMissileUi(); updateMonsterHoverCursor(); render(); return; }
@@ -14151,6 +14576,9 @@ function hookMapViewportInteractions() {
   attackCursorImage = new Image();
   attackCursorImage.onload = updateMonsterHoverCursor;
   attackCursorImage.src = new URL("../assets/attack-alpha.png", import.meta.url).href;
+  stealCursorImage = new Image();
+  stealCursorImage.onload = updateMonsterHoverCursor;
+  stealCursorImage.src = new URL("../assets/bag-alpha.png", import.meta.url).href;
   panel.addEventListener("pointermove", (event) => {
     mapHoverPointer = event.target?.closest?.(".map-zoom-controls") ? null
       : { clientX: event.clientX, clientY: event.clientY };
@@ -14195,6 +14623,19 @@ function hookMapViewportInteractions() {
       return;
     }
     const { x, y } = getTileFromPointer({ clientX: clickX, clientY: clickY });
+    if (state.characters.some(member => member.pendingSpell?.spell === 'illusion' && canControlCharacter(member))) {
+      try { if (getIllusionUi().click(x, y)) return; } catch (error) { setStatus(error.message); return; }
+    }
+    if (state.characters.some(member => member.pendingSpell?.spell === 'dispel magic' && canControlCharacter(member))) {
+      const target = getCharacterAtTile(x, y, { includeDiscs: true }) || getVisibleMonsterAtTile(x, y) ||
+        state.entities.find(entity => entity.x === x && entity.y === y && !entity.collected && entity.visible !== false);
+      try { if (getDispelUi().click(x, y, target?.id)) return; }
+      catch (error) { setStatus(error.message); return; }
+    }
+    if (state.characters.some(member => TIER_THREE_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member))) {
+      try { if (getTierThreeUi().click(x, y)) return; }
+      catch (error) { setStatus(error.message); return; }
+    }
     if (state.characters.some(member => PRIEST_TIER_TWO_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member))) {
       const target = getCharacterAtTile(x, y) || getVisibleMonsterAtTile(x, y);
       try { if (getPriestTierTwoUi().click(x, y, target?.id)) return; }
@@ -14222,6 +14663,14 @@ function hookMapViewportInteractions() {
     const blessingTarget = blessingCaster?.pendingSpell.spell === 'charm person' ? getVisibleMonsterAtTile(x,y) :
       getCharacterAtTile(x,y)||(blessingCaster?.pendingSpell.spell==='invisibility'?getVisibleMonsterAtTile(x,y):null);
     if (blessingCaster && blessingTarget) { finishFaithSpell(blessingCaster, { targetId: blessingTarget.id }); return; }
+    const stealingOverlay = currentTargetingOverlay();
+    if (stealingOverlay?.kind === 'steal') {
+      const target = getCharacterAtTile(x, y) || getVisibleMonsterAtTile(x, y);
+      const thief = state.characters.find(member => member.id === stealingOverlay.characterId);
+      if (validStealTarget(state, thief, target)) resolveSteal(thief, { targetId: target.id });
+      else setStatus('Choose an adjacent creature to steal from.');
+      return;
+    }
     if (attackIntent && !getActiveCharacter(state)?.pendingSpell) { performMapAttack(x, y); return; }
     let overlay = currentTargetingOverlay();
     if (overlay?.kind === 'weapon') overlay = null;
@@ -14426,6 +14875,12 @@ async function loadLocalTestParty() {
       wizard.spellsKnown = [...TIER_TWO_SPELLS, 'invisibility', 'Light', 'Magic Missile', 'Burning Hands'].map(name => name.replace(/\b\w/g, letter => letter.toUpperCase())).join(', ');
       wizard.level = 4; wizard.stats.INT = 18;
       for (const member of imported) { member.hp = member.maxHitPoints = 60; member.luckToken = true; }
+    }
+    if (new URLSearchParams(location.search).get('tier-three-test') === 'one') {
+      const wizard = imported.find(character => /wizard/i.test(character.className));
+      wizard.spellsKnown = ['Fireball', 'Lightning Bolt', 'Dispel Magic', 'Illusion', 'Web', 'Silence', 'Light', 'Mage Armor'].join(', ');
+      wizard.level = 5; wizard.stats.INT = 18;
+      for (const member of imported) { member.hp = member.maxHitPoints = 80; member.luckToken = true; }
     }
     if (new URLSearchParams(location.search).get('priest-test') === 'two') {
       const priest = imported.find(character => /wizard/i.test(character.className));
@@ -14685,6 +15140,7 @@ export async function executeGameCommand(rawState, command) {
   lastDamageRoll = null;
   diceHistory = Array.isArray(state.rollHistory) ? state.rollHistory : [];
   ui.statusText.textContent = "";
+  statusPrivateCharacterId = null;
   if(state.encounterPrompt&&!['reaction','normalize','tick','luck'].includes(command.type))throw new Error('Resolve the monster reaction first.');
   state.combat.autoRunning = false;
   state.run = state.run || {};
@@ -14693,6 +15149,8 @@ export async function executeGameCommand(rawState, command) {
   if (restInProgress(state) && !['rest_accept', 'rest_cancel', 'rest_alarm', 'tick', 'normalize', 'fall_response'].includes(command.type)) throw new Error('Cancel rest before taking an action.');
   const discInventoryCommands = new Set(['get', 'pickup', 'collect', 'equip', 'light', 'snuff', 'drop_gear', 'money', 'coin_adjust', 'coin_amount', 'reorder_gear']);
   if (isFloatingDisc(character) && !discInventoryCommands.has(command.type)) throw new Error('Floating Disc can only carry gear and equip lanterns; it cannot act or move independently.');
+  if (isIllusionCreature(character) && !['move', 'move_batch', 'follow_step', 'attack', 'attack_empty', 'attack_door', 'end_turn', 'normalize', 'tick', 'dismiss'].includes(command.type))
+    throw new Error('Illusions can move and make harmless attacks, but cannot manipulate real objects or use abilities.');
   const controller = inventoryController(character);
   if (isIncorporeal(character) && ['attack','attack_empty','attack_door','interact','pick_lock','break_door','light','get','pickup','collect','drop_gear','equip','steal','steal_take','wake'].includes(command.type)) throw new Error('Become corporeal before physically interacting.');
   if (isFloatingDisc(character) && (!canUseCharacterInventory(character) || isCombatActive() && !isCurrentCharacterTurn(character))) throw new Error("It is not this character's turn or its caster cannot act.");
@@ -14861,6 +15319,11 @@ export async function executeGameCommand(rawState, command) {
     case 'resolve_spell':
       if (!character.pendingSpell && character.focusSpell?.spell !== 'zone of truth') throw new Error('There is no critical or pending spell awaiting resolution.');
       if (PRIEST_TIER_TWO_SPELLS.has(character.pendingSpell?.spell) || !character.pendingSpell && character.focusSpell?.spell === 'zone of truth') finishPriestTierTwoSpell(character, { choice: command.choice, option: command.option, question: command.question, targetId: command.target_id, dismiss: command.dismiss === true });
+      else if (character.pendingSpell?.spell === 'illusion') finishIllusion(character, { option: command.option, x: command.x, y: command.y, confirmed: command.confirmed === true, dismiss: command.dismiss === true });
+      else if (character.pendingSpell?.spell === 'dispel magic') finishDispelMagic(character, { choice: command.choice,
+        effectId: command.option, targetId: command.target_id, x: command.x, y: command.y,
+        back: command.option === '__back__', dismiss: command.dismiss === true });
+      else if (TIER_THREE_SPELLS.has(character.pendingSpell?.spell)) finishTierThreeSpell(character, { choice: command.choice, x: command.x, y: command.y, confirmed: command.confirmed === true, dismiss: command.dismiss === true });
       else if (TIER_TWO_SPELLS.has(character.pendingSpell?.spell)) finishTierTwoSpell(character, { choice: command.choice, option: command.option, targetId: command.target_id, x: command.x, y: command.y, confirmed: command.confirmed === true, gearIndex: command.gear_index, dismiss: command.dismiss === true });
       else if (character.pendingSpell?.spell === 'light') finishLightSpell(character, { targetId: command.target_id, x: command.x, y: command.y });
       else if (FAITH_SPELLS.has(character.pendingSpell?.spell)||WIZARD_TIER_ONE.has(character.pendingSpell?.spell)||character.pendingSpell?.spell==='invisibility') finishFaithSpell(character, { choice: command.choice, targetId: command.target_id, x: command.x, y: command.y, dismiss: command.dismiss === true });
@@ -14886,11 +15349,8 @@ export async function executeGameCommand(rawState, command) {
       if (!["torch", "lantern"].includes(command.source)) throw new Error("Invalid light source.");
       if (command.gear_index != null && (!Number.isInteger(command.gear_index) || getGearLightSource(character.gear?.[command.gear_index]) !== command.source || character.gear[command.gear_index].lit)) throw new Error("Choose an unlit light source.");
       if (getLightAttemptFailure(command.source)) throw new Error(getLightAttemptFailure(command.source));
-      if (ensureTimers(state).lightEverLit && !isCharacterInLiveLight(character)) {
-        const check = rollCheck(getCharacterActionModifier(controller, "dex"), { disadvantage: !isThief(controller) });
-        if (check.total < 12) { setStatus(`Light ${check.total} vs DC 12: failed.`); break; }
-      }
       if (command.reset_timer != null && typeof command.reset_timer !== 'boolean') throw new Error('Invalid timer choice.');
+      if (!checkCombatLighting(character, command.source)) break;
       applyLightRequest(command.source, { extinguishOld: command.reset_timer === true, gearIndex: command.gear_index });
       break;
     case "equip":
@@ -15116,9 +15576,11 @@ export async function executeGameCommand(rawState, command) {
   }
   const message = ui.statusText.textContent || "";
   state.activity = Array.isArray(state.activity) ? state.activity.slice(-39) : [];
-  if (message) state.activity.push({ message: message.slice(0, 2000), characterId: character?.id || null, time: Date.now() });
+  if (message) state.activity.push({ message: message.slice(0, 2000), characterId: character?.id || null, time: Date.now(),
+    ...(statusPrivateCharacterId ? { privateCharacterId: statusPrivateCharacterId } : {}) });
   state.combat.autoRunning = false;
-  return { state_json: serializeDungeonState(state), message, dice: lastDamageRoll };
+  return { state_json: serializeDungeonState(state), message, dice: lastDamageRoll,
+    ...(statusPrivateCharacterId ? { privateCharacterId: statusPrivateCharacterId } : {}) };
 }
 
 if (!SERVER_RUNTIME) initialize();

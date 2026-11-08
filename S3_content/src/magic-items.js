@@ -3,13 +3,14 @@ import { rollDamageExpression } from './damage.js';
 import { makeInvisible } from './concealment.js';
 import { rollCheck } from './interactions.js';
 import { forgottenSpells } from './arcane-effects.js';
+import { isMagicSuppressed } from './magic-suppression.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 const title = value => String(value).replace(/\b\w/g, char => char.toUpperCase());
 export const isMagicItem = item => Boolean(item?.magic || item?.magical ||
   (Array.isArray(item?.tags) ? item.tags : String(item?.tags || '').split(',')).some(tag => /^magic(?: items?| gear| treasure)?$/i.test(String(tag).trim())) ||
   /\b(?:magic|magical|enchanted)\b/i.test(typeof item === 'string' ? item : item?.name || ''));
-export const magicBonus = item => Math.max(0, Number(item?.magic?.bonus) || 0);
+export const magicBonus = item => isMagicSuppressed(item) ? 0 : Math.max(0, Number(item?.magic?.bonus) || 0);
 export const revealedMagicBonus = item => item?.magic?.identified ? magicBonus(item) : 0;
 export const POTIONS = [
   { key: 'healing-1', name: 'Potion of Healing I', value: 50, healing: '1d6', weight: 15, identified: true },
@@ -49,7 +50,8 @@ export function magicScroll(spell) {
 export function identifyMagicItem(item) {
   if (!item?.magic || item.magic.identified) throw new Error('Choose an unidentified magic item.');
   item.magic.identified = true;
-  item.name = item.magic.trueName;
+  if (isMagicSuppressed(item)) item.magicSuppression.originalName = item.magic.trueName;
+  else item.name = item.magic.trueName;
   item.tags = [...new Set([...(item.tags || []), 'Magic'])];
   if (item.magic.kind === 'scroll') item.description = `Tier ${item.magic.tier} scroll.`;
   return item.name;
@@ -128,8 +130,11 @@ export const giantStrengthActive = character => (character?.potionEffects || [])
 export function drinkPotion(character, index, { random = Math.random, checkRoll = rollCheck } = {}) {
   const item = character.gear?.[index], potion = POTIONS.find(potion => potion.key === item?.magic?.potion);
   if (!potion || item.magic.kind !== 'potion') throw new Error('Choose a potion to drink.');
+  const suppressed = isMagicSuppressed(item);
   let detail;
-  if (potion.healing) {
+  if (suppressed) {
+    detail = 'Nothing happens.';
+  } else if (potion.healing) {
     const roll = rollDamageExpression(potion.healing, random);
     const before = Number(character.hp) || 0;
     setCharacterHp(character, before + roll.total);
@@ -163,7 +168,7 @@ export function drinkPotion(character, index, { random = Math.random, checkRoll 
   character.raw ||= {};
   Object.assign(character.raw, { gear: clone(character.gear), stats: clone(character.stats), hp: character.hp,
     maxHitPoints: character.maxHitPoints, potionEffects: clone(character.potionEffects || []), vitalityPotionsDrunk: character.vitalityPotionsDrunk });
-  return { message: `${character.name} drinks ${item.magic.identified ? potion.name : 'a potion'}: ${detail}` };
+  return { message: suppressed ? detail : `${character.name} drinks ${item.magic.identified ? potion.name : 'a potion'}: ${detail}` };
 }
 export function advancePotionRounds(state, rounds = 1) {
   for (const character of state.characters || []) {

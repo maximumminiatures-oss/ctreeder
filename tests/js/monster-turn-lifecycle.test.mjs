@@ -19,6 +19,7 @@ for (const name of ['Pirate', 'Beastman']) for (const hit of [false, true]) {
     let logged = 0, nextTurnStarted = false;
     const attack = { name: 'Dagger', rangeInfo: { maxRange: 1 }, damageExpression: '1d4' };
     const context = vm.createContext({ state, isLiveMonster: actor => actor.hp > 0,
+      isIllusionCreature: actor => actor?.illusion?.kind === 'creature',
       isCharacterTargetableByMonster: actor => actor.hp > 0, sameRoute: () => true,
       transformationMovementRules: () => ({}), blocksMindControl: () => false,
       hasWizardEffect: () => false, isStealthed: () => false, canCharacterSeeMonster: () => true,

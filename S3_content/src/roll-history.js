@@ -1,5 +1,18 @@
 const die = (value, sides, bold = false) => ({ text: String(value), bold, minimum: value === 1, maximum: value === sides });
 
+export function createCheckRollCard(check, { heading = null, actorId = null, actorName = null, type = null, tooltip = [], damage = null } = {}) {
+  const values = Number.isFinite(check.secondaryRoll) ? [check.firstRoll, check.secondaryRoll] : [check.roll];
+  const modifier = Number(check.modifier) || 0;
+  return {
+    heading, actorId, actorName, type,
+    results: values.map(value => ({
+      value: value + modifier, bold: value === check.roll,
+      minimum: value === 1, maximum: value === 20, tooltip
+    })),
+    damage
+  };
+}
+
 export function checkDiceSegments(result) {
   const values = Number.isFinite(result.secondaryRoll) ? [result.firstRoll, result.secondaryRoll] : [result.roll];
   const parts = [{ text: `${values.length}d20 = ` }];
@@ -36,6 +49,10 @@ export function rollTextSegments(text, check = null) {
   parts.push({ text: text.slice(offset) });
   if (check && !usedCheck && Number.isFinite(check.roll)) parts.push({ text: '\n' }, ...checkDiceSegments(check),
     { text: ` ${check.modifier < 0 ? '-' : '+'}${Math.abs(check.modifier || 0)} = ` }, { text: String(check.total), bold: true });
+  if (check && Number.isFinite(check.roll)) {
+    // Snapshot the detailed segments before attaching metadata to avoid a cycle.
+    parts[0].rollCard = createCheckRollCard(check, { tooltip: parts.map(part => ({ ...part })) });
+  }
   return parts;
 }
 
@@ -47,5 +64,15 @@ export function damageRollSegments(label, roll) {
   });
   if (roll.multiplier > 1) parts.push({ text: ` x${roll.multiplier}` });
   parts.push({ text: ' = ' }, { text: String(roll.total), bold: true });
+  const dice = (roll.terms || []).filter(term => term.type === 'die');
+  parts[0].rollCard = {
+    heading: label || 'Damage', actorId: null, actorName: null, type: 'Damage', results: [],
+    damage: {
+      value: roll.total, bold: true,
+      minimum: dice.length > 0 && dice.every(term => Boolean(term.isMinimum)),
+      maximum: dice.length > 0 && dice.every(term => Boolean(term.isMaximum)),
+      tooltip: parts.map(part => ({ ...part }))
+    }
+  };
   return parts;
 }

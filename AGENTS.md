@@ -57,6 +57,20 @@ change; do not solve limited field space by suppressing a talent or bonus.
 
 ## Verification
 
+Compact mini-sheet commands inherit their sheet background and body font, with
+hover/focus borders only. Weapon arithmetic lives in rich hovers; never remove
+ancestry, mastery, or class effects to shorten the row. AC hovers use the same
+calculation as AC, without revealing unidentified magic bonuses. Roll History
+stays expanded and uses structured `rollCard` metadata while preserving legacy
+text and private audiences. Keep compact-presentation and roll-cards tests.
+
+Lighting uses `checkCombatLighting` for local and authoritative commands: no
+check outside combat, action plus DC 12 check in combat. Steal starts uncommitted;
+only a valid target click rolls/spends the action. Escape before commitment is
+free, never a refund for a completed roll. Party theft preserves inventory/raw
+mirrors and enchantments; never normalize heroes as native monsters. Run
+compact-actions-runtime and thievery-targets tests when changing these paths.
+
 The Buy popup uses one shared catalog in `S3_content/src/shop-catalog.js` for
 both UI tabs and authoritative `buy_gear` commands. Keep its legacy supply IDs
 stable and do not add a second item list. Core prices, quantities and slots
@@ -70,6 +84,12 @@ tests and `npm test` for runtime tests. Database fixtures recreate tables, so
 tests must use an isolated database and never production. Preview at `/site/`.
 Before deployment, verify a protected backup and retain a rollback image.
 Afterward, check the changed functionality and service health.
+
+Monster animations may yield while sheet normalization replaces party objects.
+Resolve combat participants by stable ID at the attack boundary, not by retained
+object identity. Keep `monster-turn-lifecycle.test.mjs`: it verifies real Luck
+capture and advancement to the next character after animated pirate/beastman
+hits and misses. Do not remove the rebinding or loosen Luck identity validation.
 
 ## Local test party
 
@@ -110,6 +130,60 @@ For Tier 2 priest testing, append `&priest-test=two` instead. The derived Badzog
 becomes a level-four priest with the six implemented Tier 2 spells, Light,
 Cure Wounds, Holy Weapon, a mace, and a holy symbol. Original character HP and
 the stored source exports remain unchanged.
+
+For Tier 3 wizard blast testing, append `&tier-three-test=one` instead. The
+derived Badzog receives Fireball, Lightning Bolt, Dispel Magic, Illusion, Web, Silence, Light, and Mage Armor at level five;
+the derived party has 80 HP and one Luck Token each. Never change the originals.
+`tier-three-spells.js` owns the blast geometry and damage. Fireball's two
+initial-critical choices are 8d6 or 13-by-13; Lightning Bolt's are 6d6 or 24
+squares. A bolt always extends its full length unless blocked, even when aimed
+at a nearby square. Walls/closed doors stop both spells; underpass routes stay
+separate. Keep fire treasure/Web hooks, resistance, and authoritative commands
+covered when extending these spells. Focus checks never offer critical choices.
+
+Dispel Magic uses `magic-effect-registry.js` to catalog live effects and remove
+only the selected source/target. Keep multi-target creature effects independent;
+board areas end as a whole. Bless tokens need explicit provenance; ancestry
+invisibility and other innate abilities are not dispellable spells. Permanent
+magic uses `magic-suppression.js` for ten rounds, retaining mundane equipment
+properties and independent mundane locks. Suppressed potions can be wasted;
+suppressed wands cannot cast; scroll items are immune (their effects are not).
+Preserve original names, raw/save mirrors, expiry, and consumed-item state.
+Detect Magic reads this same catalog. Generic `spellEffects` records support
+future monster spells, but do not imply that description-only monster spells
+are automated. Run the dispel, registry, suppression, feature-suppression, and
+wizard-tier-one tests when extending these contracts.
+
+Spell template art is visual only; never derive affected cells or spell rules
+from PNG transparency. `spell-template-art.js` maps standard 6x6 Web/Silence and
+7x7 Fireball/Magic Circle footprints to the supplied art. Larger critical areas
+deliberately retain geometric previews until their artwork strategy is approved.
+Web/Silence art is below tokens and fog; Fireball art is a translucent targeting
+preview clipped to the actual affected known cells and removed on release/cancel.
+Magic Circle only has an artwork hook for source-owned area records, not automated
+casting/protection yet. Preserve the artist's existing `mqgic-circle.png` filename.
+Run `spell-template-art`, `tier-three-ui`, `area-spells`, and renderer tests.
+
+Illusion owns one or two independent projections under one DC13 INT Focus in
+`illusion.js`. Initial criticals allow two independent choices, including
+duplicates; later Focus twenties never add projections. Successful attacks,
+physical monster contact, or successful WIS inspection dismiss only that
+projection, without corpses, loot, dying, regeneration or real damage. Creature
+projections use party slots but never supplies, watches, gear actions or XP.
+Behemoth artwork is centered on its 3x3 footprint; floor/pit areas use top-left
+bounds. Floor cover supplies source-tagged stealth only inside; leaving rolls
+normal DEX stealth (thief advantage). False pits only affect grounded monster
+navigation, never real floor topology. Keep routes, fog and real pit/trap effects
+independent. Run all `illusion*.test.mjs` tests when changing these contracts.
+
+In multiplayer, other players see the apparent illusion creature/floor/pit, not
+casting or Focus feedback identifying it as Illusion. Caster-only feedback uses
+`privateCharacterId`; retain that audience through history, activity, Luck, room
+polls and command receipts. Host status is not an exception to caster ownership.
+Do not hide the apparent artwork or add player morale rolls. All party characters,
+including recruited monsters, are excluded from both ordinary and Illusion morale.
+This is presentation privacy within the existing shared-state model, not an
+anti-cheat guarantee against inspecting mechanical client snapshots.
 
 Tier 2 priest mechanics belong in `priest-tier-two.js`: DC 12 WIS checks,
 source-tracked blindness/deafness, initial-casting critical choices only, and

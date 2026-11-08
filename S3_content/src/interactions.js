@@ -21,6 +21,8 @@ import { routeStep, routeOf, routeAt, sameRoute } from './underpasses.js';
 import { isTileIlluminated } from './light-geometry.js';
 import { fixedObjectAt, webStepBlock } from './area-spells.js';
 import { transformationMovementRules } from './transformation-spells.js';
+import { isMagicSuppressed } from './magic-suppression.js';
+import { isIllusionCreature, illusionContains, illusionsAt, illusionBlocksMonsterStep } from './illusion-geometry.js';
 import { isStatueAsset, hasFixedSolidMovement, getReviewedTileRule, reviewedTileMovementSegments } from './reviewed-tile-rules.js';
 
 const LOCK_DC_VALUES = Object.freeze([8, 10, 12, 15]);
@@ -309,15 +311,27 @@ function findBlockingDoorAtTile(state, x, y, routeId = null) {
 }
 
 function findActiveTrapForTarget(state, targetType, targetEntityId = null) {
+  if (isIllusionCreature(state.characters?.find(character => character.id === state.activeCharacterId))) return null;
   return state.entities.find((entity) => {
     return (
       entity.type === ENTITY_TYPES.TRAP &&
       !entity.triggered &&
       !entity.disarmed &&
+      !isUnavailableTrap(entity) &&
       entity.targetType === targetType &&
       (targetEntityId === null || entity.targetEntityId === targetEntityId)
     );
   });
+}
+
+function isUnavailableTrap(entity) {
+  return entity.type === ENTITY_TYPES.TRAP && (entity.destroyed === true || isMagicSuppressed(entity));
+}
+
+function trapInteractionState(state) {
+  return state.entities.some(isUnavailableTrap)
+    ? { ...state, entities: state.entities.filter(entity => !isUnavailableTrap(entity)) }
+    : state;
 }
 
 function pickLockDc() {
@@ -349,8 +363,15 @@ function clearLockedDoorAction(state) {
   state.lockedDoorAction = null;
 }
 
+export function isMagicallyLocked(door) {
+  // Permanent magic is independent of the mundane doorState lock and Hold Portal.
+  return Boolean((door?.magicLock || door?.magicallyLocked) && !door.destroyed && !door.gone &&
+    door.doorState !== 'gone' && !isMagicSuppressed(door));
+}
+
 function isDoorLocked(state, door) {
-  return door.doorState === DOOR_STATES.LOCKED && (state.sharedRoom === true || state.characters?.length > 0);
+  return !isDoorPassable(door) && (door.doorState === DOOR_STATES.LOCKED || isMagicallyLocked(door)) &&
+    (state.sharedRoom === true || state.characters?.length > 0);
 }
 
 function setLockedDoorAction(state, door) {
@@ -409,6 +430,10 @@ function lockedDoorResult(state, door) {
   if (revealSecretDoor(door)) {
     recomputeVisibility(state);
   }
+  if (isMagicallyLocked(door)) {
+    clearLockedDoorAction(state);
+    return { moved: false, message: 'Magically locked.', darknessMessage: 'Magically locked.' };
+  }
   return {
     moved: false,
     message: "Locked.",
@@ -437,7 +462,11 @@ function findStumbleEntityAt(state, x, y) {
 }
 
 function revealAndTriggerTrap(trap,state) {
+  if (isUnavailableTrap(trap) || trap.disarmed) {
+    return { trap, trapSprung: false, message: isMagicSuppressed(trap) ? "The trap's magic is suppressed." : 'The trap is inactive.' };
+  }
   const target=state?.characters?.find(character=>character.id===state.activeCharacterId);
+  if (isIllusionCreature(target)) return { trap, trapSprung: false, message: 'The illusion does not trigger the trap.' };
   trap.targetCharacterId=target?.id||null;
   trap.attackDisadvantage=isInvisible(target);
   trap.revealed = true;
@@ -446,7 +475,7 @@ function revealAndTriggerTrap(trap,state) {
   trap.wasSprung = true;
   if (isPit(trap)) {
     const affectedState = { ...state,
-      characters: (state.characters || []).filter(character => !transformationMovementRules(state, character).crossesPits),
+      characters: (state.characters || []).filter(character => !isIllusionCreature(character) && !transformationMovementRules(state, character).crossesPits),
       entities: state.entities.filter(entity => entity.type !== ENTITY_TYPES.MONSTER || !transformationMovementRules(state, entity).crossesPits) };
     const falls = openPit(affectedState, trap, { check: rollCheck,
       canStep: (x, y, nx, ny) => canMoveBetweenTiles(state, x, y, nx, ny, { ignorePits: true }).ok,
@@ -558,6 +587,14 @@ function fixedMovementBlock(state, x, y, routeId) {
   return fixedObjectAt(state, { x, y, routeId }) ? 'A fixed object blocks the way.' : '';
 }
 
+function illusionOverlapsMonster(state, creature, x, y, routeId) {
+  if (!isIllusionCreature(creature)) return false;
+  const destination = { ...creature, x, y, routeId };
+  return state.entities.some(monster => monster.type === ENTITY_TYPES.MONSTER && !isIllusionCreature(monster) &&
+    !monster.defeated && !monster.dead && !monster.slain && !monster.leftPeacefully &&
+    (monster.hp == null || Number(monster.hp) > 0) && illusionContains(state, destination, monster));
+}
+
 function isWalkable(state, tile, options = {}) {
   if (!tile) {
     return { ok: false, message: "Blocked by stone wall." };
@@ -566,7 +603,7 @@ function isWalkable(state, tile, options = {}) {
     routeId: options.routeId ?? routeAt(state, tile.x, tile.y, options.creature?.routeId ?? state.player?.routeId) } : options.creature;
   const fixedBlock = fixedMovementBlock(state, tile.x, tile.y, options.routeId ?? routeOf(state, creature || state.player));
   if (fixedBlock) return { ok: false, message: fixedBlock };
-  if (!options.ignorePits && !transformationMovementRules(state, creature).crossesPits && knownPitAt(state, tile.x, tile.y, creature)) return { ok: false, message: 'A revealed pit blocks movement.' };
+  if (!options.ignorePits && !isIllusionCreature(creature) && !transformationMovementRules(state, creature).crossesPits && knownPitAt(trapInteractionState(state), tile.x, tile.y, creature)) return { ok: false, message: 'A revealed pit blocks movement.' };
   if (creature?.routeId && tile.type === TILE_TYPES.FLOOR) return { ok: true, message: 'Moved.' };
   if (isOrganicMovementBlockingTile(tile)) {
     return { ok: false, message: "Blocked by a cave wall." };
@@ -604,6 +641,9 @@ export function canMoveBetweenTiles(state, fromX, fromY, toX, toY, options = {})
   const step = options.ignoreUnderpasses ? { routeId: options.routeId || '' } : routeStep(state,
     { x: fromX, y: fromY, routeId: options.routeId ?? options.creature?.routeId ?? routeOf(state, { x: fromX, y: fromY }) }, { x: toX, y: toY }, { phase: isIncorporeal(options.creature) });
   if (!step) return { ok: false, message: 'These passages cross on separate levels.' };
+  const point = { x: toX, y: toY, routeId: step.routeId };
+  if (illusionBlocksMonsterStep(state, options.creature, point)) return { ok: false, message: 'A pit blocks movement.' };
+  if (illusionOverlapsMonster(state, options.creature, toX, toY, step.routeId)) return { ok: false, message: 'A living monster blocks the illusion.' };
   if (isIncorporeal(options.creature)) return { ok: phaseStepAllowed(state, fromX, fromY, toX, toY), message: 'Incorporeal movement.' };
   const webBlock = options.creature && webStepBlock(state, { ...options.creature, x: fromX, y: fromY,
     routeId: options.routeId ?? routeOf(state, options.creature) });
@@ -621,7 +661,9 @@ export function canMoveBetweenTiles(state, fromX, fromY, toX, toY, options = {})
     return { ok: false, message: "Blocked by a door." };
   }
 
-  const walkable = isWalkable(state, tile, { ...options, routeId: step.routeId });
+  const apparentFloor = options.creature?.type === ENTITY_TYPES.MONSTER && illusionsAt(state, point, 'floor').length > 0;
+  const walkable = isWalkable(state, tile, { ...options, routeId: step.routeId,
+    ignorePits: options.ignorePits || apparentFloor });
   if (!walkable.ok) {
     return walkable;
   }
@@ -739,15 +781,18 @@ function checkPlayerSinkhole(state, tile) {
   const creature = state.characters?.find(character => character.id === state.activeCharacterId);
   if (!creature) return;
   Object.assign(creature, { x: tile.x, y: tile.y, roomId: tile.roomId, routeId: state.player.routeId });
-  if (transformationMovementRules(state, creature).crossesPits) return;
-  checkSinkholeFall(state, creature, { queueFall: (target, event) => {
+  if (isIllusionCreature(creature) || transformationMovementRules(state, creature).crossesPits) return;
+  checkSinkholeFall(trapInteractionState(state), creature, { queueFall: (target, event) => {
     if (!canCastFeatherFall(target)) return false; queueFallingDamage(target, event); return true;
   } });
 }
 
 function revealMovementTrap(state, creature) {
+  if (isIllusionCreature(creature)) return null;
   const rules = transformationMovementRules(state, creature);
   if (rules.ignoresFloorTraps) return null;
+  // revealTrapAtPlayer marks the trap triggered before returning it.
+  state = trapInteractionState(state);
   return revealTrapAtPlayer(rules.crossesPits ? { ...state, entities: state.entities.filter(entity => !isPit(entity)) } : state);
 }
 
@@ -773,6 +818,7 @@ function moveToTileInDarkness(state, tile) {
     };
   }
 
+  if (isIllusionCreature(creature)) return { moved: true, message: 'Moved through darkness.' };
   if (transformationMovementRules(state, creature).levitating) return { moved: true, message: 'Levitated through darkness.' };
 
   const entity = findStumbleEntityAt(state, tile.x, tile.y);
@@ -825,8 +871,11 @@ function movePlayerInDarkness(state, dx, dy) {
       return moveToTileInDarkness(state, tile);
     }
 
+    if (isDoorLocked(state, door) && isMagicallyLocked(door)) return lockedDoorResult(state, door);
+
     const trap = findActiveTrapForTarget(state, "door", door.id);
     if (trap) {
+      if (isDoorLocked(state, door)) return lockedDoorResult(state, door);
       revealSecretDoor(door);
       const result = revealAndTriggerTrap(trap,state);
       setDoorState(door, DOOR_STATES.OPEN);
@@ -858,6 +907,7 @@ function movePlayerInDarkness(state, dx, dy) {
 
   const blockingDoor = findBlockingDoorAtTile(state, nextX, nextY, routeOf(state, state.player));
   if (blockingDoor) {
+    if (isDoorLocked(state, blockingDoor)) return lockedDoorResult(state, blockingDoor);
     const trap = findActiveTrapForTarget(state, "door", blockingDoor.id);
     if (trap) {
       revealSecretDoor(blockingDoor);
@@ -870,9 +920,6 @@ function movePlayerInDarkness(state, dx, dy) {
         message: `you've run into a trapped door! ${result.message}`,
         darknessMessage: "you've run into a trapped door!"
       };
-    }
-    if (isDoorLocked(state, blockingDoor)) {
-      return lockedDoorResult(state, blockingDoor);
     }
     if (state.darkness.pendingDoorKey === blockingDoor.id && !isDoorPassable(blockingDoor)) {
       revealSecretDoor(blockingDoor);
@@ -906,6 +953,7 @@ export function movePlayer(state, dx, dy, options = {}) {
   const creature = state.characters?.find(character => character.id === state.activeCharacterId);
   const step = routeStep(state, { ...state.player, routeId: creature?.routeId ?? state.player.routeId }, { x: state.player.x + dx, y: state.player.y + dy }, { phase: isIncorporeal(creature) });
   if (!step) return { moved: false, message: 'These passages cross on separate levels.' };
+  if (illusionOverlapsMonster(state, creature, step.x, step.y, step.routeId)) return { moved: false, message: 'A living monster blocks the illusion.' };
   const finish = result => { if (result.moved && creature) creature.routeId = state.player.routeId; return result; };
   if (isRaving(creature)) return { moved: false, message: 'Mad raving prevents movement.' };
   if (creature?.conditions?.sinkhole && !isIncorporeal(creature)) return { moved: false, message: 'Climb out of the sinkhole before moving.' };
@@ -1056,15 +1104,13 @@ export function clickEntity(state, x, y, options = {}) {
     }
     revealSecretDoor(entity);
     if (entity.holdPortal?.rounds > 0) return { message: 'Hold Portal seals this door. It must be forced open.' };
+    if (isDoorLocked(state, entity)) return lockedDoorResult(state, entity);
     const trap = findActiveTrapForTarget(state, "door", entity.id);
     if (trap && entity.doorState !== DOOR_STATES.OPEN) {
       const result = revealAndTriggerTrap(trap,state);
       setDoorState(entity, DOOR_STATES.OPEN);
       recomputeVisibility(state);
       return { trapSprung: true, message: `You've run into a trapped door! ${result.message}` };
-    }
-    if (isDoorLocked(state, entity)) {
-      return lockedDoorResult(state, entity);
     }
     setDoorState(entity, entity.doorState === DOOR_STATES.OPEN ? DOOR_STATES.CLOSED : DOOR_STATES.OPEN);
     clearLockedDoorAction(state);
@@ -1429,7 +1475,7 @@ export function searchForTraps(state, modifier, options = {}) {
 
 export function disarmTrap(state, trapId, modifier, options = {}) {
   const trap = state.entities.find((entity) => entity.id === trapId && entity.type === ENTITY_TYPES.TRAP);
-  if (!trap || !sameRoute(state, trap, state.player) || !trap.revealed || trap.triggered || trap.disarmed) {
+  if (!trap || !sameRoute(state, trap, state.player) || !trap.revealed || trap.triggered || trap.disarmed || trap.destroyed) {
     return {
       ...rollCheck(modifier, options),
       disarmed: false,
@@ -1466,7 +1512,7 @@ export function disarmTrap(state, trapId, modifier, options = {}) {
   return {
     ...check,
     disarmed: false,
-    triggered: true,
+    triggered: result.trapSprung,
     trapSprung: result.trapSprung,
     message: result.message
   };
@@ -1486,6 +1532,7 @@ export function attemptLockedDoor(state, method, modifier = 0, options = {}) {
 
   const door = state.entities.find((entity) => entity.id === action.doorId && entity.subtype === "door");
   if (door && !sameRoute(state, door, state.player)) return { opened: false, message: 'That door is in a different passage.' };
+  if (method !== 'break' && isMagicallyLocked(door)) return { opened: false, message: 'Magically locked.' };
   const dc = method === "break" ? action.breakDc : action.pickDc;
   const check = rollCheck(modifier, options);
   if (check.total < dc) {

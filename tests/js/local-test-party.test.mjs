@@ -49,3 +49,13 @@ test('Tier 2 priest preview changes only its derived class, spells and equipment
   assert.equal(JSON.stringify(fixture),before);
   assert.equal((await preview('https://ctreeder.com/site/?test-party=three&priest-test=two')).fetched,0);
 });
+
+test('Tier 3 blast preview is loopback-only and does not mutate the original character fixtures', async()=>{
+  const before = JSON.stringify(fixture);
+  const result = await preview('http://127.0.0.1:5057/site/?test-party=three&tier-three-test=one');
+  const wizard = result.state.characters.find(character => character.name === 'Badzog');
+  assert.equal(wizard.level, 5); assert.match(wizard.spellsKnown, /Fireball, Lightning Bolt/);
+  assert.deepEqual(result.state.characters.map(character => character.hp), [80, 80, 80]);
+  assert.equal(JSON.stringify(fixture), before);
+  assert.equal((await preview('https://ctreeder.com/site/?test-party=three&tier-three-test=one')).fetched, 0);
+});

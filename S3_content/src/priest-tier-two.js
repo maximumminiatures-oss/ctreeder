@@ -271,6 +271,8 @@ export function resolvePriestTierTwoSpell(state, caster, selection = {}, options
     if (!(state.characters || []).includes(target)) throw new Error('Choose a party member to receive a Luck Token.');
     if (hasLuck(target)) throw new Error('That character already has a Luck Token.');
     grantLuckToken(state, target.id);
+    target.blessEffect = { id: `bless:${caster.id}:${target.id}`, spell: 'bless', casterId: caster.id };
+    target.raw ||= {}; target.raw.blessEffect = { ...target.blessEffect };
     events.push({ type: 'luck', targetId: target.id, applied: true });
     message = `${target.name} gains a Luck Token.`;
   } else if (pending.spell === 'cleansing weapon') {

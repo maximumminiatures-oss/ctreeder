@@ -8,6 +8,7 @@ import { isMagicItem, identifyMagicItem } from './magic-items.js';
 import { isMimic, isDoppelganger } from './companions.js';
 import { createFloatingDiscs, floatingDiscSlotsAvailable } from './floating-disc.js';
 import { holdDoor, releaseSleep } from './control-spells.js';
+import { listMagicEffects } from './magic-effect-registry.js';
 
 export const WIZARD_TIER_ONE = new Set(['charm person', 'detect magic', 'feather fall', 'alarm', 'floating disc', 'mage armor', 'hold portal', 'sleep']);
 export const WIZARD_CRITICAL_CHOICES = {
@@ -162,9 +163,11 @@ export function maintainDetectMagic(state, caster, options = {}) {
 }
 
 export function refreshMagicDetection(state) {
+  const effects = listMagicEffects(state);
   for (const entity of state.entities || []) entity.magicDetected = false;
   for (const caster of state.characters || []) {
     caster.magicDetectedIds = [];
+    caster.magicDetectedEffects = [];
     if (caster.focusSpell?.spell !== 'detect magic' || caster.dead || caster.slain || Number(caster.hp) <= 0) continue;
     for (const target of state.entities || []) {
       if (target.collected || target.defeated || !canTargetAtRange(state, caster, target, caster.focusSpell.radius, { requireLight: false })) continue;
@@ -186,6 +189,20 @@ export function refreshMagicDetection(state) {
       canTargetAtRange(state, caster, member, caster.focusSpell.radius, { requireLight: false })) {
       if (member.invisibility) caster.magicDetectedIds.push(member.id);
       if (member.companion?.kind === 'doppelganger') member.detectedDoppelganger = true;
+    }
+    for (const effect of effects) {
+      const points = [{ x: effect.x, y: effect.y, routeId: effect.routeId || '' }];
+      if (effect.kind === 'area') {
+        points.length = 0;
+        const radius = caster.focusSpell.radius;
+        for (let y = Math.max(effect.y, caster.y - radius); y < Math.min(effect.y + effect.height, caster.y + radius + 1); y++)
+          for (let x = Math.max(effect.x, caster.x - radius); x < Math.min(effect.x + effect.width, caster.x + radius + 1); x++)
+            points.push({ x, y, routeId: effect.routeId || '' });
+      }
+      if (!points.some(point => canTargetAtRange(state, caster, point, caster.focusSpell.radius, { requireLight: false }))) continue;
+      caster.magicDetectedEffects.push({ id: effect.id, name: effect.name, targetId: effect.targetId,
+        casterId: effect.casterId || null, kind: effect.kind, remainingRounds: effect.remainingRounds ?? null });
+      if (effect.targetId !== caster.id && !caster.magicDetectedIds.includes(effect.targetId)) caster.magicDetectedIds.push(effect.targetId);
     }
   }
 }

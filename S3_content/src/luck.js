@@ -5,6 +5,7 @@ export const LUCK_HISTORY_LIMIT = 20;
 const MAX_EVENT_BYTES = 65536;
 const MAX_JOURNAL_BYTES = 262144;
 const MAX_PATCHES = 256;
+const MAX_CAPTURE_FIELDS = MAX_PATCHES * 64;
 const KINDS = new Set(['party-attack', 'monster-attack', 'save', 'cast']);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const WORLD_ROOTS = new Set(['characters', 'entities', 'luckJournal', 'tiles', 'map', 'rooms',
@@ -156,11 +157,13 @@ function setTokens(character, count) {
   character.luckToken = count > 0;
   character.luckTokens = count;
   if (plain(character.raw)) { character.raw.luckToken = count > 0; character.raw.luckTokens = count; }
+  if (!count) { delete character.blessEffect; if (plain(character.raw)) delete character.raw.blessEffect; }
 }
 export function grantLuckToken(state, ownerId) {
   const holder = tokenHolder(state, ownerId);
   if (!holder) fail('missing-owner', 'Luck token owner is not in this party.');
   const added = tokens(holder.character) === 0;
+  if (added) { delete holder.character.blessEffect; if (plain(holder.character.raw)) delete holder.character.raw.blessEffect; }
   setTokens(holder.character, 1);
   return added;
 }
@@ -231,7 +234,7 @@ export function captureLuckChange(state, event, reference, paths = [], options =
     }
     if (watch.min > watch.max) fail('invalid-mode', 'Invalid Luck clamp range.');
     event.watches.push(watch);
-    if (event.watches.length > MAX_PATCHES) fail('too-large', 'Too many Luck fields.');
+    if (event.watches.length > MAX_CAPTURE_FIELDS) fail('too-large', 'Too many Luck capture fields.');
   }
   return event;
 }

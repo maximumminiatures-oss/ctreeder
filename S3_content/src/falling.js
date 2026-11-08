@@ -2,13 +2,15 @@ import { setCharacterHp } from './characters.js';
 import { castWizardTierOne } from './wizard-tier-one.js';
 import { blocksSpellTier, forgottenSpells } from './arcane-effects.js';
 import { continueLuckSave } from './luck-runtime.js';
+import { isMagicSuppressed } from './magic-suppression.js';
 
 function knownFeatherFall(character) {
   return String(character.spellsKnown || '').split(/,\s*/).some(name => /^feather fall$/i.test(name)) &&
     !(character.failedSpellKeys || []).includes('feather fall') && !(character.spellLocks?.['feather fall']?.remainingMs > 0);
 }
 const featherScrollIndex = character => (character.gear || []).findIndex(item => ['scroll','wand'].includes(item.magic?.kind) &&
-  !item.magic.disabledUntilRest && /^feather fall$/i.test(item.magic.spellName) && item.magic.classes?.includes('wizard'));
+  !item.magic.disabledUntilRest && !(item.magic.kind === 'wand' && isMagicSuppressed(item)) &&
+  /^feather fall$/i.test(item.magic.spellName) && item.magic.classes?.includes('wizard'));
 export function canCastFeatherFall(character) {
   return /wizard/i.test(character?.className || '') && !blocksSpellTier(character, 1) && !forgottenSpells(character).has('feather fall') &&
     (knownFeatherFall(character) || featherScrollIndex(character) >= 0);

@@ -5,7 +5,7 @@ import { sameRoute } from './underpasses.js';
 import { hasAncestryTrait } from './ancestry.js';
 
 export const isInvisible = creature => creature?.invisible === true || Number(creature?.invisibility?.rounds) > 0;
-export const isStealthed = creature => isInvisible(creature) || creature?.stealthed === true ||
+export const isStealthed = creature => isInvisible(creature) || creature?.illusionStealthIds?.length > 0 || creature?.stealthed === true ||
   (creature?.stealthState?.attempted === true && creature.stealthState.revealed !== true);
 export const isHiddenMonster = monster => monster?.stealthState?.attempted === true && monster.stealthState.revealed !== true;
 export const neverSurprised = creature => hasAncestryTrait(creature, 'Keen Senses') ||

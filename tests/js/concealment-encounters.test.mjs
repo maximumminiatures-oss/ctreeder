@@ -65,6 +65,17 @@ test('population morale triggers once when a group of three falls below half',()
   state.entities[0].defeated=true;assert.equal(processMorale(state).length,0);
   state.entities[1].defeated=true;assert.equal(processMorale(state,{random:()=>0}).length,1);
 });
+
+test('ordinary morale excludes every party character, including a stale recruited-monster entity',()=>{
+  const ally=monster('ally',{hp:1,W:10}),enemy=monster('enemy',{hp:1});
+  const state={characters:[hero(),ally],entities:[{...ally},enemy],combat:{active:true}};
+  const events=processMorale(state,{random:()=>0});
+  assert.deepEqual(events.map(event=>event.ids),[['enemy']]);
+  assert.equal(events[0].modifier,1);
+  assert.equal(ally.moraleFlight,undefined);
+  assert.equal(state.entities[0].morale,undefined);
+  assert.equal(state.entities[0].moraleFlight,undefined);
+});
 test('friendly companions retain native statistics and cumulative damage despite healing',()=>{
   const character=buildMonsterCompanion(monster(),{controllerId:'hero',random:()=>0});
   assert.equal(character.companion.gearCapacity,12);assert.equal(character.stats.STR,12);

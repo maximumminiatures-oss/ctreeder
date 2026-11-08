@@ -177,6 +177,17 @@ def validate_viewer_visibility(value, state):
     }
 
 
+def player_feedback_state(state, owned_ids):
+    """Private spell feedback is not part of another player's displayed history."""
+    view = dict(state)
+    for field in ("rollHistory", "activity"):
+        if isinstance(state.get(field), list):
+            view[field] = [entry for entry in state[field]
+                           if not isinstance(entry, dict) or not entry.get("privateCharacterId") or
+                           isinstance(entry["privateCharacterId"], str) and entry["privateCharacterId"] in owned_ids]
+    return view
+
+
 def room_view(db, room, member, *, include_state=True):
     members, host_present, online = room_presence(db, room)
     ownership = room.ownership_json or {}
@@ -197,7 +208,8 @@ def room_view(db, room, member, *, include_state=True):
         "group_action": group_action_view(room, online),
     }
     if include_state:
-        view["state_json"] = {**room.state_json, "groupAction": view["group_action"]}
+        view["state_json"] = {**player_feedback_state(room.state_json, set(view["owned_character_ids"])),
+                              "groupAction": view["group_action"]}
         view["viewer_visibility"] = member.visibility_json or {}
     return view
 
@@ -710,7 +722,9 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             room.revision += 1
             room.updated_at = utcnow()
             member.last_seen_at = utcnow()
-            message = result.get("message", "")[:2000]
+            private_character = result.get("privateCharacterId")
+            can_read_result = not private_character or ownership.get(private_character) == member.id
+            message = result.get("message", "")[:2000] if can_read_result else ""
             db.add(room)
             db.add(member)
             db.add(RoomCommand(room_id=room.id, member_id=member.id, request_id=request_id, revision=room.revision, message=message))
@@ -718,7 +732,8 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             if not storage_available(db, room.host_user_id, SavedRun, SavedCharacter):
                 return STORAGE_FULL
             db.commit()
-            return {**room_view(db, room, member), "message": message, "dice": result.get("dice")}
+            return {**room_view(db, room, member), "message": message,
+                    "dice": result.get("dice") if can_read_result else None}
 
     @app.post("/api/rooms/<room_id>/invite")
     @rate_limit("6 per minute")

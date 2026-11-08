@@ -44,9 +44,11 @@
     "duration": "Instant",
     "range": "Near",
     "rangeBand": "near",
-    "description": "End one spell that affects one target you can see in range.",
+    "description": "Choose a visible creature, item, magical feature, summon, or ongoing area spell within six squares. Pick the magical effect to end. Removing an effect from one creature leaves other creatures affected; removing an area such as Web or Silence ends that whole area.\n\nMagic items, magical traps, and permanent magical locks are suppressed for ten rounds instead. Weapons and armor retain their ordinary properties. Suppressed potions become Potions of No Effect and are wasted if drunk. Suppressed wands cannot be used. Scrolls themselves cannot be dispelled, but their ongoing spell effects can. Mundane locks and traps are unaffected.\n\nOn an initial natural 20, choose two effects on one target, or one effect on each of two targets.",
     "paragraphs": [
-      "End one spell that affects one target you can see in range."
+      "Choose a visible creature, item, magical feature, summon, or ongoing area spell within six squares. Pick the magical effect to end. Removing an effect from one creature leaves other creatures affected; removing an area such as Web or Silence ends that whole area.",
+      "Magic items, magical traps, and permanent magical locks are suppressed for ten rounds instead. Weapons and armor retain their ordinary properties. Suppressed potions become Potions of No Effect and are wasted if drunk. Suppressed wands cannot be used. Scrolls themselves cannot be dispelled, but their ongoing spell effects can. Mundane locks and traps are unaffected.",
+      "On an initial natural 20, choose two effects on one target, or one effect on each of two targets."
     ],
     "damage": []
   },
@@ -77,9 +79,11 @@
     "duration": "Instant",
     "range": "Far",
     "rangeBand": "far",
-    "description": "You hurl a small flame that erupts into a fiery blast. All creatures in a near-sized cube around where the flame lands take 4d6 damage.",
+    "description": "Choose an impact square within 12 squares and clear line of sight, then confirm the blast. Every creature in a centered 7-by-7 area, including allies and yourself, takes 4d6 fire damage. Walls and closed doors block the blast; separate underpass routes are unaffected.\n\nExposed treasure follows the normal fire-damage rules, and any Web touched by the flames burns.\n\nOn an initial natural 20, choose 8d6 damage or a 13-by-13 area.",
     "paragraphs": [
-      "You hurl a small flame that erupts into a fiery blast. All creatures in a near-sized cube around where the flame lands take 4d6 damage."
+      "Choose an impact square within 12 squares and clear line of sight, then confirm the blast. Every creature in a centered 7-by-7 area, including allies and yourself, takes 4d6 fire damage. Walls and closed doors block the blast; separate underpass routes are unaffected.",
+      "Exposed treasure follows the normal fire-damage rules, and any Web touched by the flames burns.",
+      "On an initial natural 20, choose 8d6 damage or a 13-by-13 area."
     ],
     "damage": [
       {
@@ -133,12 +137,12 @@
     "duration": "Focus",
     "range": "Far",
     "rangeBand": "far",
-    "description": "You create a convincing visible and audible illusion that fills up to a near-sized cube in range.\n\nThe illusion cannot cause harm, but creatures who believe the illusion is real react to it as though it were.\n\nA creature who inspects the illusion from afar must pass a Wisdom check vs. your last spellcasting check to perceive the false nature of the illusion.\n\nTouching the illusion also reveals its false nature.",
+    "description": "Create a creature decoy, a three-by-three blank floor, or a three-by-three false pit within twelve squares. Maintain Focus to keep it present. A natural 20 allows two independently chosen and placed illusions under the same Focus.\n\nCreature decoys join the party but never deal damage: every attack rolls a natural 1 without advantage or disadvantage. The horrible behemoth occupies three-by-three squares, has AC 20 and 60 HP, and immediately prompts nearby monster morale checks. Other creature forms use their normal stat blocks and one-square tokens.\n\nBlank floor conceals dungeon features and automatically hides party members standing inside it. Leaving prompts a stealth check. Grounded monsters avoid a false pit, while flying creatures can cross it. Real hazards beneath blank floor still function.\n\nA successful attack, monster contact, or a successful WIS inspection against the latest Focus total dismisses that entire illusion, leaving any other projection intact.",
     "paragraphs": [
-      "You create a convincing visible and audible illusion that fills up to a near-sized cube in range.",
-      "The illusion cannot cause harm, but creatures who believe the illusion is real react to it as though it were.",
-      "A creature who inspects the illusion from afar must pass a Wisdom check vs. your last spellcasting check to perceive the false nature of the illusion.",
-      "Touching the illusion also reveals its false nature."
+      "Create a creature decoy, a three-by-three blank floor, or a three-by-three false pit within twelve squares. Maintain Focus to keep it present. A natural 20 allows two independently chosen and placed illusions under the same Focus.",
+      "Creature decoys join the party but never deal damage: every attack rolls a natural 1 without advantage or disadvantage. The horrible behemoth occupies three-by-three squares, has AC 20 and 60 HP, and immediately prompts nearby monster morale checks. Other creature forms use their normal stat blocks and one-square tokens.",
+      "Blank floor conceals dungeon features and automatically hides party members standing inside it. Leaving prompts a stealth check. Grounded monsters avoid a false pit, while flying creatures can cross it. Real hazards beneath blank floor still function.",
+      "A successful attack, monster contact, or a successful WIS inspection against the latest Focus total dismisses that entire illusion, leaving any other projection intact."
     ],
     "damage": []
   },
@@ -169,10 +173,10 @@
     "duration": "Instant",
     "range": "Far",
     "rangeBand": "far",
-    "description": "You shoot a blue-white ray of lightning from your hands, hitting all creatures in a straight line out to a far distance.\n\nCreatures struck by the lightning take 3d6 damage.",
+    "description": "Choose a direction and confirm the one-square-wide bolt. It extends a full 12 squares from you, even if you aim at a nearby square, unless a wall or closed door stops it. Every creature in its path, including allies, takes 3d6 lightning damage. Separate underpass routes are unaffected.\n\nOn an initial natural 20, choose 6d6 damage or a full 24-square bolt.",
     "paragraphs": [
-      "You shoot a blue-white ray of lightning from your hands, hitting all creatures in a straight line out to a far distance.",
-      "Creatures struck by the lightning take 3d6 damage."
+      "Choose a direction and confirm the one-square-wide bolt. It extends a full 12 squares from you, even if you aim at a nearby square, unless a wall or closed door stops it. Every creature in its path, including allies, takes 3d6 lightning damage. Separate underpass routes are unaffected.",
+      "On an initial natural 20, choose 6d6 damage or a full 24-square bolt."
     ],
     "damage": [
       {

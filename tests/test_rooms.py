@@ -95,6 +95,55 @@ def test_guest_owns_import_and_cannot_invite_or_control_host(clients):
     assert post(guest, f"/api/rooms/{room['id']}/characters/{owned}/save", {}).status_code == 401
 
 
+def test_illusion_feedback_is_private_to_caster_owner_not_host_or_other_players(clients):
+    host, guest, _ = clients
+    room = create(host, players_can_import=True)
+    join(guest, room)
+    imported = command(guest, room, "import", character_json=character("Wizard"))
+    caster_id = imported.json["owned_character_ids"][0]
+    private = {"detail": "Wizard casts Illusion.", "message": "Illusory Pit appears.",
+               "privateCharacterId": caster_id}
+    public = {"detail": "A skeleton attacks.", "message": "A skeleton attacks."}
+    with Session(engine) as db:
+        saved = db.get(GameRoom, room["id"])
+        saved.state_json = {**saved.state_json, "rollHistory": [private, public], "activity": [public, private]}
+        db.add(saved)
+        db.commit()
+    host_state = host.get(f"/api/rooms/{room['id']}").json["state_json"]
+    guest_state = guest.get(f"/api/rooms/{room['id']}").json["state_json"]
+    assert host_state["rollHistory"] == [public]
+    assert host_state["activity"] == [public]
+    assert guest_state["rollHistory"] == [private, public]
+    assert guest_state["activity"] == [public, private]
+    with Session(engine) as db:
+        assert db.get(GameRoom, room["id"]).state_json["rollHistory"] == [private, public]
+
+
+def test_another_players_private_focus_result_is_not_exposed_by_command_response_or_retry(clients, monkeypatch):
+    import rooms
+    host, guest, _ = clients
+    room = create(host, players_can_import=True)
+    join(guest, room)
+    imported = command(guest, room, "import", character_json=character("Wizard"))
+    caster_id = imported.json["owned_character_ids"][0]
+
+    def private_focus(state, _command):
+        return {"state_json": deepcopy(state), "message": "Wizard maintains Illusion.",
+                "privateCharacterId": caster_id, "dice": {"actionLabel": "Illusion"}}
+
+    monkeypatch.setattr(rooms.game_runtime, "apply", private_focus)
+    current = host.get(f"/api/rooms/{room['id']}").json
+    request = {"revision": current["revision"], "request_id": uuid.uuid4().hex,
+               "command": {"type": "search", "character_id": "host-char"}}
+    response = post(host, f"/api/rooms/{room['id']}/commands", request)
+    assert response.status_code == 200, response.json
+    assert response.json["message"] == ""
+    assert response.json["dice"] is None
+    replay = post(host, f"/api/rooms/{room['id']}/commands", request)
+    assert replay.json["replayed"] is True
+    assert replay.json["message"] == ""
+
+
 def test_new_condition_commands_cannot_control_another_players_character(clients):
     host, guest, _ = clients
     room = create(host, players_can_import=True)

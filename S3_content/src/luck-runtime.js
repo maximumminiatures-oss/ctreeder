@@ -6,11 +6,11 @@ import {
 const own = (object, key) => Object.hasOwn(object || {}, key);
 const refs = state => [...(state.characters || []), ...(state.entities || []).map(entity => entity.characterCorpse).filter(Boolean)];
 const tokenFields = ['luckToken', 'luckTokens'];
-const guardFields = ['maxHitPoints', 'conditions', 'dyingRounds', 'dead', 'slain', 'defeated', 'focusSpell', 'pendingSpell',
+const guardFields = ['maxHitPoints', 'conditions', 'dyingRounds', 'dead', 'slain', 'defeated', 'focusSpell', 'pendingSpell', 'blessEffect',
   'failedSpellKeys', 'spellLocks', 'wizardEffects', 'faithEffects', 'pendingFall', 'stats', 'gear',
   'bonuses', 'spellsKnown', 'learnedScrollSpells', 'transformationEffects', 'lastPitAscent'];
 const positionFields = ['x', 'y', 'routeId', 'roomId'];
-const rawFields = ['dyingRounds', 'dead', 'slain', 'conditions', 'focusSpell', 'pendingSpell', 'failedSpellKeys',
+const rawFields = ['dyingRounds', 'dead', 'slain', 'conditions', 'focusSpell', 'pendingSpell', 'failedSpellKeys', 'blessEffect',
   'spellLocks', 'wizardEffects', 'faithEffects', 'pendingFall', 'stats', 'gear', 'bonuses', 'spellsKnown', 'learnedScrollSpells'];
 const fault = (code, message) => { throw new LuckError(code, message); };
 

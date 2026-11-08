@@ -3,6 +3,7 @@ import { isFloatingDisc } from './floating-disc.js';
 import { petrifiedLegs, isRaving } from './arcane-effects.js';
 import { routeOf, routeStep } from './underpasses.js';
 import { canonicalWeaponSpelling, formatFieldName } from './ui-text.js';
+import { createCheckRollCard } from './roll-history.js';
 
 export function characterMovementBudget(character) {
   const value = Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
@@ -16,7 +17,7 @@ export function characterMovementBudget(character) {
 export function characterOccupant(state, x, y, exceptId, options = {}) {
   const actor = state.characters?.find(character => character.id === exceptId);
   const route = options.routeId ?? (actor ? routeStep(state, actor, { x, y })?.routeId ?? routeOf(state, actor) : routeOf(state, { x, y }));
-  return (state.characters || []).find(character => !isFloatingDisc(character) && character.id !== exceptId && !character.dead && !character.slain &&
+  return (state.characters || []).find(character => !isFloatingDisc(character) && !character.illusion && character.id !== exceptId && !character.dead && !character.slain &&
     routeOf(state, character) === route && Number(character.x) === x && Number(character.y) === y);
 }
 
@@ -68,6 +69,11 @@ export function attackRollSegments({ character, monster, weapon, spell, roll, ab
   tooltip.push({ text: ` ${signed(modifier)} ${String(ability || 'attack').toUpperCase()}${magic ? ` ${signed(magic)} magic` : ''}${other ? ` ${signed(other)} other` : ''} = To hit: ` },
     { text: String(roll.total), bold: true });
   const hasDamage = hit && damage != null;
+  const rollCard = createCheckRollCard(roll, {
+    heading: spell || formatFieldName(weapon || 'unarmed strike'), actorId: character.id ?? null,
+    actorName, type: spell ? 'Spellcasting' : 'Attack', tooltip
+  });
+  parts[0].rollCard = rollCard;
   parts.push({ text: String(roll.total), bold: true, tooltip }, { text: hit ? hasDamage ? ' hits for ' : ' hits.' : ' misses.' });
   if (hasDamage) {
     const dice = damageRoll?.terms?.filter(term => term.type === 'die') || [];
@@ -91,6 +97,9 @@ export function attackRollSegments({ character, monster, weapon, spell, roll, ab
     parts.push({ text: String(damage), bold: true, tooltip: damageTip,
       maximum: dice.length > 0 && dice.every(term => term.isMaximum), minimum: dice.length > 0 && dice.every(term => term.isMinimum) },
       { text: ' damage.' });
+    const damageSegment = parts[parts.length - 2];
+    rollCard.damage = { value: damage, bold: damageSegment.bold, minimum: damageSegment.minimum,
+      maximum: damageSegment.maximum, tooltip: damageSegment.tooltip };
   }
   return parts;
 }

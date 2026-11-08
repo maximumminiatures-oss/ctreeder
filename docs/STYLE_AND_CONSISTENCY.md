@@ -162,6 +162,27 @@ original for larger exports; enlarging the 72 x 72 file cannot restore detail.
 
 ## Review Checklist
 
+October 23 compact-sheet rules supersede older command-border guidance for mini
+sheets only. Mini commands inherit the sheet's tinted surface and body font;
+reserve a transparent border and reveal it on hover or keyboard focus. Keep
+weapon names visible, with calculated attack/damage, finesse/versatile, blue
+Magic, and total Backstab dice in a rich tooltip. Do not drop mechanical bonuses
+to make the row shorter. Reorder/follow sits immediately left of the color icon.
+
+AC tooltips must come from the same calculation as the displayed AC, omitting
+zero contributions. Show the DEX modifier before a Mage Armor replacement.
+Rulebook shields give +2 AC; greataxes are versatile (1d8/1d10), occupy two gear
+slots, and are not intrinsically two-handed. Mastery still modifies both hit and
+damage. Examples of tooltip layout are not permission to replace these rules.
+
+Roll History is always expanded, on the canonical #d1d1d1 gray surface. Each new
+structured roll has an actor-color heading, actor name, result totals in original
+die order, and damage when applicable. Bold all kept totals, including tied dice;
+color natural minima red and maxima green. Detailed math remains in rich hovers.
+Preserve private feedback audiences and old saved history. Target selection is
+not a roll: Escape before an attack or Steal target is committed spends nothing.
+Once a roll/casting is resolved, cancelling cannot refund it for another roll.
+
 - Check a field value and its corresponding sentence: `Warhammer` / `warhammer`.
 - Check proper names and canonical spell names remain unchanged.
 - Read messages as full sentences, including hits, misses, errors, and plurals.
