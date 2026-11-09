@@ -1,5 +1,6 @@
 import { REVIEWED_LAYOUTS } from './reviewed-layout-data.js';
 import { tileRulePoint, featureSegment } from './reviewed-tile-rules.js';
+import { hasMobilityFlight } from './conditions.js';
 
 const assetName = asset => String(asset || '').split(/[\\/]/).pop().replace(/\.png$/i, '');
 const waterAsset = asset => /^(?:canal|water)-/.test(assetName(asset)) && !/bridge/.test(assetName(asset));
@@ -59,7 +60,7 @@ export function isLegacyWaterMovementSegment(state, segment) {
 }
 
 export const movementStepCost = (state, x, y, creature = null) => {
-  const ignoresWater = creature?.transformationEffects?.some(effect => effect.spell === 'levitate' ||
+  const ignoresWater = hasMobilityFlight(creature) || creature?.transformationEffects?.some(effect => effect.spell === 'levitate' ||
     effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('gills'));
   return !ignoresWater && isSlowWaterTile(state, x, y) ? 2 : 1;
 };

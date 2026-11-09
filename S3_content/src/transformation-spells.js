@@ -10,6 +10,8 @@ import { isSlowWaterTile } from './terrain-movement.js';
 import { getTile } from './state-schema.js';
 import { routeOf, sameRoute, routeExistsAt } from './underpasses.js';
 import { pitAtBottom, safePitRim } from './pits.js';
+import { isGaseousForm, hasMobilityFlight } from './conditions.js';
+import { mobilityMovementSquares, resolveMobilityExpiry } from './tier-three-mobility.js';
 
 export const TRANSFORMATION_SPELLS = new Set(['alter self', 'levitate', 'mirror image', 'misty step']);
 export const ALTER_SELF_OPTIONS = Object.freeze([
@@ -63,6 +65,7 @@ function removeEffect(actor, spell) {
 }
 
 export function castTransformationSpell(state, caster, spell, options = {}) {
+  if (isGaseousForm(caster)) throw new Error('You cannot cast spells in Gaseous Form.');
   if (!TRANSFORMATION_SPELLS.has(spell)) throw new Error('Unknown transformation spell.');
   if (caster.pendingSpell) throw new Error('Finish the pending spell first.');
   if ((caster.failedSpellKeys || []).includes(spell)) throw new Error('This spell is unavailable until recovery.');
@@ -180,14 +183,17 @@ export function resolveTransformationSpell(state, caster, selection = {}, option
   throw new Error('This spell is not awaiting a target.');
 }
 
-export function syncTransformationEffects(state) {
+export function syncTransformationEffects(state, options = {}) {
   const ended = [];
   for (const actor of creatures(state)) {
     if (!alive(actor) && actor.focusSpell?.spell === 'levitate') actor.focusSpell = null;
     for (const effect of [...(actor.transformationEffects || [])]) {
       const caster = (state.characters || []).find(candidate => candidate.id === effect.casterId);
       if (effect.spell === 'levitate' ? !alive(caster) || caster.focusSpell?.spell !== 'levitate' || !caster.focusSpell.targetIds?.includes(actor.id) : !(effect.rounds > 0)) {
-        removeEffect(actor, effect.spell); ended.push({ actorId: actor.id, spell: effect.spell });
+        removeEffect(actor, effect.spell);
+        const landing = resolveMobilityExpiry(state, actor, effect, options);
+        ended.push({ actorId: actor.id, spell: effect.spell, ...(landing ? { landing } : {}) });
+        options.onTransformationEnded?.(state, actor, effect, landing);
       }
     }
     const gills = transformationEffect(actor, 'alter self');
@@ -198,13 +204,13 @@ export function syncTransformationEffects(state) {
   return ended;
 }
 
-export function advanceTransformationRounds(state, rounds = 1) {
+export function advanceTransformationRounds(state, rounds = 1, options = {}) {
   if (!Number.isInteger(rounds) || rounds < 0) throw new Error('Advance a nonnegative whole number of rounds.');
   for (const actor of creatures(state)) for (const effect of actor.transformationEffects || []) if (effect.spell !== 'levitate') {
     effect.rounds -= rounds;
     if (effect.spell === 'alter self') effect.crawlRound = (Number(effect.crawlRound) || 0) + rounds;
   }
-  return syncTransformationEffects(state);
+  return syncTransformationEffects(state, options);
 }
 
 export function maintainLevitationFocus(state, caster, options = {}) {
@@ -228,10 +234,14 @@ export function maintainLevitationFocus(state, caster, options = {}) {
 
 export function transformationMovementRules(state, actor) {
   const levitating = Boolean(transformationEffect(actor, 'levitate'));
-  return { levitating, multiplier: hasAlterSelfFeature(actor, 'goat-legs') ? 2 : 1,
-    crossesPits: levitating || hasAlterSelfFeature(actor, 'spider-legs'), passesCreatures: levitating || hasAlterSelfFeature(actor, 'spider-legs'),
-    ignoresWater: levitating || hasAlterSelfFeature(actor, 'gills'), ignoresFloorTraps: levitating, passesStatues: levitating,
-    passesPillars: false, canPickUpGear: !levitating, canMeleeAttack: !levitating };
+  const flying = hasMobilityFlight(actor), gaseous = isGaseousForm(actor), airborne = levitating || flying;
+  return { levitating, flying, gaseous, movementSquares: mobilityMovementSquares(actor),
+    multiplier: flying ? 1 : hasAlterSelfFeature(actor, 'goat-legs') ? 2 : 1,
+    crossesPits: airborne || hasAlterSelfFeature(actor, 'spider-legs'), passesCreatures: airborne || hasAlterSelfFeature(actor, 'spider-legs'),
+    ignoresWater: airborne || hasAlterSelfFeature(actor, 'gills'), ignoresFloorTraps: airborne, passesStatues: airborne,
+    passesDoors: gaseous, immuneToWeb: gaseous, immuneToMelee: airborne,
+    passesPillars: false, canPickUpGear: !gaseous && (flying || !levitating), canMeleeAttack: !gaseous && (flying || !levitating),
+    canWeaponAttack: !gaseous, canCastSpells: !gaseous, canUseGear: !gaseous };
 }
 export const transformationDarkvisionRadius = actor => hasAlterSelfFeature(actor, 'cat-eyes') ? 12 : 0;
 export const transformationInvisible = (state, actor) => hasAlterSelfFeature(actor, 'gills') && isSlowWaterTile(state, actor.x, actor.y);
@@ -239,7 +249,7 @@ export const transformationAttackDisadvantage = (attacker, target) => Boolean(tr
   typeOf(attacker) === transformationEffect(target, 'alter self').foeType);
 
 export function transformationAttackOptions(state, actor, { attackBonus = abilityScoreModifier(actor.stats?.STR) } = {}) {
-  if (transformationEffect(actor, 'levitate')) return [];
+  if (isGaseousForm(actor) || transformationEffect(actor, 'levitate') && !hasMobilityFlight(actor)) return [];
   const attacks = [];
   if (hasAlterSelfFeature(actor, 'claws')) attacks.push({ key: 'alter-self-claws', name: 'Claws', bonus: abilityScoreModifier(actor.stats?.INT), ability: 'INT', damageExpression: '1d6', range: 1, attacksPerRound: 2,
     remainingAttacks: remainingClawAttacks(state, actor) });
@@ -255,7 +265,7 @@ export function remainingClawAttacks(state, actor) {
   return effect.clawRoundKey === clawRoundKey(state, actor, effect) ? Math.max(0, 2 - effect.clawAttacksUsed) : 2;
 }
 export function spendClawAttack(state, actor) {
-  if (!remainingClawAttacks(state, actor) || transformationEffect(actor, 'levitate')) throw new Error('No claw attacks remain this round.');
+  if (!remainingClawAttacks(state, actor) || isGaseousForm(actor) || transformationEffect(actor, 'levitate') && !hasMobilityFlight(actor)) throw new Error('No claw attacks remain this round.');
   const effect = transformationEffect(actor, 'alter self'), key = clawRoundKey(state, actor, effect);
   if (effect.clawRoundKey !== key) { effect.clawRoundKey = key; effect.clawAttacksUsed = 0; }
   effect.clawAttacksUsed++;
@@ -270,8 +280,11 @@ export function interceptMirrorImageHit(state, actor, { hit = true } = {}) {
   if (!remaining) removeEffect(actor, 'mirror image');
   return { intercepted: true, remaining, damage: 0, preventEffects: true };
 }
-export function interceptTransformationHit(state, actor, { hit = true, melee = false } = {}) {
-  if (hit && melee && transformationEffect(actor, 'levitate')) return { intercepted: true, remaining: null, damage: 0, preventEffects: true, reason: 'levitate' };
+export function interceptTransformationHit(state, actor, { hit = true, melee = false, areaEffect = false } = {}) {
+  if (areaEffect) return { intercepted: false, remaining: null };
+  const reason = isGaseousForm(actor) && !areaEffect ? 'gaseous form' : melee && hasMobilityFlight(actor) ? 'fly' :
+    melee && transformationEffect(actor, 'levitate') ? 'levitate' : null;
+  if (hit && reason) return { intercepted: true, remaining: null, damage: 0, preventEffects: true, reason };
   return interceptMirrorImageHit(state, actor, { hit });
 }
 export function mirrorImagePaintTokens(actor) {

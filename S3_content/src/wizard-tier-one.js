@@ -128,7 +128,7 @@ export function resolveWizardTierOne(state, caster, { choice, targetId, x, y, di
   const target = state.entities.find(entity => entity.id === targetId && entity.type === 'monster' && !entity.defeated && Number(entity.hp) > 0);
   if (!target || !isHumanoid(target) || Number(target.level ?? target['**LV**'] ?? 1) > pending.maxLevel) throw new Error(`Choose a humanoid of level ${pending.maxLevel} or less.`);
   if (!canTargetAtRange(state, caster, target, pending.radius, { directAttack: true })) throw new Error('That humanoid is outside range or line of sight.');
-  if (blocksMindControl(state, target, 'Charm Person')) throw new Error('Protection from Evil or Good prevents that charm.');
+  if (blocksMindControl(state, target, 'Charm Person', caster)) throw new Error('Magical protection prevents that charm.');
   if (pending.usedTargetIds.includes(target.id)) throw new Error('Choose a different humanoid.');
   const days = Array.from({ length: pending.durationDice }, () => die(random)).reduce((sum, roll) => sum + roll, 0);
   target.attitude = 'friendly'; target.attitudeChecked = true; target.hostile = false; target.stealthed = false;

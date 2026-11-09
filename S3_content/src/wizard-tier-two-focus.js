@@ -6,6 +6,9 @@ import { isHumanoid } from './wizard-tier-one.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { wizardCastingMode, rollWizardMishaps, spellLockRemaining } from './wizard-mishaps.js';
 import { isFeatureCurrentlyVisible } from './monster-perception.js';
+import { circleBlocksHostileAction } from './magic-circle.js';
+import { monsterThought } from './dead-dialogue.js';
+import { creatureTypeName, indefiniteArticle } from './creature-names.js';
 
 export const WIZARD_TIER_TWO_FOCUS = new Set(['acid arrow', 'detect thoughts', 'hold person', 'levitate', 'silence']);
 export const TARGETED_TIER_TWO_FOCUS = new Set(['acid arrow', 'detect thoughts', 'hold person']);
@@ -116,6 +119,7 @@ export function wizardTierTwoFocusCheck(caster, { advantage = false, disadvantag
 }
 
 function damageTarget(state, caster, target, diceCount, { random = Math.random, applyDamage, onDefeat } = {}) {
+  if (circleBlocksHostileAction(state, caster, target)) return { targetId: target.id, damage: 0, damageApplied: true, message: 'Magic Circle prevents the acid damage.' };
   const rolls = Array.from({ length: diceCount }, () => {
     const value = random();
     if (!Number.isFinite(value) || value < 0 || value >= 1) throw new Error('Invalid acid damage roll.');
@@ -167,10 +171,16 @@ export function castFocusedSpell(state, caster, spell, options = {}) {
   return { check, succeeded: true, critical: check.roll === 20, message: `${message} ${check.roll === 20 ? 'Choose a critical effect.' : 'Pick target.'}` };
 }
 
-function thoughtDialogue(target, round) {
-  const text = round === 1 ? `You peer into the mind of a ${target.name} and learn some interesting stuff.` :
-    round === 2 ? `You learn how this ${target.name} fights.` : `You really get this ${target.name}.`;
-  return { title: 'Detect Thoughts', targetId: target.id, text };
+function thoughtDialogue(state, target, round, options) {
+  const random = options.random || Math.random;
+  const nonUseful = random() < .5;
+  const properName = target.uniqueName || (typeof target.properName === 'string' ? target.properName : null) ||
+    (target.properName === true || target.isUnique || target.isNamed ? target.name : null);
+  const name = properName || creatureTypeName(target.name), reference = properName || `this ${name}`;
+  const text = nonUseful ? monsterThought(state, target, { ...options, rng: random }) :
+    round === 1 ? `You peer into the mind of ${properName ? name : `${indefiniteArticle(name)} ${name}`} and learn some interesting stuff.` :
+    round === 2 ? `You learn how ${reference} fights.` : `You really get ${reference}.`;
+  return { title: 'Detect Thoughts', targetId: target.id, text, nonUseful };
 }
 
 function advanceEffect(state, caster, focus, options) {
@@ -185,7 +195,7 @@ function advanceEffect(state, caster, focus, options) {
   } else if (focus.spell === 'detect thoughts') {
     const target = findTarget(state, focus.targetIds?.[0]);
     if (!alive(target)) return { ...endWizardTierTwoFocus(state, caster, { ...options, reason: 'target unavailable' }), hits, dialogs, events };
-    if (focus.focusedRounds <= 3) dialogs.push(thoughtDialogue(target, focus.focusedRounds));
+    if (focus.focusedRounds <= 3) dialogs.push(thoughtDialogue(state, target, focus.focusedRounds, options));
     if (focus.focusedRounds === 3 && !focus.luckGranted) {
       focus.luckGranted = true;
       options.grantLuck?.(state, caster);
@@ -218,6 +228,7 @@ export function resolveFocusedSpell(state, caster, { choice, targetId, dismiss =
   }
   if (pending.phase !== 'targeting' || !TARGETED_TIER_TWO_FOCUS.has(focus.spell)) throw new Error('Choose a critical effect first.');
   const target = findTarget(state, targetId);
+  if (target && circleBlocksHostileAction(state, caster, target)) throw new Error('Magic Circle prevents that hostile spell.');
   if (!alive(target) || isFloatingDisc(target) || focus.usedTargetIds.includes(targetId)) throw new Error('Choose a different living target.');
   const partyHumanoid = (state.characters || []).includes(target) && !target.companion;
   if (focus.spell !== 'hold person' && target.type !== 'monster') throw new Error('Choose a monster.');
@@ -234,7 +245,7 @@ export function resolveFocusedSpell(state, caster, { choice, targetId, dismiss =
   if (focus.spell === 'acid arrow') hits.push(damageTarget(state, caster, target, focus.damageDice, options));
   if (focus.spell === 'hold person') paralyze(target, caster, focus);
   if (first) focus.focusedRounds = 1;
-  if (focus.spell === 'detect thoughts') dialogs.push(thoughtDialogue(target, 1));
+  if (focus.spell === 'detect thoughts') dialogs.push(thoughtDialogue(state, target, 1, options));
   if (!pending.remaining) { caster.pendingSpell = focus.suspendedPendingSpell || null; delete focus.suspendedPendingSpell; }
   if (focus.spell === 'acid arrow' && focus.targetIds.every(id => !alive(findTarget(state, id))) && !caster.pendingSpell)
     endWizardTierTwoFocus(state, caster, { ...options, reason: 'no living targets' });

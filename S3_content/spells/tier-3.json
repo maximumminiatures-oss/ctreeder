@@ -9,11 +9,11 @@
     "duration": "1 day",
     "range": "Close",
     "rangeBand": "close",
-    "description": "You touch one humanoid’s remains, and it rises as a zombie or skeleton under your control.\n\nThe remains must have at least three limbs and its head intact.\n\nThe undead creature acts on your turn. After 1 day, the creature collapses into grave dust.",
+    "description": "Touch humanoid remains with an intact head and at least three limbs. Choose a skeleton or zombie. It occupies one party slot, belongs to your player in multiplayer, and takes its own turn immediately after yours, even if you sleep, are dying, or die. It keeps your color and its ancestry retains the original creature type, such as Bugbear Zombie.\n\nNo equipment is created. It carries what remains with the corpse. Skeletons can equip fighter gear; zombies cannot equip anything. A skeleton without equipment has AC 10 and a claw attack at +1 for 1 damage. Undead can open or smash doors and climb, but cannot wake creatures, stealth, pick locks, or search.\n\nAfter one game day, it drops everything it carries and collapses into grave dust. On an initial natural 20, choose two bodies or two days.",
     "paragraphs": [
-      "You touch one humanoid’s remains, and it rises as a zombie or skeleton under your control.",
-      "The remains must have at least three limbs and its head intact.",
-      "The undead creature acts on your turn. After 1 day, the creature collapses into grave dust."
+      "Touch humanoid remains with an intact head and at least three limbs. Choose a skeleton or zombie. It occupies one party slot, belongs to your player in multiplayer, and takes its own turn immediately after yours, even if you sleep, are dying, or die. It keeps your color and its ancestry retains the original creature type, such as Bugbear Zombie.",
+      "No equipment is created. It carries what remains with the corpse. Skeletons can equip fighter gear; zombies cannot equip anything. A skeleton without equipment has AC 10 and a claw attack at +1 for 1 damage. Undead can open or smash doors and climb, but cannot wake creatures, stealth, pick locks, or search.",
+      "After one game day, it drops everything it carries and collapses into grave dust. On an initial natural 20, choose two bodies or two days."
     ],
     "damage": []
   },
@@ -55,6 +55,7 @@
   {
     "slug": "fabricate",
     "name": "Fabricate",
+    "implementationStatus": "unfinished",
     "tier": 3,
     "classes": [
       "wizard"
@@ -103,9 +104,10 @@
     "duration": "5 rounds",
     "range": "Self",
     "rangeBand": "self",
-    "description": "Your feet lift from the ground, and you take to the air like a hummingbird. You can fly near for the spell's duration and are able to hover in place.",
+    "description": "Fly or hover for five rounds, moving six squares each turn. You cannot be hit by melee attacks, but can attack and pick up gear. Ignore pits, floor traps, water slowdown, and creatures while moving; do not end movement on another creature.\n\nOn an initial natural 20, choose ten rounds or twelve-square movement. If the spell ends above a pit, you fall; otherwise an occupied landing moves you to the nearest free square.",
     "paragraphs": [
-      "Your feet lift from the ground, and you take to the air like a hummingbird. You can fly near for the spell's duration and are able to hover in place."
+      "Fly or hover for five rounds, moving six squares each turn. You cannot be hit by melee attacks, but can attack and pick up gear. Ignore pits, floor traps, water slowdown, and creatures while moving; do not end movement on another creature.",
+      "On an initial natural 20, choose ten rounds or twelve-square movement. If the spell ends above a pit, you fall; otherwise an occupied landing moves you to the nearest free square."
     ],
     "damage": []
   },
@@ -119,11 +121,11 @@
     "duration": "10 rounds",
     "range": "Self",
     "rangeBand": "self",
-    "description": "You and your gear turn into a cloud of smoke for the spell's duration.\n\nYou can fly and pass through any gap that smoke could. You can sense the terrain and any movement around you out to a near distance.\n\nYou can't cast spells while in this form.",
+    "description": "You and your gear become smoke for ten rounds. Fly six squares, crossing pits, water, creatures, and ordinary closed-door gaps, but not solid walls or a Wall of Force. Sense terrain and movement within six squares through darkness, not walls.\n\nYou cannot cast, attack, or manipulate gear. You cannot be directly targeted by weapons or spells. Area spells still affect you for half damage; Web and similar physical restraints do not hold you.\n\nAn initial natural 20 lasts twenty rounds. If the spell ends above a pit, you fall; otherwise an occupied landing moves you to the nearest free square.",
     "paragraphs": [
-      "You and your gear turn into a cloud of smoke for the spell's duration.",
-      "You can fly and pass through any gap that smoke could. You can sense the terrain and any movement around you out to a near distance.",
-      "You can't cast spells while in this form."
+      "You and your gear become smoke for ten rounds. Fly six squares, crossing pits, water, creatures, and ordinary closed-door gaps, but not solid walls or a Wall of Force. Sense terrain and movement within six squares through darkness, not walls.",
+      "You cannot cast, attack, or manipulate gear. You cannot be directly targeted by weapons or spells. Area spells still affect you for half damage; Web and similar physical restraints do not hold you.",
+      "An initial natural 20 lasts twenty rounds. If the spell ends above a pit, you fall; otherwise an occupied landing moves you to the nearest free square."
     ],
     "damage": []
   },
@@ -196,11 +198,11 @@
     "duration": "Focus",
     "range": "Near",
     "rangeBand": "near",
-    "description": "You conjure a circle of runes out to near-sized cube centered on yourself and name a type of creature (for example, demons).\n\nFor the spell's duration, creatures of the chosen type cannot attack or cast a hostile spell on anyone inside the circle.\n\nThe chosen creatures also can’t possess, compel, or beguile anyone inside the circle.",
+    "description": "Create a fixed seven-by-seven square centered on your casting position, and choose one broad creature type. The circle remains while you maintain Focus, even if parts extend beyond the room.\n\nCreatures of that type cannot cross its boundary in either direction. They cannot attack, cast hostile spells on, possess, compel, or beguile anyone inside. Humanoids and individual species are not selectable types. Separate underpass routes are unaffected.\n\nOn an initial natural 20, choose two different creature types.",
     "paragraphs": [
-      "You conjure a circle of runes out to near-sized cube centered on yourself and name a type of creature (for example, demons).",
-      "For the spell's duration, creatures of the chosen type cannot attack or cast a hostile spell on anyone inside the circle.",
-      "The chosen creatures also can’t possess, compel, or beguile anyone inside the circle."
+      "Create a fixed seven-by-seven square centered on your casting position, and choose one broad creature type. The circle remains while you maintain Focus, even if parts extend beyond the room.",
+      "Creatures of that type cannot cross its boundary in either direction. They cannot attack, cast hostile spells on, possess, compel, or beguile anyone inside. Humanoids and individual species are not selectable types. Separate underpass routes are unaffected.",
+      "On an initial natural 20, choose two different creature types."
     ],
     "damage": []
   },
@@ -225,6 +227,23 @@
         "context": "All allies within near range of you regain 2d6 hit points."
       }
     ]
+  },
+  {
+    "slug": "protection-from-energy",
+    "name": "Protection From Energy",
+    "tier": 3,
+    "classes": [
+      "wizard"
+    ],
+    "duration": "Focus",
+    "range": "Close",
+    "rangeBand": "close",
+    "description": "Touch one creature and choose fire, cold, or electricity. While you maintain Focus, the target is immune to harm from that energy type.\n\nOn an initial natural 20, choose two creatures protected from one energy type, or one creature protected from two energy types.",
+    "paragraphs": [
+      "Touch one creature and choose fire, cold, or electricity. While you maintain Focus, the target is immune to harm from that energy type.",
+      "On an initial natural 20, choose two creatures protected from one energy type, or one creature protected from two energy types."
+    ],
+    "damage": []
   },
   {
     "slug": "rebuke-unholy",
@@ -263,6 +282,7 @@
   {
     "slug": "sending",
     "name": "Sending",
+    "implementationStatus": "unfinished",
     "tier": 3,
     "classes": [
       "wizard"
@@ -287,11 +307,10 @@
     "duration": "Instant",
     "range": "Close",
     "rangeBand": "close",
-    "description": "A dead body you touch answers your questions in a distant, wheezing voice.\n\nYou can ask the dead body up to three yes or no questions (one at a time). The GM truthfully answers \"yes\" or \"no\" to each.\n\nIf you cast this spell more than once in 24 hours, treat a failed spellcasting check for it as a critical failure instead.",
+    "description": "Touch a corpse whose Intelligence modifier was at least -2. Ask three questions from its dialogue menu about this dungeon level's secret doors, remaining treasure, surviving enemies, or its former life. Answers describe the dungeon's current state. Follow-up questions become available after asking about monster or treasure types.\n\nAn initial natural 20 grants six questions. If you attempt this spell again within twenty-four game hours, any failed casting check is a critical failure.",
     "paragraphs": [
-      "A dead body you touch answers your questions in a distant, wheezing voice.",
-      "You can ask the dead body up to three yes or no questions (one at a time). The GM truthfully answers \"yes\" or \"no\" to each.",
-      "If you cast this spell more than once in 24 hours, treat a failed spellcasting check for it as a critical failure instead."
+      "Touch a corpse whose Intelligence modifier was at least -2. Ask three questions from its dialogue menu about this dungeon level's secret doors, remaining treasure, surviving enemies, or its former life. Answers describe the dungeon's current state. Follow-up questions become available after asking about monster or treasure types.",
+      "An initial natural 20 grants six questions. If you attempt this spell again within twenty-four game hours, any failed casting check is a critical failure."
     ],
     "damage": []
   }

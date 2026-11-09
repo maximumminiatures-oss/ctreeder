@@ -34,6 +34,8 @@ import { concealedAnimatedArmor, animatedArmorDisguiseAsset } from './companions
 import { isTilePerceived } from './visibility.js';
 import { restTourFrame } from './rest-scene.js';
 import { routeOf, routeExistsAt, UNDERPASS_ASSETS, UNDERPASS_OPACITY } from './underpasses.js';
+import { GASEOUS_FORM_ASSET, drawGaseousToken } from './render-gaseous.js';
+import { canSenseWithGaseousForm } from './tier-three-mobility.js';
 
 const USE_WATABOU_INK_OVERLAY = true;
 const INK_WALL_COLOR = "#111111";
@@ -351,6 +353,7 @@ export async function preloadRendererAssets() {
     crypts: loadAssetImageMap(CRYPT_ASSET_KEYS),
     reviewed: loadAssetImageMap([...REVIEWED_ASSET_KEYS, ...STATUE_ASSET_KEYS]),
     stealth: loadOptionalImage("./assets/stealth.png", { quiet: true }),
+    gaseousForm: loadOptionalImage(GASEOUS_FORM_ASSET, { quiet: true }),
     campfire: loadOptionalImage('./assets/campfire.png', { quiet: true }),
     alarm: loadOptionalImage('./assets/alarm.png', { quiet: true }),
     spellTemplates: resolveAssetGroups(Object.fromEntries(Object.entries(SPELL_TEMPLATE_ART)
@@ -1950,7 +1953,8 @@ export function visibleDungeonEntities(state, { darkness = false } = {}) {
     if (pitIsOpen(entity) || entity.subtype === 'illusion' || entity.subtype === 'arcane-shred' || entity.closed && entity.subtype === 'arcane-gate' ||
       entity.visible === false || entity.collected) return false;
     if (entity.type === ENTITY_TYPES.MONSTER) return isMonsterCurrentlyVisible(state, entity) &&
-      (!darkness || partyDarkvisionReveals(state, entity) || isMonsterTileIlluminated(state, entity));
+      (!darkness || partyDarkvisionReveals(state, entity) || (state.characters || []).some(observer =>
+        (!(state.viewerCharacterIds instanceof Set) || state.viewerCharacterIds.has(observer.id)) && canSenseWithGaseousForm(state, observer, entity)) || isMonsterTileIlluminated(state, entity));
     if (entity.subtype === 'door') {
       const route = routeOf(state, entity), key = tileKey(entity.x, entity.y);
       return isFeatureCurrentlyVisible(state, entity) ||
@@ -2085,6 +2089,10 @@ function drawCharacterDot(character, ctx, isActive, state) {
     ctx.fillStyle = FLOATING_DISC_COLOR;
     ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = isActive ? '#fff' : caster?.colorValue || '#fff'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.restore();
+    return;
+  }
+  if (drawGaseousToken(state, ctx, character, { image: rendererAssets.decor.gaseousForm, createCanvas, isActive })) {
     ctx.restore();
     return;
   }

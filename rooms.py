@@ -52,9 +52,11 @@ def reconcile_companion_ownership(db, room, previous):
     host = db.exec(select(RoomMember).where(RoomMember.room_id == room.id, RoomMember.role == "host")).first()
     for character in room.state_json.get("characters", []):
         identifier = character.get("id")
-        if (character.get("summon") or {}).get("kind") == "floating-disc":
+        if (character.get("summon") or {}).get("kind") in {"floating-disc", "animate-dead"}:
             controller = character["summon"].get("casterId")
-            ownership[identifier] = ownership.get(controller) or previous.get(controller) or ownership.get(identifier)
+            # Linked summons always remain with their caster, never the host by default.
+            ownership[identifier] = (ownership.get(controller) or previous.get(controller)
+                                     or (previous.get(identifier) if character["summon"].get("kind") == "animate-dead" else None))
         elif identifier not in ownership and character.get("companion"):
             controller = character["companion"].get("controllerCharacterId")
             ownership[identifier] = previous.get(controller) or (host.id if host else None)
@@ -109,7 +111,7 @@ def primary_assignments(room, members):
     """Return one UI-facing primary character per member without changing ownership."""
     ownership = room.ownership_json or {}
     character_ids = [item.get("id") for item in room.state_json.get("characters", []) if isinstance(item.get("id"), str)
-                     and (item.get("summon") or {}).get("kind") != "floating-disc"]
+                     and (item.get("summon") or {}).get("kind") not in {"floating-disc", "animate-dead"}]
     stored = room.primary_assignments_json or {}
     result = {}
     for member in members:
@@ -790,7 +792,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             if not target or target.room_id != room.id or target.status != "active":
                 return not_found
             character_ids = [item.get("id") for item in room.state_json.get("characters", [])
-                             if (item.get("summon") or {}).get("kind") != "floating-disc"]
+                             if (item.get("summon") or {}).get("kind") not in {"floating-disc", "animate-dead"}]
             if character_id is not None and character_id not in character_ids:
                 return not_found
 
@@ -970,8 +972,8 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             character = next((item for item in room.state_json.get("characters", []) if item["id"] == character_id), None)
             if not character:
                 return not_found
-            if (character.get("summon") or {}).get("kind") == "floating-disc":
-                raise ValueError("Floating Disc is temporary; save the dungeon run instead.")
+            if (character.get("summon") or {}).get("kind") in {"floating-disc", "animate-dead"}:
+                raise ValueError("This summon is temporary; save the party or dungeon run instead.")
             db.exec(update(User).where(User.id == current_user.id).values(session_version=User.session_version))
             if len(db.exec(select(SavedCharacter.id).where(SavedCharacter.user_id == current_user.id, SavedCharacter.deleted_at == None)).all()) >= 50:
                 raise ValueError("Your saved-character limit has been reached.")

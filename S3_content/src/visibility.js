@@ -11,6 +11,8 @@ import { isShrouded } from './arcane-effects.js';
 import { isPit, pitContains } from './pits.js';
 import { routeAt, routeOf, routeExistsAt, routeLineClear, sameRoute } from './underpasses.js';
 import { darkvisionCells } from './darkvision.js';
+import { gaseousSenseCells } from './tier-three-mobility.js';
+import { isGaseousForm } from './conditions.js';
 
 const LIGHT_GEOMETRY_VERSION = 13;
 
@@ -374,7 +376,9 @@ function revealDarkvision(state) {
   state.visibility.darkvisionNow = new Set();
   state.visibility.routeDarkvision = {};
   ensureDarkvisionMemory(state);
-  for (const point of darkvisionCells(state)) {
+  const sightState = (state.characters || []).some(isGaseousForm)
+    ? { ...state, characters: state.characters.filter(actor => !isGaseousForm(actor)) } : state;
+  for (const point of [...darkvisionCells(sightState), ...gaseousSenseCells(state)]) {
     const tile = getTileAt(state, point.x, point.y);
     if (!tile || tile.meta?.neverExplore || tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID ||
       isClosedSecretDoorTile(state, tile) || isShrouded(state, point.x, point.y, point)) continue;

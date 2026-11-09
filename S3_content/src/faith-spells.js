@@ -5,6 +5,7 @@ import { handItemKind } from './equipment.js';
 import { canTargetAtRange } from './targeting.js';
 import { isUndeadMonster } from './crypts.js';
 import { wizardCastingMode, rollWizardMishaps } from './wizard-mishaps.js';
+import { circleBlocksMentalControl } from './magic-circle.js';
 
 export const FAITH_SPELLS = new Set(['shield of faith', 'holy weapon', 'protection from evil', 'turn undead']);
 export const FAITH_CRITICAL_CHOICES = {
@@ -54,9 +55,10 @@ export function protectionDisadvantage(state, entity) {
   return protectionAuras(state).some(aura=>aura.caster.id!==entity.id && aura.opposes.includes(alignment) &&
     canTargetAtRange(state,aura.center,entity,aura.radius,{requireLight:false}));
 }
-export function blocksMindControl(state, target, description) {
+export function blocksMindControl(state, target, description, source = null) {
   return /\b(?:charm\w*|beguil\w*|possess\w*|compel\w*|compuls\w*|dominat\w*|hypnot\w*|mind[ -]?control|enslav\w*|enthrall\w*|mesmeri\w*|suggestion|command)\b/i.test(description) &&
-    protectionAuras(state).some(aura=>canTargetAtRange(state,aura.center,target,aura.radius,{requireLight:false}));
+    (protectionAuras(state).some(aura=>canTargetAtRange(state,aura.center,target,aura.radius,{requireLight:false})) ||
+      Boolean(source && circleBlocksMentalControl(state, source, target)));
 }
 export function faithCastingMode(state,caster,advantage=false) {
   return wizardCastingMode(caster,1,advantage,protectionDisadvantage(state,caster));

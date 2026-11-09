@@ -14,8 +14,8 @@ export function spellTemplateFits(spell, rect) {
 
 export function ongoingSpellTemplates(state, { now = Date.now() } = {}) {
   const visuals = areaSpellVisuals(state, { now });
-  // Magic Circle casting is not automated yet. Its future source-owned area
-  // records can use this visual contract without inventing combat mechanics.
+  // Retain support for generic source-owned area records as well as live
+  // Magic Circle areas supplied by areaSpellVisuals.
   for (const owner of [state, ...(state.characters || []), ...(state.entities || [])]) {
     for (const effect of owner.spellEffects || []) {
       if (String(effect.spell || '').toLowerCase() !== 'magic circle' || effect.kind !== 'area' ||

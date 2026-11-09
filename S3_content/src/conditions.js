@@ -1,4 +1,8 @@
 export const isIncorporeal = creature => creature?.conditions?.incorporeal === true;
+export const isGaseousForm = creature => Boolean(creature?.transformationEffects?.some(effect => effect.spell === 'gaseous form' && effect.rounds > 0));
+export const hasMobilityFlight = creature => Boolean(creature?.transformationEffects?.some(effect =>
+  ['fly', 'gaseous form'].includes(effect.spell) && effect.rounds > 0));
+export const ignoresNormalRestraints = creature => isIncorporeal(creature) || isGaseousForm(creature);
 export const isParalyzed = creature => Boolean(creature?.conditions?.paralyzed);
 export const isBlind = creature => Boolean(creature?.conditions?.blind);
 export const conditionAutomaticCritical = target => isParalyzed(target);

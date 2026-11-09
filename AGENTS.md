@@ -160,8 +160,8 @@ from PNG transparency. `spell-template-art.js` maps standard 6x6 Web/Silence and
 deliberately retain geometric previews until their artwork strategy is approved.
 Web/Silence art is below tokens and fog; Fireball art is a translucent targeting
 preview clipped to the actual affected known cells and removed on release/cancel.
-Magic Circle only has an artwork hook for source-owned area records, not automated
-casting/protection yet. Preserve the artist's existing `mqgic-circle.png` filename.
+Magic Circle uses fixed, source-owned Focus areas managed by `magic-circle.js`.
+Preserve the artist's existing `mqgic-circle.png` filename.
 Run `spell-template-art`, `tier-three-ui`, `area-spells`, and renderer tests.
 
 Illusion owns one or two independent projections under one DC13 INT Focus in
@@ -222,3 +222,41 @@ Append `&underpass-test=one` for two independent crossing routes, connected by
 stairs and an upper loop. Badzog starts below; Shrigark starts above. Lower
 tokens use 50% opacity. Route IDs are saved and used by authoritative movement,
 visibility, targeting and occupancy; do not flatten their coordinates.
+
+November 8 Tier 3 utility rules are recorded in `docs/SPELL_COVERAGE.md`.
+`wizard-tier-three-utility.js` dispatches Animate Dead, Fly, Gaseous Form, Magic
+Circle, Protection From Energy, and Speak With Dead. Fabricate and Sending have
+`implementationStatus: unfinished`; exclude these from all advancement choices
+and reject casting rather than reporting a generic success. Tier 3 is not yet
+complete. Keep critical choices initial-only, source-owned Focus cleanup,
+route-aware targeting, typed damage, and actual authoritative-command tests.
+
+Animated undead have their own turns immediately after the caster, even if the
+caster is asleep, dying, dead, or removed. This November 9 decision supersedes
+the earlier shared-turn resource snapshots; do not restore that old behavior.
+Keep caster ownership on the server, including reassignment of the caster;
+temporary summons cannot be imported or saved independently. Grave-dust expiry
+must drop every carried item without creating extra equipment. Animation takes
+only gear still left with the corpse, never its catalog's generated starting gear.
+Skeletons equip as fighters; naked skeletons have AC 10, Claw +1 for one damage.
+Zombies cannot equip. Both keep their caster's color and cannot wake, stealth,
+pick locks, or search. Floating Disc retains its existing shared caster action.
+
+Gaseous Form prevents direct targeting, not area effects; those halve damage.
+Do not replace it with incorporeal movement through solid walls. Web immunity,
+ordinary closed-door gaps, tinted cloud artwork, sensing without emitting light,
+and falling on flight expiry/dispel must remain connected. Magic Circle traps
+matching creatures on either side of its fixed boundary and uses broad tags,
+not humanoid/species guesses. Damage tags and treasure-element tables are
+separate concepts; expanding damage types must not change random item weights.
+
+Use `?test-party=three&tier-three-utility-test=one` for a loopback-only derived
+level-five wizard fixture with these spells and adjacent humanoid corpses. Its
+80 HP and Luck Tokens are test-only; original exports remain unchanged.
+
+Detect Thoughts shares the authored weighted vocabulary in `dead-dialogue.js`
+with Speak With Dead. Each of its first three insight messages has a 50% chance
+to use one of the six unrelated-thought patterns instead. This is dialogue, not
+a delay or cancellation of round-two bonuses or the once-per-casting Luck Token.
+Damage/distraction Focus checks do not generate extra thoughts. Keep the shared
+weights, dynamic plurals, and `detect-thoughts-dialogue` regression tests.

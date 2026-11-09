@@ -1,6 +1,6 @@
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { hasGrit } from './class-progression.js';
-import { isIncorporeal, isSleeping, wakeCreature } from './conditions.js';
+import { isIncorporeal, isSleeping, wakeCreature, hasMobilityFlight } from './conditions.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { getTile } from './state-schema.js';
 import { sameRoute, routeOf } from './underpasses.js';
@@ -13,7 +13,7 @@ export const isPit = entity => entity?.subtype === 'arcane-sinkhole' || entity?.
   entity?.type === 'trap' && entity.targetType === 'tile' && /\bpit\b/i.test(entity.name || '');
 export const pitIsOpen = pit => isPit(pit) && (pit.subtype === 'arcane-sinkhole' || pit.subtype === 'pit' || pit.triggered === true);
 export const pitIsKnown = pit => isPit(pit) && (pitIsOpen(pit) || pit.revealed === true && !pit.disarmed);
-export const avoidsFalling = creature => isFloatingDisc(creature) || isIncorporeal(creature) || creature?.transformationEffects?.some(effect =>
+export const avoidsFalling = creature => isFloatingDisc(creature) || isIncorporeal(creature) || hasMobilityFlight(creature) || creature?.transformationEffects?.some(effect =>
   effect.spell === 'levitate' || effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('spider-legs')) ||
   /\bfly(?:ing)?\b/i.test([creature?.movement, creature?.companion?.source?.movement, ...(creature?.tags || [])].join(' '));
 

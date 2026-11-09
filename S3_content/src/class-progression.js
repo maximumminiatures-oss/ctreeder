@@ -191,7 +191,7 @@ export function advancementOptions(character, event, task, { spells = [], weapon
   if (task.type === 'casting-or-int') return [{ value: 'INT', label: '+2 Intelligence' }, { value: 'casting', label: '+1 wizard spellcasting' }];
   if (task.type === 'magic-item') return options(['weapon','armor','wand','potion','scroll']);
   if (['spell','extra-spell','spell-advantage'].includes(task.type)) {
-    return spells.filter(spell => !forgottenSpells(character).has(normalizeSpellLookupKey(spell.name)) && spell.classes?.includes(key) && (task.type === 'spell-advantage' ? known.has(normalizeSpellLookupKey(spell.name)) &&
+    return spells.filter(spell => spell.implementationStatus !== 'unfinished' && !forgottenSpells(character).has(normalizeSpellLookupKey(spell.name)) && spell.classes?.includes(key) && (task.type === 'spell-advantage' ? known.has(normalizeSpellLookupKey(spell.name)) &&
       !(character.bonuses || []).some(bonus => bonus.name === 'AdvantageOnSpellcasting' && normalizeSpellLookupKey(bonus.bonusTo) === normalizeSpellLookupKey(spell.name)) :
       !known.has(normalizeSpellLookupKey(spell.name)) && (task.type === 'spell' ? spell.tier === task.tier : spell.tier <= Math.min(5, Math.ceil(event.level / 2)))))
       .sort((a,b) => a.tier-b.tier || a.name.localeCompare(b.name)).map(spell => ({ value: spell.name, label: `Tier ${spell.tier}: ${spell.name}` }));

@@ -6,6 +6,8 @@ import { isMagicItem } from './magic-items.js';
 import { isMagicSuppressed, suppressMagic } from './magic-suppression.js';
 import { routeOf } from './underpasses.js';
 import { TORCH_DURATION_MS } from './timers.js';
+import { resolveMobilityExpiry } from './tier-three-mobility.js';
+import { isAnimatedDead, cleanupAnimatedDead } from './animate-dead.js';
 
 const clone = value => structuredClone(value);
 const key = (...parts) => parts.map(part => encodeURIComponent(String(part))).join(':');
@@ -16,7 +18,7 @@ const present = effect => effect && (effect.rounds == null || Number(effect.roun
 const living = actor => actor && !actor.dead && !actor.slain && !actor.defeated && !actor.leftPeacefully &&
   (actor.hp == null || Number(actor.hp) > 0);
 const holders = state => [...(state.characters || []), ...(state.entities || []).filter(entity => !entity.collected && !entity.leftPeacefully)];
-const targetFocusSpells = new Set(['acid arrow', 'hold person', 'blind deafen', 'detect thoughts', 'zone of truth', 'levitate']);
+const targetFocusSpells = new Set(['acid arrow', 'hold person', 'blind deafen', 'detect thoughts', 'zone of truth', 'levitate', 'protection from energy']);
 
 function recordIdentity(records, effect, index) {
   if (effect.id != null || effect.instanceId != null) return effect.id ?? effect.instanceId;
@@ -61,6 +63,10 @@ function finishFocus(state, caster, focus, options) {
 
 function detachFocusTarget(state, caster, focus, target, options) {
   focus.targetIds = (focus.targetIds || []).filter(id => id !== target.id);
+  if (focus.spell === 'protection from energy') {
+    target.spellEffects = (target.spellEffects || []).filter(effect => effect.focusId !== focus.id || effect.spell !== focus.spell);
+    syncRaw(target, 'spellEffects');
+  }
   syncRaw(caster, 'focusSpell');
   if (!focus.targetIds.length) finishFocus(state, caster, focus, options);
   // The owning modules restore base conditions and retain other casters' sources.
@@ -237,6 +243,7 @@ function catalog(state) {
         add(key(holder.id, property, recordIdentity(holder[property], effect, index)), spell, holder,
           { ...effectData(effect), ...(property === 'potionEffects' ? { sourceType: 'potion', name: `${title(spell)} (Potion)` } : {}) }, options => {
             removeRecord(holder, property, effect);
+            if (spell === 'fly' || spell === 'gaseous form') resolveMobilityExpiry(state, holder, effect, options);
             if (spell === 'alter self') {
               if (effect.originalAncestry != null) { holder.ancestry = effect.originalAncestry; syncRaw(holder, 'ancestry'); }
               if (holder.invisibility?.source === 'alter-self-gills') erase(holder, 'invisibility');
@@ -264,6 +271,7 @@ function catalog(state) {
         disc ? 'floating disc' : holder.summon.spell || 'summon', holder,
         { kind: 'summon', ...effectData(holder.summon), name: disc ? 'Floating Disc' : `${title(holder.summon.spell || 'Summon')} (${holder.name || holder.id})` }, () => {
           if (disc) { holder.summon.remainingMs = 0; syncRaw(holder, 'summon'); return { removedDisc: holder }; }
+          if (isAnimatedDead(holder)) return cleanupAnimatedDead(state, holder);
           dismissSummon(state, holder);
         });
     }
@@ -277,7 +285,7 @@ function catalog(state) {
         add(key(holder.id, 'focusSpell', focus.id ?? focus.spell, targetId), focus.spell, target,
           { casterId: holder.id, focusId: focus.id ?? null }, options => detachFocusTarget(state, holder, focus, target, options));
       }
-    } else if (!['silence', 'illusion'].includes(focus.spell) && focus.spell) {
+    } else if (!['silence', 'illusion', 'magic circle'].includes(focus.spell) && focus.spell) {
       add(key(holder.id, 'focusSpell', focus.id ?? focus.spell), focus.spell, holder,
         { casterId: holder.id, kind: 'focus', ...(focus.radius != null ? { radius: focus.radius } : {}) },
         options => finishFocus(state, holder, focus, options));
@@ -297,6 +305,7 @@ function catalog(state) {
   for (const [owner, location] of [[state, 'state'], ...actors.map(actor => [actor, actor.id])]) {
     for (const [index, effect] of (owner.spellEffects || []).entries()) {
       if (!present(effect) || !effect.spell) continue;
+      if (effect.spell === 'protection from energy' && byId.get(effect.casterId)?.focusSpell?.id === effect.focusId) continue;
       const kind = effect.kind || 'spell', target = byId.get(effect.targetId) || (owner === state ? effect : owner);
       if (kind !== 'area' && effect.targetId != null && !byId.has(effect.targetId)) continue;
       if (kind === 'summon' && !living(byId.get(effect.targetId))) continue;

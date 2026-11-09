@@ -8,7 +8,8 @@ export const MONSTER_DARKVISION_TALENT = "Darkvision 60'";
 export const isMonsterCompanion = creature => Boolean(creature?.companion);
 const catEyes = creature => creature?.transformationEffects?.some(effect => effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('cat-eyes'));
 export const isDarkvisionCharacter = creature => isMonsterCompanion(creature) || catEyes(creature);
-export const companionEquipmentClass = creature => creature?.companion?.kind === 'doppelganger' ? null :
+export const companionEquipmentClass = creature => creature?.companion?.kind === 'doppelganger' ||
+  creature?.companion?.kind === 'animate-dead' && String(creature.companion.animateDead?.form || '').toLowerCase() === 'zombie' ? null :
   isMonsterCompanion(creature) ? 'fighter' : null;
 export const hasDarkvision = creature => creature?.type === 'monster' || isDarkvisionCharacter(creature);
 

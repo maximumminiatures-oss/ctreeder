@@ -4,6 +4,8 @@ import { castingBonus } from './spell-effects.js';
 import { rollWizardMishaps, wizardCastingMode } from './wizard-mishaps.js';
 import { ATTACK_RANGES, canAimAtSquare } from './targeting.js';
 import { routeOf, sameRoute } from './underpasses.js';
+import { isGaseousForm } from './conditions.js';
+import { circleBlocksHostileAction } from './magic-circle.js';
 
 export function castMagicMissile(state, caster, options = {}) {
   if (caster.pendingSpell) throw new Error('Finish the pending spell first.');
@@ -46,9 +48,11 @@ export function fireMagicMissile(caster, target, { canTarget, random = Math.rand
     square = { x: target.x, y: target.y, routeId: routeOf(state, caster) };
     target = (state.entities || []).find(entity => entity.type === 'monster' && !entity.defeated && !entity.leftPeacefully &&
       Number(entity.hp) > 0 && sameRoute(state, caster, entity) && entity.x === square.x && entity.y === square.y) || null;
+    if (isGaseousForm(target) || circleBlocksHostileAction(state, caster, target)) target = null;
   } else if (!target || target.type !== 'monster' || target.defeated || target.leftPeacefully || Number(target.hp) <= 0 || !canTarget?.(target)) {
     throw new Error('Pick a living enemy visible to the caster.');
   }
+  if (target && (isGaseousForm(target) || state && circleBlocksHostileAction(state, caster, target))) throw new Error('Magic prevents directly targeting that creature.');
   let damage = 0;
   if (target) {
     const value = random();

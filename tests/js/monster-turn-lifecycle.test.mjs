@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { beginLuckEvent, finishLuckEvent } from '../../S3_content/src/luck.js';
 import { captureRuntimeLuckActor } from '../../S3_content/src/luck-runtime.js';
+import { circleBlocksHostileAction, circleBlocksMentalControl } from '../../S3_content/src/magic-circle.js';
+import { isGaseousForm } from '../../S3_content/src/conditions.js';
 
 const source = readFileSync(new URL('../../S3_content/src/main.js', import.meta.url), 'utf8');
 const attackSource = source.slice(source.indexOf('function applyMonsterAttack(monster,'), source.indexOf('async function runMonsterTurn('));
@@ -19,6 +21,7 @@ for (const name of ['Pirate', 'Beastman']) for (const hit of [false, true]) {
     let logged = 0, nextTurnStarted = false;
     const attack = { name: 'Dagger', rangeInfo: { maxRange: 1 }, damageExpression: '1d4' };
     const context = vm.createContext({ state, isLiveMonster: actor => actor.hp > 0,
+      circleBlocksHostileAction, circleBlocksMentalControl, isGaseousForm,
       isIllusionCreature: actor => actor?.illusion?.kind === 'creature',
       isCharacterTargetableByMonster: actor => actor.hp > 0, sameRoute: () => true,
       transformationMovementRules: () => ({}), blocksMindControl: () => false,

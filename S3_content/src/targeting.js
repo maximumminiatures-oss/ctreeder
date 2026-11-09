@@ -7,6 +7,8 @@ import { isMonsterCurrentlyVisible } from './monster-perception.js';
 import { sameRoute, routeOf, routeAt, routeStep, routeKey } from './underpasses.js';
 import { getTile } from './state-schema.js';
 import { isDarkvisionCharacter } from './darkvision.js';
+import { isGaseousForm, hasMobilityFlight } from './conditions.js';
+import { mobilityCanDirectlyTarget } from './tier-three-mobility.js';
 
 export const ATTACK_RANGES = Object.freeze({ close: 1, near: 6, far: 12 });
 export const OFFENSIVE_SPELLS = new Set(['magic missile', 'burning hands']);
@@ -16,11 +18,12 @@ export function withinTargetRange(origin, target, range) {
   return Math.hypot(Number(target.x) - Number(origin.x), Number(target.y) - Number(origin.y)) <= rangeRadius(range) + 0.000001;
 }
 
-export function canTargetAtRange(state, character, target, range, { requireLight = true, directAttack = false } = {}) {
-  return Boolean(target && Number.isFinite(Number(target.x)) && Number.isFinite(Number(target.y)) &&
+export function canTargetAtRange(state, character, target, range, { requireLight = true, directAttack = false, areaEffect = false } = {}) {
+  return Boolean(target && (areaEffect || !isGaseousForm(target)) && Number.isFinite(Number(target.x)) && Number.isFinite(Number(target.y)) &&
     sameRoute(state, character, target) &&
     withinTargetRange(character, target, range) &&
-    (!directAttack || canDirectlyTarget(target, range, character) && (target.type !== 'monster' || isMonsterCurrentlyVisible(state, target))) &&
+    (!directAttack || mobilityCanDirectlyTarget(target, { melee: Number(range) <= Math.SQRT2 }) &&
+      canDirectlyTarget(target, range, character) && (target.type !== 'monster' || isMonsterCurrentlyVisible(state, target))) &&
     (!requireLight || isTilePerceived(state, Number(target.x), Number(target.y), target) ||
       target.type === 'monster' && isMonsterCurrentlyVisible(state, target)) &&
     hasLineOfSightFrom(state, Number(character.x), Number(character.y), Number(target.x), Number(target.y), { source: character, target }));
@@ -38,7 +41,7 @@ export function canAimAtSquare(state, character, square, range) {
 }
 
 export function hasReadyOffensiveSpell(character) {
-  return (OFFENSIVE_SPELLS.has(character?.pendingSpell?.spell) || ['light','holy weapon','invisibility','charm person','hold portal','sleep','acid arrow','detect thoughts','hold person','alter self','levitate','misty step','fixed object','silence','web','bless','cleansing weapon','smite','blind deafen','zone of truth','fireball','lightning bolt','dispel magic','illusion'].includes(character?.pendingSpell?.spell)) && ['targeting','placement'].includes(character.pendingSpell.phase);
+  return (OFFENSIVE_SPELLS.has(character?.pendingSpell?.spell) || ['light','holy weapon','invisibility','charm person','hold portal','sleep','acid arrow','detect thoughts','hold person','alter self','levitate','misty step','fixed object','silence','web','bless','cleansing weapon','smite','blind deafen','zone of truth','fireball','lightning bolt','dispel magic','illusion','protection from energy','animate dead','speak with dead','magic circle'].includes(character?.pendingSpell?.spell)) && ['targeting','placement'].includes(character.pendingSpell.phase);
 }
 
 export function pendingSpellAllowsCommand(character, type, spellName = '') {
@@ -50,11 +53,18 @@ export function pendingSpellAllowsCommand(character, type, spellName = '') {
 
 export function planClickMovement(state, character, x, y, maxSteps) {
   const goalRoute = routeAt(state, x, y, routeOf(state, character));
-  const perceived = isDarkvisionCharacter(character) ? isTilePerceived : isTileVisible;
+  const perceived = isDarkvisionCharacter(character) || isGaseousForm(character) ? isTilePerceived : isTileVisible;
   if (![x, y].every(Number.isInteger) || maxSteps < 1 || characterOccupant(state, x, y, character.id, { routeId: goalRoute }) ||
       !perceived(state, x, y, { routeId: goalRoute })) return [];
+  const passesCreatures = hasMobilityFlight(character) || character.transformationEffects?.some(effect => effect.spell === 'levitate' ||
+    effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('spider-legs'));
+  const ignoresFloorTraps = hasMobilityFlight(character) || character.transformationEffects?.some(effect => effect.spell === 'levitate');
   const monsters = new Set((state.entities || []).filter(entity => (entity.type === 'monster' && !entity.defeated && !entity.leftPeacefully) ||
-      (entity.type === 'trap' && entity.revealed && !entity.disarmed && !entity.triggered))
+      (!ignoresFloorTraps && entity.type === 'trap' && entity.revealed && !entity.disarmed && !entity.triggered))
+    .map(entity => routeKey({ ...entity, routeId: routeOf(state, entity) })));
+  const movementBlocks = new Set((state.entities || []).filter(entity =>
+    (!passesCreatures && entity.type === 'monster' && !entity.defeated && !entity.leftPeacefully) ||
+    (!ignoresFloorTraps && entity.type === 'trap' && entity.revealed && !entity.disarmed && !entity.triggered))
     .map(entity => routeKey({ ...entity, routeId: routeOf(state, entity) })));
   if (monsters.has(routeKey({ x, y, routeId: goalRoute }))) return [];
   const start = { x: Number(character.x), y: Number(character.y), routeId: routeOf(state, character), path: [], cost: 0 };
@@ -72,7 +82,7 @@ export function planClickMovement(state, character, x, y, maxSteps) {
       const nx = current.x + dx, ny = current.y + dy, next = routeStep(state, current, { x: nx, y: ny });
       if (!next) continue;
       const key = routeKey(next);
-      if ((cheapest.get(key) ?? Infinity) <= cost || monsters.has(key) || !perceived(state, nx, ny, next) ||
+      if ((cheapest.get(key) ?? Infinity) <= cost || movementBlocks.has(key) || !perceived(state, nx, ny, next) ||
           !canMoveBetweenTiles(state, current.x, current.y, nx, ny, { routeId: current.routeId, creature: character }).ok) continue;
       cheapest.set(key, cost);
       queue.push({ ...next, cost, path: [...current.path, { dx, dy }] });

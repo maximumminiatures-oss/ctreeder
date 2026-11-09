@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { circleBlocksHostileAction, circleBlocksMentalControl } from '../../S3_content/src/magic-circle.js';
+import { isGaseousForm } from '../../S3_content/src/conditions.js';
 
 const source = readFileSync(new URL('../../S3_content/src/main.js', import.meta.url), 'utf8');
 const attackSource = source.slice(source.indexOf('function applyMonsterAttack('), source.indexOf('async function runMonsterTurn('));
@@ -14,6 +16,7 @@ test('animated monster attacks rebind normalized actors before Luck capture and 
     const state = { entities: [monster], characters: [target], combat: { surpriseRound: false } };
     let captured = false;
     const context = vm.createContext({ state, isLiveMonster: actor => actor.hp > 0, isIllusionCreature: actor => actor?.illusion?.kind === 'creature',
+      circleBlocksHostileAction, circleBlocksMentalControl, isGaseousForm,
       isCharacterTargetableByMonster: actor => actor.hp > 0, sameRoute: () => true,
       transformationMovementRules: () => ({}), blocksMindControl: () => false,
       hasWizardEffect: () => false, isStealthed: () => false, canCharacterSeeMonster: () => true,

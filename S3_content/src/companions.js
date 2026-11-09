@@ -235,7 +235,7 @@ export function archiveSlainCharacter(state,character) {
     id:`corpse-gear-${character.id}-${index}`,type:'treasure',subtype:'dropped-equipment',kind:'gear',name:item.name,
     x:character.x,y:character.y,routeId:character.routeId,roomId:character.roomId,visible:true,value:Number(item.value)||0,
     gearItem:character.companion ? transferredMonsterGear(item) : clone(item),slots:item.slots??1,
-    corpseOwnerId:character.id
+    corpseOwnerId:character.id,corpseEquipment:{corpseId:corpse.id,equipped:item.equipped===true}
   });
   state.characters=state.characters.filter(member=>member.id!==character.id);
   return corpse;

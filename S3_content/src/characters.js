@@ -378,7 +378,10 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     invisibility: raw.invisibility ? clonePlain(raw.invisibility) : null,
     halflingInvisibilityUsed: raw.halflingInvisibilityUsed === true,
     companion: raw.companion ? clonePlain(raw.companion) : null,
-    summon: isFloatingDisc(raw) ? clonePlain(raw.summon) : null,
+    summon: isFloatingDisc(raw) ? clonePlain(raw.summon) : raw.companion?.kind === 'animate-dead' && raw.companion.animateDead ? {
+      kind: 'animate-dead', spell: 'animate dead', casterId: raw.companion.animateDead.casterId,
+      remainingMs: raw.companion.animateDead.remainingMs
+    } : null,
     illusion: raw.illusion ? clonePlain(raw.illusion) : null,
     illusionStealthIds: Array.isArray(raw.illusionStealthIds) ? clonePlain(raw.illusionStealthIds) : [],
     conditions: raw.conditions && typeof raw.conditions === 'object' ? clonePlain(raw.conditions) : {},
@@ -710,13 +713,14 @@ export function setActiveCharacter(state, characterId) {
 let characterDamageListener = null;
 export function setCharacterDamageListener(listener) { characterDamageListener = listener; }
 
-export function setCharacterHp(character, nextHp, { sourceId = null, damageSource = null } = {}) {
+export function setCharacterHp(character, nextHp, { sourceId = null, damageSource = null, areaEffect = false } = {}) {
   if (isFloatingDisc(character)) return character;
   if (!character) {
     return null;
   }
   const before = Number(character.hp) || 0;
-  if (damageSource && nextHp < before) nextHp = before - elementalDamage(character, before - nextHp, damageSource).total;
+  if ((damageSource || areaEffect) && nextHp < before) nextHp = before - elementalDamage(character, before - nextHp,
+    areaEffect ? { damageSource, areaEffect: true } : damageSource).total;
   const maxHitPoints = clampInt(character.maxHitPoints, 0, MAX_HIT_POINTS, character.hp || 0);
   character.maxHitPoints = maxHitPoints;
   character.hp = clampInt(nextHp, 0, maxHitPoints, character.hp || 0);

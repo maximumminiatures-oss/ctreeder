@@ -119,16 +119,16 @@ test('Hold Person and Detect Thoughts Focus twenties preserve targets and anothe
 
 test('Detect Thoughts gives round-one dialogue, round-two target-specific party modifiers, and one Luck event per casting',()=>{
   const ctx=scene();ctx.state.entities.push({id:'gold',type:'treasure',name:'Golden Crown',x:7,y:4,roomId:'room'});
-  ready(ctx,'detect thoughts');const initial=resolveFocusedSpell(ctx.state,ctx.caster,{targetId:'foe'});
-  assert.equal(initial.dialogs[0].text,'You peer into the mind of a Bandit and learn some interesting stuff.');
+  ready(ctx,'detect thoughts');const initial=resolveFocusedSpell(ctx.state,ctx.caster,{targetId:'foe',random:()=>.5});
+  assert.equal(initial.dialogs[0].text,'You peer into the mind of a bandit and learn some interesting stuff.');
   assert.deepEqual(detectThoughtsModifiers(ctx.state,ctx.ally,ctx.monster),{armorClass:0,attack:0,damage:0});
-  const secondRound=maintainTierTwoFocus(ctx.state,ctx.caster,{checkRoll:check(12)});
-  assert.equal(secondRound.dialogs[0].text,'You learn how this Bandit fights.');
+  const secondRound=maintainTierTwoFocus(ctx.state,ctx.caster,{checkRoll:check(12),random:()=>.5});
+  assert.equal(secondRound.dialogs[0].text,'You learn how this bandit fights.');
   assert.deepEqual(detectThoughtsModifiers(ctx.state,ctx.ally,ctx.monster),{armorClass:1,attack:1,damage:1});
   assert.deepEqual(detectThoughtsModifiers(ctx.state,ctx.ally,ctx.second),{armorClass:0,attack:0,damage:0});
-  let luck=0;const options={checkRoll:check(12),grantLuck:()=>luck++};
+  let luck=0;const options={checkRoll:check(12),grantLuck:()=>luck++,random:()=>.5};
   const third=maintainTierTwoFocus(ctx.state,ctx.caster,options);assert.equal(luck,1);assert.equal(third.events[0].applied,true);
-  assert.equal(third.dialogs[0].text,'You really get this Bandit.');
+  assert.equal(third.dialogs[0].text,'You really get this bandit.');
   assert.deepEqual(maintainTierTwoFocus(ctx.state,ctx.caster,options).dialogs,[]);assert.equal(luck,1);
   const restored=hydrateDungeonState(serializeDungeonState(ctx.state));
   maintainTierTwoFocus(restored,restored.characters[0],options);assert.equal(luck,1);

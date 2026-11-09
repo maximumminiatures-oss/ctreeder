@@ -8,9 +8,11 @@ import { routeOf, routeStep, routeKey, sameRoute, routeExistsAt } from './underp
 import { getTile } from './state-schema.js';
 import { isMimic } from './companions.js';
 import { isFloatingDisc } from './floating-disc.js';
-import { isIncorporeal, isSleeping, wakeCreature } from './conditions.js';
+import { isIncorporeal, isGaseousForm, isSleeping, wakeCreature } from './conditions.js';
 import { hasGrit } from './class-progression.js';
 import { handItemKind, syncEquipmentLight } from './equipment.js';
+import { elementalDamage } from './elemental-effects.js';
+import { activeMagicCircles, circleBlocksHostileAction } from './magic-circle.js';
 
 export const AREA_SPELLS = new Set(['fixed object', 'knock', 'silence', 'web']);
 export const AREA_CRITICAL_CHOICES = {
@@ -29,6 +31,7 @@ const pointOf = (state, point) => ({ x: point.x, y: point.y, routeId: routeOf(st
 const isBat = creature => /\bbats?\b|\bstingbat\b/i.test(`${creature?.name || ''} ${creature?.companion?.source?.name || ''}`);
 const active = (state, zone) => {
   if (zone.burnedAt != null) return false;
+  if (zone.spell === 'magic circle') return activeMagicCircles(state).some(circle => circle.id === zone.id);
   if (zone.spell !== 'silence') return zone.rounds > 0;
   const caster = (state.characters || []).find(member => member.id === zone.casterId);
   return alive(caster) && !isSleeping(caster, state) && caster.focusSpell?.spell === 'silence' && caster.focusSpell.areaId === zone.id;
@@ -228,7 +231,8 @@ export function syncAreaSpellConditions(state) {
     .filter(id => targets.some(creature => creature.id === id && contains(zone, pointOf(state, creature))));
   for (const creature of [...(state.characters || []), ...(state.entities || []).filter(entity => entity.type === 'monster')]) {
     const inside = targets.includes(creature) ? zones.filter(zone => contains(zone, pointOf(state, creature))) : [];
-    const webs = inside.filter(zone => zone.spell === 'web' && !isIncorporeal(creature) && !(zone.escapedIds || []).includes(creature.id)).map(zone => zone.id);
+    const webs = inside.filter(zone => zone.spell === 'web' && !isIncorporeal(creature) && !isGaseousForm(creature) && !(zone.escapedIds || []).includes(creature.id) &&
+      !circleBlocksHostileAction(state, [...(state.characters || []), ...(state.entities || [])].find(actor => actor.id === zone.casterId), creature)).map(zone => zone.id);
     const silence = inside.filter(zone => zone.spell === 'silence').map(zone => zone.id);
     if (webs.length || silence.length || creature.conditions?.webs || creature.conditions?.silenceAreas) creature.conditions ||= {};
     if (creature.conditions) {
@@ -243,8 +247,9 @@ export function syncAreaSpellConditions(state) {
 }
 
 export function isRestrainedByWeb(state, creature) {
-  return !isFloatingDisc(creature) && !isIncorporeal(creature) && activeAreaSpells(state).some(zone => zone.spell === 'web' &&
-    contains(zone, pointOf(state, creature)) && !(zone.escapedIds || []).includes(creature.id));
+  return !isFloatingDisc(creature) && !isIncorporeal(creature) && !isGaseousForm(creature) && activeAreaSpells(state).some(zone => zone.spell === 'web' &&
+    contains(zone, pointOf(state, creature)) && !(zone.escapedIds || []).includes(creature.id) &&
+    !circleBlocksHostileAction(state, [...(state.characters || []), ...(state.entities || [])].find(actor => actor.id === zone.casterId), creature));
 }
 export const webStepBlock = (state, creature) => isRestrainedByWeb(state, creature) ? 'Escape the web with a Strength action before moving.' : '';
 
@@ -268,8 +273,8 @@ export function igniteWebsAt(state, point, { random = Math.random, now = Date.no
     for (const creature of creatures(state).filter(creature => contains(zone, pointOf(state, creature)))) {
       const roll = Math.floor(random() * 6) + 1, before = Number(creature.hp);
       if (applyDamage) applyDamage(creature, roll, { sourceId: zone.casterId, damageType: 'fire', areaId: zone.id });
-      else if ((state.characters || []).includes(creature)) setCharacterHp(creature, before - roll, { sourceId: zone.casterId, damageSource: 'fire' });
-      else { creature.hp = Math.max(0, before - roll); wakeCreature(creature, state); }
+      else if ((state.characters || []).includes(creature)) setCharacterHp(creature, before - roll, { sourceId: zone.casterId, damageSource: 'fire', areaEffect: true });
+      else { creature.hp = Math.max(0, before - elementalDamage(creature, roll, { damageType: 'fire', areaEffect: true }).total); if (creature.hp < before) wakeCreature(creature, state); }
       hits.push({ id: creature.id, areaId: zone.id, roll, damage: before - Number(creature.hp), defeated: creature.hp <= 0 });
       if (creature.hp <= 0) onDefeat?.(creature, zone);
     }

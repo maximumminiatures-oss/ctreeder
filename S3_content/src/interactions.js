@@ -13,7 +13,7 @@ import { isAngledWallMovementBlockingTile } from "./angled-walls.js";
 import { concealedMimic, ensureMonsterGear, transferredMonsterGear } from './companions.js';
 import { isInvisible } from './concealment.js';
 import { queueFallingDamage, canCastFeatherFall } from './falling.js';
-import { isIncorporeal, isSleeping, isProne, phaseStepAllowed } from './conditions.js';
+import { isIncorporeal, isGaseousForm, isSleeping, isProne, phaseStepAllowed } from './conditions.js';
 import { isRaving } from './arcane-effects.js';
 import { checkSinkholeFall } from './higher-mishaps.js';
 import { isPit, knownPitAt, openPit } from './pits.js';
@@ -21,6 +21,8 @@ import { routeStep, routeOf, routeAt, sameRoute } from './underpasses.js';
 import { isTileIlluminated } from './light-geometry.js';
 import { fixedObjectAt, webStepBlock } from './area-spells.js';
 import { transformationMovementRules } from './transformation-spells.js';
+import { mobilityPassesDoor } from './tier-three-mobility.js';
+import { canCrossCircleBoundary } from './magic-circle.js';
 import { isMagicSuppressed } from './magic-suppression.js';
 import { isIllusionCreature, illusionContains, illusionsAt, illusionBlocksMonsterStep } from './illusion-geometry.js';
 import { isStatueAsset, hasFixedSolidMovement, getReviewedTileRule, reviewedTileMovementSegments } from './reviewed-tile-rules.js';
@@ -642,6 +644,7 @@ export function canMoveBetweenTiles(state, fromX, fromY, toX, toY, options = {})
     { x: fromX, y: fromY, routeId: options.routeId ?? options.creature?.routeId ?? routeOf(state, { x: fromX, y: fromY }) }, { x: toX, y: toY }, { phase: isIncorporeal(options.creature) });
   if (!step) return { ok: false, message: 'These passages cross on separate levels.' };
   const point = { x: toX, y: toY, routeId: step.routeId };
+  if (!canCrossCircleBoundary(state, options.creature, { x: fromX, y: fromY, routeId: options.routeId ?? routeOf(state, options.creature || { x: fromX, y: fromY }) }, point)) return { ok: false, message: 'Magic Circle blocks the way.' };
   if (illusionBlocksMonsterStep(state, options.creature, point)) return { ok: false, message: 'A pit blocks movement.' };
   if (illusionOverlapsMonster(state, options.creature, toX, toY, step.routeId)) return { ok: false, message: 'A living monster blocks the illusion.' };
   if (isIncorporeal(options.creature)) return { ok: phaseStepAllowed(state, fromX, fromY, toX, toY), message: 'Incorporeal movement.' };
@@ -652,12 +655,12 @@ export function canMoveBetweenTiles(state, fromX, fromY, toX, toY, options = {})
   if (!canCrossReviewedGeometry(geometry,fromX,fromY,toX,toY, { x: fromX, y: fromY, routeId: options.routeId ?? options.creature?.routeId ?? routeOf(state, { x: fromX, y: fromY }) })) return {ok:false,message:'Blocked by terrain.'};
   const tile = getTile(state, toX, toY);
   const door = getDoorBetween(state, fromX, fromY, toX, toY, step.routeId);
-  if (options.ignoreClosedDoors !== true && door && !isDoorPassable(door)) {
+  if (options.ignoreClosedDoors !== true && door && !isDoorPassable(door) && !mobilityPassesDoor(options.creature, door)) {
     return { ok: false, message: "Blocked by a door." };
   }
 
   const blockingDoor = options.ignoreDoorTile === true || options.ignoreClosedDoors === true ? null : findBlockingDoorAtTile(state, toX, toY, step.routeId);
-  if (blockingDoor) {
+  if (blockingDoor && !mobilityPassesDoor(options.creature, blockingDoor)) {
     return { ok: false, message: "Blocked by a door." };
   }
 
@@ -720,8 +723,9 @@ export function defeatMonster(state, monster, options = {}) {
   monster.disguiseRevealed = true;
   monster.hp = 0;
   const corpseName = options.ash ? 'ash pile' : `Dead ${monster.name || "monster"}`;
+  const corpseId = `corpse-${state.entities.length}-${Date.now()}`;
   state.entities.push({
-    id: `corpse-${state.entities.length}-${Date.now()}`,
+    id: corpseId,
     type: ENTITY_TYPES.TREASURE,
     subtype: options.ash ? 'turned-ash' : "corpse-loot",
     kind: options.ash ? 'remains' : "worthless-loot",
@@ -739,13 +743,19 @@ export function defeatMonster(state, monster, options = {}) {
     priceless: false,
     description: "The remains of a defeated monster.",
     corpseLoot: !options.ash,
-    monsterName: options.ash ? '' : monster.name || "monster"
+    monsterName: options.ash ? '' : monster.name || "monster",
+    ...(!options.ash ? {
+      sourceMonsterId: monster.id,
+      corpseSource: Object.fromEntries(['name', 'tags', 'level', 'S', 'D', 'C', 'I', 'W', 'Ch', 'ac', 'hp', 'maxHp', 'attack', 'movement', 'AL', 'talents']
+        .filter(key => monster[key] !== undefined).map(key => [key, structuredClone(monster[key])]))
+    } : {})
   });
   const loot = addMonsterLootDrop(state, monster);
   for(const [index,item]of(ensureMonsterGear(monster)).entries())state.entities.push({id:`slain-gear-${monster.id}-${index}`,type:ENTITY_TYPES.TREASURE,
     subtype:'dropped-equipment',kind:'gear',name:item.name,x:monster.x,y:monster.y,routeId:routeOf(state,monster),roomId:monster.roomId,
     visible:true,revealed:true,collected:false,value:Number(item.value)||0,
-    gearItem:transferredMonsterGear(item),slots:item.slots??1});
+    gearItem:transferredMonsterGear(item),slots:item.slots??1,
+    ...(!options.ash ? {corpseEquipment:{corpseId,equipped:item.equipped===true}} : {})});
   monster.gear=[];
   monster.carriedGear=[];
   return {
@@ -953,6 +963,7 @@ export function movePlayer(state, dx, dy, options = {}) {
   const creature = state.characters?.find(character => character.id === state.activeCharacterId);
   const step = routeStep(state, { ...state.player, routeId: creature?.routeId ?? state.player.routeId }, { x: state.player.x + dx, y: state.player.y + dy }, { phase: isIncorporeal(creature) });
   if (!step) return { moved: false, message: 'These passages cross on separate levels.' };
+  if (!canCrossCircleBoundary(state, creature, { ...state.player, routeId: creature?.routeId ?? state.player.routeId }, step)) return { moved: false, message: 'Magic Circle blocks the way.' };
   if (illusionOverlapsMonster(state, creature, step.x, step.y, step.routeId)) return { moved: false, message: 'A living monster blocks the illusion.' };
   const finish = result => { if (result.moved && creature) creature.routeId = state.player.routeId; return result; };
   if (isRaving(creature)) return { moved: false, message: 'Mad raving prevents movement.' };
@@ -961,6 +972,13 @@ export function movePlayer(state, dx, dy, options = {}) {
   if (isProne(creature, state)) return { moved: false, message: 'Stand up before moving.' };
   const webBlock = creature && webStepBlock(state, creature);
   if (webBlock) return { moved: false, message: webBlock };
+  if (isGaseousForm(creature)) {
+    const movement = canMoveBetweenTiles(state, state.player.x, state.player.y, step.x, step.y, { creature, routeId: state.player.routeId });
+    if (!movement.ok) return { moved: false, message: movement.message };
+    Object.assign(state.player, { x: step.x, y: step.y, routeId: step.routeId, roomId: getTile(state, step.x, step.y)?.roomId ?? null });
+    if (!options.deferVisibility) recomputeVisibility(state);
+    return finish({ moved: true, message: 'Drifted through the dungeon.' });
+  }
   if (isIncorporeal(creature)) {
     const x = state.player.x + dx, y = state.player.y + dy;
     if (!phaseStepAllowed(state, state.player.x, state.player.y, x, y)) return { moved: false, message: 'Outside the dungeon.' };

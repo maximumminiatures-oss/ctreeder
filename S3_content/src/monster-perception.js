@@ -1,6 +1,6 @@
 import { hasLineOfSightFrom, isTileVisible, isTilePerceived } from './visibility.js';
 import { isHiddenMonster, isInvisible, isStealthed } from './concealment.js';
-import { isBlind, isSleeping } from './conditions.js';
+import { isBlind, isSleeping, isGaseousForm } from './conditions.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { collectLightSources, computeLightPolygon, isTileIlluminated } from './light-geometry.js';
 import { TILE_SIZE_PX } from './constants.js';
@@ -8,6 +8,7 @@ import { sameRoute } from './underpasses.js';
 import { canSeeWithDarkvision, hasDarkvision, isTilePhysicallyIlluminated } from './darkvision.js';
 import { isLightSuppressedAt } from './wizard-mishaps.js';
 import { isShrouded } from './arcane-effects.js';
+import { canSenseWithGaseousForm } from './tier-three-mobility.js';
 
 const lineOfSight = state => (observer, target) => !isBlind(observer) && hasLineOfSightFrom(state, observer.x, observer.y, target.x, target.y,
   { source: observer, target });
@@ -26,10 +27,10 @@ export function isFeatureCurrentlyVisible(state, entity, { viewer = null } = {})
   const viewerIds = state.viewerCharacterIds instanceof Set ? state.viewerCharacterIds : null;
   const observers = viewer ? [viewer] : (state.characters || []).filter(character => !viewerIds || viewerIds.has(character.id));
   const canSee = lineOfSight(state);
-  if (observers.some(observer => canSeeWithDarkvision(state, observer, entity, { hasLineOfSight: canSee }))) return true;
+  if (observers.some(observer => !isGaseousForm(observer) && canSeeWithDarkvision(state, observer, entity, { hasLineOfSight: canSee }))) return true;
   if (!isTilePerceived(state, entity.x, entity.y, entity) && !isMonsterTileIlluminated(state, entity)) return false;
   if (!(state.characters || []).length) return canSee(state.player, entity);
-  return observers.some(observer => !isFloatingDisc(observer) && !observer.dead && !observer.slain && Number(observer.hp) > 0 &&
+  return observers.some(observer => !isGaseousForm(observer) && !isFloatingDisc(observer) && !observer.dead && !observer.slain && Number(observer.hp) > 0 &&
     !isBlind(observer) && !isSleeping(observer, state) && sameRoute(state, observer, entity) && canSee(observer, entity) &&
     (isTileVisible(state, entity.x, entity.y, entity) || isMonsterTileIlluminated(state, entity)));
 }
@@ -41,20 +42,22 @@ export function isMonsterCurrentlyVisible(state, monster, { viewer = null } = {}
   const viewerIds = state.viewerCharacterIds instanceof Set ? state.viewerCharacterIds : null;
   const observers = viewer ? [viewer] : (state.characters || []).filter(character => !viewerIds || viewerIds.has(character.id));
   const canSee = lineOfSight(state);
-  if (observers.some(observer => canSeeWithDarkvision(state, observer, monster, { hasLineOfSight: canSee }))) return true;
+  if (observers.some(observer => canSenseWithGaseousForm(state, observer, monster))) return true;
+  if (observers.some(observer => !isGaseousForm(observer) && canSeeWithDarkvision(state, observer, monster, { hasLineOfSight: canSee }))) return true;
   let lit = isTileVisible(state, Number(monster.x), Number(monster.y), monster);
   const transitioning = Number.isFinite(state.lightVisualTime) && state.lightTransition && state.lightVisualTime < state.lightTransition.startedAt + 3000;
   if (!lit || transitioning) lit = isMonsterTileIlluminated(state, monster);
   if (!lit) return false;
   if (!(state.characters || []).length) return canSee(state.player, monster);
-  return observers.some(character => !isFloatingDisc(character) && !character.dead && !character.slain &&
+  return observers.some(character => !isGaseousForm(character) && !isFloatingDisc(character) && !character.dead && !character.slain &&
     !isBlind(character) && !isSleeping(character, state) && Number(character.hp) > 0 &&
     Number.isFinite(Number(character.x)) && Number.isFinite(Number(character.y)) &&
     sameRoute(state, character, monster) && hasLineOfSightFrom(state, Number(character.x), Number(character.y), Number(monster.x), Number(monster.y), { source: character, target: monster }));
 }
 
 export function monsterCanSeeTarget(state, monster, target) {
-  return !isInvisible(target) && canSeeWithDarkvision(state, monster, target, { hasLineOfSight: lineOfSight(state) });
+  return !isInvisible(target) && (canSenseWithGaseousForm(state, monster, target) ||
+    !isGaseousForm(monster) && canSeeWithDarkvision(state, monster, target, { hasLineOfSight: lineOfSight(state) }));
 }
 
 export function monsterCanAmbush(state, monster, target, { canAttackAfterMove = () => false } = {}) {

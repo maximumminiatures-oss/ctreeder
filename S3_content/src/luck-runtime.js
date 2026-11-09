@@ -8,10 +8,10 @@ const refs = state => [...(state.characters || []), ...(state.entities || []).ma
 const tokenFields = ['luckToken', 'luckTokens'];
 const guardFields = ['maxHitPoints', 'conditions', 'dyingRounds', 'dead', 'slain', 'defeated', 'focusSpell', 'pendingSpell', 'blessEffect',
   'failedSpellKeys', 'spellLocks', 'wizardEffects', 'faithEffects', 'pendingFall', 'stats', 'gear',
-  'bonuses', 'spellsKnown', 'learnedScrollSpells', 'transformationEffects', 'lastPitAscent'];
+  'bonuses', 'spellsKnown', 'learnedScrollSpells', 'transformationEffects', 'spellEffects', 'lastPitAscent'];
 const positionFields = ['x', 'y', 'routeId', 'roomId'];
 const rawFields = ['dyingRounds', 'dead', 'slain', 'conditions', 'focusSpell', 'pendingSpell', 'failedSpellKeys', 'blessEffect',
-  'spellLocks', 'wizardEffects', 'faithEffects', 'pendingFall', 'stats', 'gear', 'bonuses', 'spellsKnown', 'learnedScrollSpells'];
+  'spellLocks', 'wizardEffects', 'faithEffects', 'pendingFall', 'stats', 'gear', 'bonuses', 'spellsKnown', 'learnedScrollSpells', 'spellEffects', 'speakWithDeadCastTimes'];
 const fault = (code, message) => { throw new LuckError(code, message); };
 
 // Explicit top-level spent values win over stale raw mirrors. Never OR stale tokens back into existence.

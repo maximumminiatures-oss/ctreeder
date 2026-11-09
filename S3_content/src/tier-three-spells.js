@@ -12,6 +12,7 @@ import { wakeCreature } from './conditions.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { applyFireToTreasure } from './fire-damage.js';
 import { igniteWebsAt, silenceBlocksAction } from './area-spells.js';
+import { circleBlocksHostileAction } from './magic-circle.js';
 
 export const TIER_THREE_SPELLS = new Set(['fireball', 'lightning bolt']);
 export const TIER_THREE_CHOICES = {
@@ -120,8 +121,8 @@ export function tierThreePresentation(state, caster) {
 function damageCreature(state, creature, amount, sourceId, damageType) {
   const before = Number(creature.hp);
   state.lastDamageSourceId = sourceId;
-  if ((state.characters || []).includes(creature)) setCharacterHp(creature, before - amount, { sourceId, damageSource: damageType });
-  else creature.hp = Math.max(0, before - elementalDamage(creature, amount, damageType).total);
+  if ((state.characters || []).includes(creature)) setCharacterHp(creature, before - amount, { sourceId, damageSource: damageType, areaEffect: true });
+  else creature.hp = Math.max(0, before - elementalDamage(creature, amount, { damageType, areaEffect: true }).total);
   if (Number(creature.hp) < before) wakeCreature(creature, state);
   return { id: creature.id, name: creature.name, type: (state.characters || []).includes(creature) ? 'character' : 'monster',
     damage: before - Number(creature.hp), defeated: Number(creature.hp) <= 0 };
@@ -136,7 +137,7 @@ export function applyTierThreeBlast(state, caster, spell, point, options = {}) {
   const rolls = Array.from({ length: settings.diceCount }, () => Math.floor(random() * settings.diceSides) + 1);
   const damage = rolls.reduce((sum, roll) => sum + roll, 0), hits = [], damagedTreasure = [], ignited = [], webIgnitions = [], webHits = [];
   for (const creature of [...(state.characters || []), ...(state.entities || []).filter(entity => entity.type === 'monster')]) {
-    if (alive(creature) && reaches(creature)) hits.push(damageCreature(state, creature, damage, caster.id, damageType));
+    if (alive(creature) && reaches(creature) && !circleBlocksHostileAction(state, caster, creature)) hits.push(damageCreature(state, creature, damage, caster.id, damageType));
   }
   if (spell === 'fireball') {
     for (const entity of state.entities || []) {

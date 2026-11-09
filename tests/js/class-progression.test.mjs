@@ -14,6 +14,18 @@ function hero(className = 'Fighter') {
 const sequence = (...values) => { let i=0; return () => values[Math.min(i++, values.length-1)]; };
 const earnLevel = (character, xp, random=()=>.5) => { awardExperience(character,xp); return beginLevelUp(character,{random}); };
 
+test('unfinished spells never appear in advancement choices or resolve through direct commands', () => {
+  const character = hero('Wizard'); character.level = 4;
+  const event = earnLevel(character, 40);
+  const task = event.tasks.find(task => task.type === 'spell');
+  const names = advancementOptions(character, event, task, { spells }).map(option => option.value);
+  assert.ok(names.includes('Protection From Energy'));
+  for (const name of ['Fabricate', 'Sending']) {
+    assert.ok(!names.includes(name));
+    assert.throws(() => resolveAdvancement(character, event.id, task.id, name, { spells }), /valid pending/);
+  }
+});
+
 test('XP waits for Level Up, then consumes current-level threshold and preserves overflow',()=>{
   const character=hero();assert.equal(awardExperience(character,12),true);
   assert.equal(character.level,1);assert.equal(character.maxHitPoints,6);assert.equal(canLevelUp(character),true);

@@ -4,13 +4,17 @@ import { petrifiedLegs, isRaving } from './arcane-effects.js';
 import { routeOf, routeStep } from './underpasses.js';
 import { canonicalWeaponSpelling, formatFieldName } from './ui-text.js';
 import { createCheckRollCard } from './roll-history.js';
+import { hasMobilityFlight } from './conditions.js';
+import { mobilityMovementSquares } from './tier-three-mobility.js';
 
 export function characterMovementBudget(character) {
   const value = Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
   const effects = character?.transformationEffects || [];
-  const levitating = effects.some(effect => effect.spell === 'levitate');
+  const levitating = effects.some(effect => effect.spell === 'levitate') || hasMobilityFlight(character);
   const goatLegs = effects.some(effect => effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('goat-legs'));
   if (isRaving(character) || character?.conditions?.paralyzed || character?.conditions?.sinkhole && !levitating) return 0;
+  const flyingMovement = mobilityMovementSquares(character);
+  if (flyingMovement !== null) return flyingMovement;
   return Math.max(0, Math.floor((Number.isFinite(value) ? value : 6) * (goatLegs ? 2 : 1) / 2 ** petrifiedLegs(character)));
 }
 
@@ -24,7 +28,7 @@ export function characterOccupant(state, x, y, exceptId, options = {}) {
 export function combatStepBlock(state, character, x, y) {
   const route = routeStep(state, character, { x, y })?.routeId ?? routeOf(state, character);
   const monster = (state.entities || []).find(entity => entity.type === 'monster' && !entity.defeated && routeOf(state, entity) === route && Number(entity.x) === x && Number(entity.y) === y);
-  const passesCreatures = character.transformationEffects?.some(effect => effect.spell === 'levitate' ||
+  const passesCreatures = hasMobilityFlight(character) || character.transformationEffects?.some(effect => effect.spell === 'levitate' ||
     effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('spider-legs'));
   if (monster && !passesCreatures) return `${monster.name || 'Monster'} blocks the way.`;
   const occupant = characterOccupant(state, x, y, character.id);

@@ -2,6 +2,7 @@ import { canMoveBetweenTiles, rollCheck } from './interactions.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { sameRoute, routeOf } from './underpasses.js';
 import { ancestryKey, ancestryCastingBonus, isRepresentedAncestryBonus } from './ancestry.js';
+import { isGaseousForm } from './conditions.js';
 
 export function canReceiveHealing(character) {
   return Boolean(character && !character.dead && !character.slain &&
@@ -9,7 +10,7 @@ export function canReceiveHealing(character) {
 }
 
 export function canTouchCharacter(state, caster, target) {
-  if (!caster || !target || !sameRoute(state, caster, target) || ![caster.x, caster.y, target.x, target.y].every(Number.isInteger)) return false;
+  if (!caster || !target || isGaseousForm(target) || !sameRoute(state, caster, target) || ![caster.x, caster.y, target.x, target.y].every(Number.isInteger)) return false;
   const dx = target.x - caster.x;
   const dy = target.y - caster.y;
   if (Math.max(Math.abs(dx), Math.abs(dy)) > 1) return false;

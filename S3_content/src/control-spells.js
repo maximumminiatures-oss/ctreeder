@@ -1,6 +1,7 @@
 import { abilityScoreModifier } from './characters.js';
 import { canTargetAtRange } from './targeting.js';
 import { isLivingCreature, putToSleep } from './conditions.js';
+import { circleBlocksHostileAction } from './magic-circle.js';
 
 export const portalHeld = door => Number(door?.holdPortal?.rounds) > 0;
 
@@ -46,7 +47,7 @@ export function releaseSleep(state, caster, point = null) {
     creature.id !== caster.id && !creature.dead && !creature.slain && !creature.defeated && Number(creature.hp) > 0 &&
     Number(creature.level ?? creature['**LV**'] ?? 1) <= pending.maxLevel && isLivingCreature(creature) &&
     creature.x >= area.x && creature.x < area.x + area.size && creature.y >= area.y && creature.y < area.y + area.size &&
-    canTargetAtRange(state, caster, creature, Infinity, { requireLight: false }));
+    canTargetAtRange(state, caster, creature, Infinity, { requireLight: false }) && !circleBlocksHostileAction(state, caster, creature));
   for (const target of targets) putToSleep(target, caster.id);
   caster.pendingSpell = null;
   return { targets, area, message: targets.length ? `${targets.map(target => target.name).join(', ')} fall asleep.` : 'Sleep finds no eligible living creatures.' };

@@ -7,6 +7,8 @@ import { applyFireToTreasure } from './fire-damage.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { igniteWebsAt } from './area-spells.js';
 import { routeOf } from './underpasses.js';
+import { elementalDamage } from './elemental-effects.js';
+import { circleBlocksHostileAction } from './magic-circle.js';
 
 const choices = {
   normal: { diceCount: 1, diceSides: 6, radius: 1 },
@@ -20,21 +22,22 @@ export function applyBurningHands(state, caster, { center = caster, diceCount = 
   const rolls = Array.from({ length: diceCount }, () => Math.floor(random() * diceSides) + 1);
   const damage = rolls.reduce((total, roll) => total + roll, 0);
   const hits = [], ignited = [], damagedTreasure = [];
-  const reaches = target => canTargetAtRange(state, center, target, radius, { requireLight: false });
+  const reaches = target => canTargetAtRange(state, center, target, radius, { requireLight: false, areaEffect: true });
   for (const character of state.characters || []) {
-    if (isFloatingDisc(character) || (!includeCaster && character.id === caster.id) || character.dead || character.slain || !reaches(character)) continue;
+    if (isFloatingDisc(character) || (!includeCaster && character.id === caster.id) || character.dead || character.slain || !reaches(character) || circleBlocksHostileAction(state, caster, character)) continue;
     const before = Number(character.hp);
-    setCharacterHp(character, before - damage, { sourceId: caster.id, damageSource: 'fire' });
+    setCharacterHp(character, before - damage, { sourceId: caster.id, damageSource: 'fire', areaEffect: true });
     hits.push({ id: character.id, name: character.name, type: 'character', damage: before - character.hp });
   }
   for (const entity of state.entities || []) {
     if (!reaches(entity)) continue;
     const treasureDamage = applyFireToTreasure(entity);
     if (treasureDamage) damagedTreasure.push(treasureDamage);
-    if (entity.type === 'monster' && !entity.defeated && !entity.leftPeacefully && Number(entity.hp) > 0) {
-      entity.hp = Math.max(0, Number(entity.hp) - damage);
-      if (damage > 0 && entity.conditions?.sleeping) { delete entity.conditions.sleeping; entity.conditions.prone = true; }
-      hits.push({ id: entity.id, name: entity.name, type: 'monster', damage, defeated: entity.hp <= 0 });
+    if (entity.type === 'monster' && !entity.defeated && !entity.leftPeacefully && Number(entity.hp) > 0 && !circleBlocksHostileAction(state, caster, entity)) {
+      const applied = elementalDamage(entity, damage, { damageType: 'fire', areaEffect: true }).total;
+      entity.hp = Math.max(0, Number(entity.hp) - applied);
+      if (applied > 0 && entity.conditions?.sleeping) { delete entity.conditions.sleeping; entity.conditions.prone = true; }
+      hits.push({ id: entity.id, name: entity.name, type: 'monster', damage: applied, defeated: entity.hp <= 0 });
     } else if (entity.type !== 'monster' && entity.type !== 'treasure' && entity.flammable === true && !entity.collected && !entity.burning) {
       entity.burning = true;
       ignited.push(entity.name || 'Flammable object');

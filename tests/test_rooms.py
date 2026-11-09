@@ -850,6 +850,56 @@ def test_disc_cannot_be_saved_in_personal_library_or_imported(clients):
     assert result.status_code == 400, result.json
 
 
+def test_animated_dead_ownership_always_tracks_caster_without_host_fallback(clients):
+    from rooms import reconcile_companion_ownership
+    host, guest, _ = clients
+    room = create(host, players_can_import=True)
+    joined = join(guest, room)
+    imported = command(guest, room, "import", character_json=character("Guest Wizard"))
+    caster_id = imported.json["owned_character_ids"][0]
+    with Session(engine) as db:
+        stored = db.get(GameRoom, room["id"])
+        state = deepcopy(stored.state_json)
+        state["characters"].append({**character("Bugbear Zombie", "undead"),
+                                    "summon": {"kind": "animate-dead", "casterId": caster_id, "remainingMs": 86400000}})
+        stored.state_json = state
+        ownership = dict(stored.ownership_json)
+        ownership["undead"] = ownership["host-char"]
+        stored.ownership_json = ownership
+        reconcile_companion_ownership(db, stored, ownership)
+        assert stored.ownership_json["undead"] == joined["current_player_id"]
+        db.add(stored)
+        db.commit()
+    view = guest.get(f"/api/rooms/{room['id']}").json
+    assert "undead" in view["owned_character_ids"]
+    assert command(host, room, "move", character_id="undead", dx=1, dy=0).status_code == 403
+    assert post(host, "/api/characters", {"name": "Zombie", "character_json": view["state_json"]["characters"][-1]}).status_code == 400
+
+
+def test_animated_dead_keeps_its_player_after_caster_is_removed(clients):
+    from rooms import reconcile_companion_ownership
+    host, guest, _ = clients
+    room = create(host, players_can_import=True)
+    joined = join(guest, room)
+    with Session(engine) as db:
+        stored = db.get(GameRoom, room["id"])
+        state = deepcopy(stored.state_json)
+        state["characters"].append({**character("Bugbear Skeleton", "undead"),
+                                    "summon": {"kind": "animate-dead", "casterId": "removed-caster", "remainingMs": 86400000}})
+        stored.state_json = state
+        previous = {**stored.ownership_json, "undead": joined["current_player_id"]}
+        stored.ownership_json = previous
+        reconcile_companion_ownership(db, stored, previous)
+        assert stored.ownership_json["undead"] == joined["current_player_id"]
+        # A second reconciliation no longer has a caster record to look up.
+        reconcile_companion_ownership(db, stored, dict(stored.ownership_json))
+        assert stored.ownership_json["undead"] == joined["current_player_id"]
+        db.add(stored)
+        db.commit()
+    assert "undead" in guest.get(f"/api/rooms/{room['id']}").json["owned_character_ids"]
+    assert command(host, room, "move", character_id="undead", dx=1, dy=0).status_code == 403
+
+
 def test_alarm_is_owned_and_allowed_while_rest_vote_is_pending(clients):
     host, guest, _ = clients
     room = create(host)

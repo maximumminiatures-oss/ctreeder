@@ -2,6 +2,9 @@ import { DEFAULT_LIGHT_RADIUS } from "./constants.js";
 import { isFloatingDisc } from './floating-disc.js';
 import { availableHands } from './arcane-effects.js';
 
+const isAnimatedZombie = character => character?.companion?.kind === 'animate-dead' &&
+  String(character.companion.animateDead?.form || '').toLowerCase() === 'zombie';
+
 export function normalizeWeaponSpacing(value) {
   return String(value || "").toLowerCase()
     .replace(/\b(long|short|great|cross|war)\s+(sword|bow|axe|club|hammer)\b/g, "$1$2");
@@ -26,6 +29,7 @@ export function isTwoHandedWeapon(item) {
 }
 
 export function equipItem(character, index, equipped) {
+  if (isAnimatedZombie(character)) return false;
   const gear = character.gear || [];
   const item = gear[index];
   const kind = handItemKind(item);
@@ -61,6 +65,10 @@ export function equipItem(character, index, equipped) {
 }
 
 export function ensureEquipment(character, canEquip = () => true) {
+  if (isAnimatedZombie(character)) {
+    for (const item of character.gear || []) item.equipped = false;
+    canEquip = () => false;
+  }
   if (isFloatingDisc(character)) {
     const allowed = canEquip;
     canEquip = item => handItemKind(item) === 'lantern' && allowed(item);
@@ -153,6 +161,7 @@ export function ensureArmorEquipment(character, {isArmor,canEquip,score}) {
 }
 
 export function equipArmor(character,index,equipped,isArmor) {
+  if (isAnimatedZombie(character)) return false;
   const item=character.gear?.[index];
   if(!item||!isArmor(item))return false;
   if(equipped)for(const other of character.gear)if(isArmor(other))other.equipped=false;
