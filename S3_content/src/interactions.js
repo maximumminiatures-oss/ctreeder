@@ -2,7 +2,7 @@ import { DOOR_STATES, ENTITY_TYPES, FEATURE_NAMES, TILE_TYPES } from "./constant
 import { getTile } from "./state-schema.js";
 import { canCrossReviewedGeometry } from "./reviewed-layouts.js";
 import { SeededRng } from "./rng.js";
-import { isTileVisible, recomputeVisibility, revealTrapAtPlayer } from "./visibility.js";
+import { isTileVisible, recomputeVisibility, revealTrapAtPlayer, hasLineOfSightFrom } from "./visibility.js";
 import { isFeatureCurrentlyVisible } from './monster-perception.js';
 import { isDarkvisionCharacter } from './darkvision.js';
 import { getCharacterCoinBagSlots, getCharacterGearFreeSlots, normalizeCharacterState, setActiveCharacter } from "./characters.js";
@@ -18,7 +18,7 @@ import { isRaving } from './arcane-effects.js';
 import { checkSinkholeFall } from './higher-mishaps.js';
 import { isPit, knownPitAt, openPit } from './pits.js';
 import { routeStep, routeOf, routeAt, sameRoute } from './underpasses.js';
-import { isTileIlluminated } from './light-geometry.js';
+import { getDoorTiles as doorLightTiles, isTileIlluminated } from './light-geometry.js';
 import { fixedObjectAt, webStepBlock } from './area-spells.js';
 import { transformationMovementRules } from './transformation-spells.js';
 import { mobilityPassesDoor } from './tier-three-mobility.js';
@@ -380,6 +380,7 @@ function setLockedDoorAction(state, door) {
   const dcs = ensureDoorLockDcs(door);
   state.lockedDoorAction = {
     doorId: door.id,
+    characterId: state.activeCharacterId || null,
     pickDc: dcs.pickDc,
     breakDc: dcs.breakDc
   };
@@ -409,22 +410,23 @@ export function revealSecretDoor(door, state = null, { roomId = null } = {}) {
   return true;
 }
 
-export function getPendingLockedDoorAction(state) {
-  const action = state?.lockedDoorAction;
-  if (!action?.doorId) {
-    return null;
-  }
-  const door = state.entities.find((entity) => entity.id === action.doorId && entity.subtype === "door");
-  if (!door || !isDoorLocked(state, door)) {
-    clearLockedDoorAction(state);
-    return null;
-  }
-  const dcs = ensureDoorLockDcs(door);
-  return {
-    doorId: door.id,
-    pickDc: dcs.pickDc,
-    breakDc: dcs.breakDc
-  };
+export function getPendingLockedDoorAction(state, actor = state?.player) {
+  if (!actor) return null;
+  const pending = state.lockedDoorAction;
+  const eligible = door => door.subtype === 'door' && isDoorLocked(state, door) && sameRoute(state, door, actor) &&
+    (!door.secret || door.secretFound || door.revealed) &&
+    Math.max(Math.abs(actor.x - door.x), Math.abs(actor.y - door.y)) <= 1 &&
+    hasLineOfSightFrom(state, actor.x, actor.y, door.x, door.y, { source: actor, target: door });
+  const doors = state.entities.filter(eligible);
+  const bumped = doors.find(door => door.id === pending?.doorId &&
+    (!pending.characterId || pending.characterId === (actor.id || state.activeCharacterId)));
+  const door = bumped || doors.find(door => {
+    if (isTileIlluminated(state, door.x, door.y, door)) return true;
+    if (!door.wallSide && !door.hallDirection) return false;
+    const room = doorLightTiles(door).room;
+    return isTileIlluminated(state, room.x, room.y, door);
+  });
+  return door ? { doorId: door.id, ...ensureDoorLockDcs(door) } : null;
 }
 
 function lockedDoorResult(state, door) {
@@ -433,8 +435,8 @@ function lockedDoorResult(state, door) {
     recomputeVisibility(state);
   }
   if (isMagicallyLocked(door)) {
-    clearLockedDoorAction(state);
-    return { moved: false, message: 'Magically locked.', darknessMessage: 'Magically locked.' };
+    return { moved: false, message: 'Magically locked.', darknessMessage: 'Magically locked.',
+      lockedDoor: setLockedDoorAction(state, door) };
   }
   return {
     moved: false,
@@ -1440,7 +1442,8 @@ function isSearchCandidate(entity, roomId) {
   if (entity.type === ENTITY_TYPES.TREASURE) {
     return entity.visible === false && !entity.collected;
   }
-  return false;
+  return entity.type === ENTITY_TYPES.FEATURE && entity.visible === false && !entity.revealed &&
+    Number.isFinite(entity.searchDc ?? entity.dc);
 }
 
 export function searchForTraps(state, modifier, options = {}) {
@@ -1539,7 +1542,7 @@ export function disarmTrap(state, trapId, modifier, options = {}) {
 export function attemptLockedDoor(state, method, modifier = 0, options = {}) {
   const requestedDoor = method === 'break' && options.doorId ? state.entities.find(entity => entity.id === options.doorId && entity.subtype === 'door') : null;
   const requestedDcs = requestedDoor ? ensureDoorLockDcs(requestedDoor) : null;
-  const action = requestedDoor ? { doorId: requestedDoor.id, pickDc: requestedDcs.pickDc, breakDc: requestedDcs.breakDc } : getPendingLockedDoorAction(state);
+  const action = requestedDoor ? { doorId: requestedDoor.id, pickDc: requestedDcs.pickDc, breakDc: requestedDcs.breakDc } : getPendingLockedDoorAction(state, options.actor);
   if (!action) {
     return {
       ...rollCheck(modifier, options),

@@ -388,7 +388,7 @@ export function createSaveMenus({ getState, getSession = () => null, isSharedRoo
       if (proposal.action === 'save_party') {
         await onPartyNameChanged(proposal.name || proposal.result?.name);
         status(`Saved ${proposal.name || proposal.result?.name || 'party'}.`);
-      } else if (proposal.action === 'descend') status(proposal.result?.message || `Descended to dungeon level ${proposal.result?.level}.`);
+      } else if (['descend', 'ascend'].includes(proposal.action)) status(proposal.result?.message || `${proposal.action === 'ascend' ? 'Ascended' : 'Descended'} to dungeon level ${proposal.result?.level}.`);
     }
     if (proposal.status !== 'pending') {
       if (consensus && !consensus.busy) consensus.close();
@@ -403,7 +403,7 @@ export function createSaveMenus({ getState, getSession = () => null, isSharedRoo
     if (consensus?.busy) return;
     if (consensusId !== proposal.id || !consensus?.active()) {
       consensus?.close();
-      const panel = dialog(proposal.action === 'save_party' ? 'Save Party Confirmation' : 'Descend Confirmation', () => {
+      const panel = dialog(proposal.action === 'save_party' ? 'Save Party Confirmation' : proposal.action === 'ascend' ? 'Ascend Confirmation' : 'Descend Confirmation', () => {
         dismissedVote = proposal.id;
         if (consensus === panel) { consensus = null; consensusId = null; consensusSignature = null; }
       });
@@ -414,7 +414,8 @@ export function createSaveMenus({ getState, getSession = () => null, isSharedRoo
     if (consensusSignature === signature) return;
     consensusSignature = signature;
     panel.body.replaceChildren(); panel.footer.replaceChildren(); panel.message('');
-    panel.body.append(element('p', proposal.action === 'save_party' ? `Save the current party as "${proposal.name}"?` : `Descend to dungeon level ${(state?.level || 1) + 1}?`));
+    panel.body.append(element('p', proposal.action === 'save_party' ? `Save the current party as "${proposal.name}"?` :
+      proposal.action === 'ascend' ? 'Ascend back to the last dungeon level?' : `Descend stairs to dungeon level ${(state?.level || 1) + 1}?`));
     const accepted = proposal.acceptedMemberIds || [];
     panel.body.append(element('p', `${accepted.length} of ${proposal.requiredMemberIds.length} players confirmed.`));
     const names = new Map((session.players || []).map(player => [player.id, player.display_name]));

@@ -7,6 +7,7 @@ function humanAmbitionText(bonus) {
   const origin = normalize(`${bonus?.sourceType || ''} ${bonus?.sourceCategory || ''} ${bonus?.sourceName || ''}`);
   const name = String(bonus?.name || ''), target = String(bonus?.bonusTo || '');
   if (!/ambition/.test(origin) && !(normalize(bonus?.sourceType) === 'ancestry' && /human|ambitio/i.test(`${bonus.sourceName || ''} ${name}`))) return '';
+  if (/^(?:priest|fighter|wizard|thief)$/i.test(target.trim())) return '';
   const statChanges = [...target.matchAll(/\b(STR|DEX|CON|INT|WIS|CHA)\s*:\s*([+-]?\d+)/gi)];
   if (statChanges.length) return statChanges.map(([, stat, amount]) => `${Number(amount) >= 0 ? '+' : ''}${Number(amount)} to ${STAT_NAMES[stat.toUpperCase()]}`).join(', ');
   if (/WeaponMastery/i.test(name) && target) return `${target} mastery`;
@@ -33,7 +34,8 @@ export function isRepresentedAncestryBonus(character, bonus) {
   const source = normalize(bonus.sourceType), name = normalize(`${bonus.name || ''} ${bonus.bonusName || ''}`);
   const fromAncestry = source === 'ancestry' || normalize(bonus.sourceName) === key;
   if (key === 'human') {
-    return Boolean(humanAmbitionText(bonus)) || (fromAncestry || source === 'ambition') && /\bambitious\b|\bambition\b|extra.*talent.*roll/.test(name);
+    return Boolean(humanAmbitionText(bonus)) || source === 'ambition' || /ambition/.test(normalize(bonus.sourceCategory)) ||
+      fromAncestry && (/\bambitious\b|\bambition\b|extra.*talent.*roll/.test(name) || /^(?:priest|fighter|wizard|thief)$/i.test(String(bonus.bonusTo || '').trim()));
   }
   const detail = `${bonus.name || ''} ${bonus.bonusName || ''} ${bonus.bonusTo || ''}`;
   if (/adv.*cast|learn.*spell|^Spell:/i.test(detail)) return false;
@@ -84,17 +86,24 @@ export function ancestryTalents(character) {
     goblin: "Keen Senses: you can't be surprised.",
     halfling: 'Stealthy: Once per day become invisible for 3 rounds.',
     'half orc': 'Mighty. +1 to attack and damage with melee weapons.',
-    human: 'Ambitious: one additional talent roll at 1st level.'
+    human: 'Ambitious: one additional talent roll at 1st level (choice not recorded).'
   };
   const source = key === 'half orc' ? 'Half-Orc' : key[0].toUpperCase() + key.slice(1);
   if (key === 'human') {
-    const choices = [...new Set(bonusesOf(character).map(humanAmbitionText).filter(Boolean))];
+    const statBonuses = bonusesOf(character).filter(bonus => humanAmbitionText(bonus) && /\b(?:STR|DEX|CON|INT|WIS|CHA)\s*:/i.test(bonus.bonusTo || ''));
+    const statTotals = new Map();
+    for (const bonus of statBonuses) for (const [, stat, amount] of String(bonus.bonusTo).matchAll(/\b(STR|DEX|CON|INT|WIS|CHA)\s*:\s*([+-]?\d+)/gi)) {
+      const key = stat.toUpperCase(); statTotals.set(key, (statTotals.get(key) || 0) + Number(amount));
+    }
+    const choices = [...new Set(bonusesOf(character).filter(bonus => !statBonuses.includes(bonus)).map(humanAmbitionText).filter(Boolean))];
+    if (statTotals.size) choices.unshift([...statTotals].map(([stat, amount]) => `${amount >= 0 ? '+' : ''}${amount} to ${STAT_NAMES[stat]}`).join(', '));
     const level = character.ambitionTalentLevel || character.raw?.ambitionTalentLevel;
     const description = level?.Rolled12ChosenTalentDesc || level?.talentRolledDesc;
-    if (!choices.length && description && !/\bor\b|choose/i.test(description)) choices.push(String(description).replace(/[.]$/, ''));
-    if (choices.length) return choices.map(text => ({ name: 'Ambitious', text: `Ambitious: ${text}.`, source }));
+    if (!choices.length && description && !/\bor\b|choose|^(?:priest|fighter|wizard|thief)$/i.test(description)) choices.push(String(description).replace(/[.]$/, ''));
+    if (choices.length) return choices.map(text => ({ name: 'Ambitious', text: `Ambitious: ${text}.`, source,
+      tooltip: 'Humans gain an extra talent at 1st level.' }));
   }
-  const tooltip = key === 'half orc' ? 'Mighty also applies to unarmed melee attacks, but not thrown attacks.' : key === 'halfling' ?
+  const tooltip = key === 'human' ? 'Humans gain an extra talent at 1st level.' : key === 'half orc' ? 'Mighty also applies to unarmed melee attacks, but not thrown attacks.' : key === 'halfling' ?
     'Activation is free in combat. Recharges after an eight-hour rest that grants benefits; attacking does not end this invisibility.' : '';
   return [{ name: TRAITS[key], text: descriptions[key], source, ...(tooltip ? { tooltip } : {}) }];
 }

@@ -157,6 +157,21 @@ test('Fireball Far12 aiming is circular and allows dark unexplored squares and c
   assert.equal(state.visibility.visibleNow.size, 0); assert.equal(state.visibility.exploredEver.size, 0);
 });
 
+test('Fireball preview bounds use validated defaults and Lightning keeps its non-art preview shape', () => {
+  const state = scene(), caster = cast(state);
+  delete caster.pendingSpell.radius;
+  const before = structuredClone(state);
+  const preview = resolveTierThreeSpell(state, caster, { x: 12, y: 10 }).preview;
+  assert.deepEqual(preview.rect, { x: 9, y: 7, width: 7, height: 7 });
+  assert.equal(preview.cells.length, 49);
+  assert.deepEqual(preview.artTransform, caster.pendingSpell.artTransform);
+  assert.deepEqual(state, before);
+  caster.pendingSpell = null;
+  cast(state, 'lightning bolt');
+  const lightning = resolveTierThreeSpell(state, caster, { x: 11, y: 10 }).preview;
+  assert.deepEqual(Object.keys(lightning).sort(), ['cells', 'routeId', 'spell']);
+});
+
 test('Lightning clicked one square away always extends the full twelve-square thin ray', () => {
   const state = scene(), caster = cast(state, 'lightning bolt');
   state.entities.push(monster('near', 11, 10), monster('far', 22, 10), monster('beyond', 23, 10), monster('side', 15, 11));

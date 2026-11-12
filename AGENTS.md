@@ -260,3 +260,37 @@ to use one of the six unrelated-thought patterns instead. This is dialogue, not
 a delay or cancellation of round-two bonuses or the once-per-casting Luck Token.
 Damage/distraction Focus checks do not generate extra thoughts. Keep the shared
 weights, dynamic plurals, and `detect-thoughts-dialogue` regression tests.
+
+November 9 party-system revisions: only future fresh ShadowDarklings imports
+roll native ShadowSpawner talents (including the human Ambitious extra roll).
+Use the canonical class schema and original rolled stats, not imported talent
+descriptions as mechanical rules. Existing saved/loaded characters must not be
+rerolled or mechanically migrated. Ambitious displays its actual result first
+with the human explanation in its hover; do not duplicate that result below.
+Spellcasting advantage is scoped to the exact chosen spell, never all spells.
+
+`monster-attacks.js` preserves attack counts; `monster-ai.js` owns Intelligence
+priorities and cover planning. A multiattack shares one movement budget and only
+repositions between attacks when no adjacent conscious target remains. Preserve
+blind remembered-square behavior, route separation, and stable-ID Luck capture.
+Monster HP, attacks and damage are read-only text, not disabled manual controls.
+
+`dungeon-descent.js` owns bidirectional floor travel. Inactive `dungeonFloors`
+snapshots contain exact board state and fog with run-length-encoded `tileRuns`,
+never recursive history or copies of the party. Root state holds the active
+floor and travelling party/timers. Revisited floors are restored, not regenerated;
+newly visited floors must have safe arrivals. Multiplayer travel requires group
+consensus and keeps each member's private fog in server-owned per-floor memories.
+Do not replace these with one shared explored map or clear floor history on save.
+Shopping is level-one-only; sanctuary rest remains valid at later start rooms.
+Arrival wandering checks run per room with at most forty living floor monsters.
+The two-hundred-feature cleanup removes oldest disposable remains, never doors,
+stairs, traps, treasure or dropped equipment. Keep floor-history, descent,
+connectivity and group-action runtime tests when changing these paths.
+New downstairs use the farthest viable room with safe space for the party beside
+the stair. Before imports, reserve sixteen arrivals; later generation knows the
+actual party size. Do not relocate a previously visited stair. Floor-local Focus
+target/area IDs must never bind to reused IDs on another floor. Keep carried
+party effects and creature-illusion Focus links intact without transporting fixed
+floor/pit illusions. Travel preparation and rendering failures must restore the
+previous state, clocks, rule tables, history and view rather than half-commit.

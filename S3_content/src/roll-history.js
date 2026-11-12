@@ -1,6 +1,12 @@
 const die = (value, sides, bold = false) => ({ text: String(value), bold, minimum: value === 1, maximum: value === sides });
 
-export function createCheckRollCard(check, { heading = null, actorId = null, actorName = null, type = null, tooltip = [], damage = null } = {}) {
+export function historyMonsterColor(monster) {
+  if (!monster) return '#be2d2d';
+  return monster.mimicDisguise && !monster.disguiseRevealed ? '#e0bc2f'
+    : monster.impersonatedCharacter?.colorValue || (monster.hostile || ['combat', 'hostile'].includes(monster.attitude) ? '#be2d2d' : '#df9696');
+}
+
+export function createCheckRollCard(check, { heading = null, actorId = null, actorName = null, type = null, tooltip = [], damage = null, ...presentation } = {}) {
   const values = Number.isFinite(check.secondaryRoll) ? [check.firstRoll, check.secondaryRoll] : [check.roll];
   const modifier = Number(check.modifier) || 0;
   return {
@@ -9,8 +15,56 @@ export function createCheckRollCard(check, { heading = null, actorId = null, act
       value: value + modifier, bold: value === check.roll,
       minimum: value === 1, maximum: value === 20, tooltip
     })),
-    damage
+    damage, ...presentation
   };
+}
+
+export function checkHistoryPresentation(check, action, presentation = {}) {
+  const card = { actionName: action.replace(/ cast$/i, ''), ...presentation };
+  if (['Search', 'Stealth'].includes(action)) card.type ||= action;
+  if (Number.isFinite(check?.dc) && !Number.isFinite(card.dc)) card.dc = check.dc;
+  if (typeof check?.succeeded === 'boolean' && card.succeeded == null) card.succeeded = check.succeeded;
+  if (action === 'Search' && !card.summary && Array.isArray(check?.found)) {
+    card.resultText = check.darknessMessage || (check.found.length
+      ? `Found: ${check.found.map(entity => entity.subtype === 'door' && entity.secret ? 'secret door' : entity.name || entity.type).join(', ')}.`
+      : 'Nothing found.');
+  }
+  if (card.succeeded == null && Number.isFinite(card.dc) && Number.isFinite(check?.total)) {
+    card.succeeded = card.type === 'Spellcasting'
+      ? check.roll !== 1 && (check.roll === 20 || check.total >= card.dc)
+      : check.total >= card.dc;
+  }
+  if (typeof card.succeeded === 'boolean') card.outcome = card.succeeded ? 'Success' : 'Failure';
+  return card;
+}
+
+export function reactionHistorySegments({ actor, monster, result, talk = false, understood = false }) {
+  const parts = rollTextSegments(result.message);
+  const summary = talk && actor
+    ? understood ? `${actor.name} talks to ${monster.name}. ${monster.name} feels ${result.attitude}.`
+      : `${actor.name} talks to ${monster.name}, but ${monster.name} doesn't understand.`
+    : `${monster.name} feels ${result.attitude}.`;
+  parts[0].rollCard = {
+    heading: 'CHA', actorId: actor?.id || monster.id, actorName: actor?.name || monster.name,
+    type: 'CHA', actionName: 'CHA', results: [{ value: result.total, bold: true,
+      minimum: result.rolls.every(value => value === 1), maximum: result.rolls.every(value => value === 6),
+      tooltip: parts.map(part => ({ ...part })) }], damage: null, summary
+  };
+  return parts;
+}
+
+export function burningHandsHistorySegments(caster, outcome, diceSides = 6) {
+  const parts = damageRollSegments('Burning Hands', {
+    expression: `${outcome.rolls.length}d${diceSides}`, total: outcome.damage,
+    terms: outcome.rolls.map(value => ({ type: 'die', value, sign: 1,
+      isMinimum: value === 1, isMaximum: value === diceSides }))
+  });
+  Object.assign(parts[0].rollCard, {
+    actorId: caster.id, actorName: caster.name, type: 'Spell Release', actionName: 'Burning Hands',
+    targets: outcome.hits.map(hit => ({ id: hit.id, name: hit.name, damage: hit.damage, dead: Boolean(hit.defeated || hit.dead || hit.slain) }))
+  });
+  if (outcome.message) parts[0].rollCard.damage.tooltip.push({ text: '\n' }, ...rollTextSegments(outcome.message));
+  return parts;
 }
 
 export function checkDiceSegments(result) {

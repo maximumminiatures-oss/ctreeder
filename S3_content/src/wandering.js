@@ -3,6 +3,8 @@ import { getTile, tileKey } from "./state-schema.js";
 import { SeededRng } from "./rng.js";
 import { isUndeadMonster } from "./crypts.js";
 import { canMoveBetweenTiles } from './interactions.js';
+import { isSafeDungeonArrival } from './generator.js';
+import { MAX_FLOOR_MONSTERS, livingFloorMonsters, trimDisposableRemains } from './floor-limits.js';
 
 export const DEFAULT_WANDERING_NUMERATOR = 1;
 export const DEFAULT_WANDERING_DENOMINATOR = 6;
@@ -121,6 +123,8 @@ export function wanderingCheckDenominator(state,origin=state.player) {
 }
 
 export function maybeSpawnWanderingMonster(state, monsterTable = [], options = {}) {
+  trimDisposableRemains(state);
+  if (livingFloorMonsters(state).length >= MAX_FLOOR_MONSTERS) return { spawned: false, message: '' };
   if ((!options.forceEncounter && !wanderingEnabled(state)) || (!state.player.torchLit && !options.ignoreDarkness)) {
     return { spawned: false, message: "" };
   }
@@ -165,4 +169,29 @@ export function maybeSpawnWanderingMonster(state, monsterTable = [], options = {
     entity,
     message: `Wandering monster appears at the edge of torchlight: ${entity.name}.`
   };
+}
+
+export function checkFloorArrivalEncounters(state, monsterTable = []) {
+  trimDisposableRemains(state);
+  const results = [];
+  if (!wanderingEnabled(state)) return results;
+  const chance = state.wanderingMonsters;
+  const rng = new SeededRng((Number(state.seed) + (Number(state.floorTransitions) || 0) * 104729) >>> 0);
+  for (const room of state.rooms || []) {
+    if (livingFloorMonsters(state).length >= MAX_FLOOR_MONSTERS) break;
+    const denominator = wanderingCheckDenominator(state, { roomId: room.id });
+    if (rng.nextInt(1, denominator) > chance.numerator) continue;
+    const eligible = room.crypt ? monsterTable.filter(isUndeadMonster) : monsterTable;
+    if (!eligible.length) continue;
+    const cells = state.tiles.filter(tile => tile.roomId === room.id &&
+      !state.characters?.some(character => character.x === tile.x && character.y === tile.y && !character.routeId) &&
+      isSafeDungeonArrival(state, { ...tile, routeId: '' }));
+    const tile = rng.pick(cells);
+    if (!tile) continue;
+    const entity = { id: `arrival-monster-${state.floorTransitions}-${++chance.spawnedCount}`,
+      type: ENTITY_TYPES.MONSTER, subtype: 'wandering-foe', x: tile.x, y: tile.y,
+      routeId: '', roomId: room.id, visible: true, defeated: false, wandering: true, ...monsterDetails(rng, eligible) };
+    state.entities.push(entity); results.push(entity);
+  }
+  return results;
 }

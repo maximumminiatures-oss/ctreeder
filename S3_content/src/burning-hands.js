@@ -9,6 +9,7 @@ import { igniteWebsAt } from './area-spells.js';
 import { routeOf } from './underpasses.js';
 import { elementalDamage } from './elemental-effects.js';
 import { circleBlocksHostileAction } from './magic-circle.js';
+import { createSpellArtTransform } from './spell-art-transform.js';
 
 const choices = {
   normal: { diceCount: 1, diceSides: 6, radius: 1 },
@@ -95,7 +96,8 @@ export function castBurningHands(state, caster, options = {}) {
     return { check, message, succeeded: false, mishaps };
   }
   const critical = check.roll === 20;
-  caster.pendingSpell = { spell: 'burning hands', phase: critical ? 'critical' : 'targeting', ...choices.normal };
+  caster.pendingSpell = { spell: 'burning hands', phase: critical ? 'critical' : 'targeting', ...choices.normal,
+    artTransform: createSpellArtTransform(options.artRandom) };
   return { check, succeeded: true, critical, message: message + (critical ? ' Choose a critical effect.' : ' Burning Hands is ready. Release the flames when positioned.') };
 }
 

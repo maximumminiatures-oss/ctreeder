@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
 import { abilityScoreModifier } from '../../S3_content/src/characters.js';
 import { attackRollSegments } from '../../S3_content/src/combat-rules.js';
-import { rollTextSegments } from '../../S3_content/src/roll-history.js';
+import { rollTextSegments, historyMonsterColor } from '../../S3_content/src/roll-history.js';
 
 const source = await readFile(new URL('../../S3_content/src/main.js', import.meta.url), 'utf8');
 const armorContext = vm.createContext({
@@ -69,19 +69,19 @@ test('roll cards render actor stripes, original-order totals, ties, damage, and 
       state: { characters: [{ id: 'a', name: 'Shrigark' }] },
       diceHistory: [{ label: 'Attack', segments }, { label: 'Dexterity', segments: tie }, { label: 'Legacy', detail: 'Old saved result.' }],
       ui: { diceHistory: dom.window.document.querySelector('#history') },
-      canReadFeedback: () => true, getCharacterColorValue: () => '#a02080'
+      canReadFeedback: () => true, getCharacterColorValue: () => '#a02080', historyMonsterColor
     });
     vm.runInContext(source.slice(source.indexOf("let diceHistoryRenderKey = ''"), source.indexOf('function characterSheetInteractionKey(')), context);
     context.renderDiceHistory();
     const list = dom.window.document.querySelector('#history'), cards = list.children;
     assert.equal(list.hidden, false); assert.equal(cards.length, 3);
     assert.equal(cards[0].style.getPropertyValue('--roll-color'), '#a02080');
-    assert.equal(cards[0].querySelector('h3').textContent, 'Dagger');
-    assert.equal(cards[0].querySelector('.roll-card-actor').textContent, 'Shrigark');
-    assert.equal(cards[0].querySelector('.roll-card-result').textContent, 'Attack: 4 | 23');
+    assert.equal(cards[0].querySelector('h3').textContent, 'Shrigark');
+    assert.equal(cards[0].querySelector('.roll-card-actor'), null);
+    assert.equal(cards[0].querySelector('.roll-card-result').textContent, 'Attack: Dagger: 4 | 23 vs. the stingbat, critical! 4 damage to the stingbat.');
     assert.equal(cards[0].querySelector('.die-minimum').textContent, '4');
     assert.equal(cards[0].querySelector('.die-maximum').textContent, '23');
-    assert.equal(cards[0].querySelectorAll('.roll-card-result')[1].textContent, 'Damage: 4');
+    assert.equal(cards[0].querySelectorAll('.roll-card-result strong')[1].textContent, '4');
     assert.equal(cards[1].querySelectorAll('.roll-card-result strong').length, 2);
     assert.equal(cards[2].querySelector('.roll-card-detail').textContent, 'Old saved result.');
     assert.equal(dom.window.document.querySelector('script'), null);

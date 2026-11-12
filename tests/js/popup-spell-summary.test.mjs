@@ -3,19 +3,21 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
-import { beginLevelUp, resolveAdvancement } from '../../S3_content/src/class-progression.js';
+import { beginLevelUp, resolveAdvancement, initializeImportChoices, GRIT_DESCRIPTIONS } from '../../S3_content/src/class-progression.js';
 import { normalizeCharacterState } from '../../S3_content/src/characters.js';
 import { fieldLore } from '../../S3_content/src/sheet-field-lore.js';
 import { sheetLore } from '../../S3_content/src/sheet-lore.js';
 import { formatFieldName } from '../../S3_content/src/ui-text.js';
 import { ancestryTalents, isRepresentedAncestryBonus } from '../../S3_content/src/ancestry.js';
+import { selectedSpellCastingAdvantage } from '../../S3_content/src/wizard-mishaps.js';
 
 const source = fs.readFileSync(new URL('../../S3_content/src/main.js', import.meta.url), 'utf8');
 const spells = [1, 2, 3, 4, 5].flatMap(tier => JSON.parse(fs.readFileSync(new URL(`../../S3_content/spells/tier-${tier}.json`, import.meta.url))));
 
 function sheet() {
   const dom = new JSDOM(), opened = [];
-  const context = vm.createContext({ document: dom.window.document, Node: dom.window.Node, fieldLore, sheetLore, formatFieldName, ancestryTalents, isRepresentedAncestryBonus,
+  const context = vm.createContext({ document: dom.window.document, Node: dom.window.Node, fieldLore, sheetLore, formatFieldName, ancestryTalents, isRepresentedAncestryBonus, selectedSpellCastingAdvantage, GRIT_DESCRIPTIONS,
+    isSpellCheckText: text => /priest.*1d20/i.test(text),
     findSpellRecord: name => spells.find(spell => spell.name.toLowerCase() === name.toLowerCase()),
     getSpellKey: name => String(typeof name === 'string' ? name : name.name).toLowerCase(),
     isCharacterSpellFailed: (character, name) => character?.failedSpells?.includes(name), ensureSpellLibraryLoaded: async () => {},
@@ -24,7 +26,7 @@ function sheet() {
   // Exercise the private production functions without adding test exports or booting the game.
   for (const [name, next] of [['buildTalentSpellLines', 'getCharacterGearSlots'], ['createSpellButton', 'createSpellSummaryLine'],
     ['createSpellSummaryLine', 'createSdField'], ['createSdField', 'buildSheetLines'], ['buildSheetLines', 'createSdPanel'],
-    ['updateTruncatedSheetTitles', 'reorderCharacterGear'], ['createAncestryTalentRows', 'renderCharacterDetail']]) {
+    ['updateTruncatedSheetTitles', 'reorderCharacterGear'], ['talentHoverText', 'createAncestryTalentRows'], ['createAncestryTalentRows', 'renderCharacterDetail']]) {
     const start = source.indexOf(`function ${name}(`), end = source.indexOf(`\nfunction ${next}(`, start);
     assert.ok(start >= 0 && end > start, `production function ${name} is available`);
     vm.runInContext(source.slice(start, end), context);
@@ -171,5 +173,36 @@ test('inherited spell advantage remains mechanical even when its display is fold
       bonusName: 'AdvOnCastOneSpell', bonusTo: 'Sleep' }], levels: [] };
     assert.equal(context.characterHasSpellCastingAdvantage(character, 'Sleep'), true);
     assert.equal(context.characterHasSpellCastingAdvantage(character, 'Cure Wounds'), false);
+  } finally { dom.window.close(); }
+});
+
+test('talent hovers use the approved mechanics and source wording', () => {
+  const { dom, context } = sheet();
+  try {
+    const fighter = { className: 'Fighter', level: 1 };
+    assert.equal(context.talentHoverText(fighter, 'Armor mastery: +1 AC with Light'), 'Fighter Level 1: +1 to the chosen armor type.');
+    assert.equal(context.talentHoverText(fighter, 'Grit: Strength'), 'Fighter 1: Gain advantage on physical feats of strength.');
+    assert.equal(context.talentHoverText(fighter, 'Longsword mastery'), '+1 to hit and +1 to damage with any longsword.');
+    assert.equal(context.talentHoverText({ className: 'Priest' }, 'Priest spell, 1d20+[wis mod] DC = 10 + Tier.'), 'Priest 1');
+    const row = context.createAncestryTalentRows({ ancestry: 'Human', bonuses: [] })[0];
+    assert.equal(row.title, 'Humans gain an extra talent at 1st level.');
+    const spell = context.createSpellButton('Shield Of Faith');
+    assert.equal(spell.textContent, 'Shield of Faith');
+  } finally { dom.window.close(); }
+});
+
+test('fresh human Ambitious outcome is first and resolved priest talents have no duplicate generic rows', () => {
+  const { dom, context } = sheet();
+  try {
+    const character = { ancestry: 'Human', className: 'Priest', level: 1, stats: { STR: 15, DEX: 12 }, hp: 4, maxHitPoints: 4,
+      levels: [{ level: 1, talentRolledName: 'PriestSpellcasting', talentRolledDesc: '+1 to priest spellcasting checks' }],
+      ambitionTalentLevel: { level: 1, talentRolledName: 'Plus1ToHit', talentRolledDesc: '+1 melee or ranged attacks' }, bonuses: [] };
+    initializeImportChoices(character, { random: (() => { const values = [.5,.5,.2,.2]; let index = 0; return () => values[index++] ?? .2; })() });
+    const ancestry = context.createAncestryTalentRows(character);
+    assert.equal(ancestry[0].textContent, 'Ambitious: +1 to melee attacks.');
+    const lines = context.buildTalentSpellLines(character).filter(line => /^Priest 1:/i.test(line));
+    assert.deepEqual(Array.from(lines), ['Priest 1: +1 to priest spellcasting checks']);
+    const before = JSON.stringify(character); context.buildTalentSpellLines(character); context.createAncestryTalentRows(character);
+    assert.equal(JSON.stringify(character), before, 'presentation must not mutate loaded mechanics');
   } finally { dom.window.close(); }
 });

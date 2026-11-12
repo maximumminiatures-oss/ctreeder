@@ -27,9 +27,14 @@ def validate_json(value, *, max_bytes=5 * 1024 * 1024):
         elif isinstance(item, str):
             if len(item) > 16384:
                 raise ValueError("A submitted text field is too long.")
-            for dice_count in re.findall(r"(?<!\w)(\d+)d\d+(?=$|[^\w]|x\d)", item, flags=re.I):
-                if int(dice_count) > 100:
-                    raise ValueError("Dice expressions may contain at most 100 dice.")
+            # Generated IDs can contain digit-d-digit UUID segments, not dice.
+            uuid_identifier = re.fullmatch(
+                r"(?:[A-Za-z][A-Za-z0-9_-]*-)?[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:-\d+)?",
+                item, flags=re.I)
+            if not uuid_identifier:
+                for dice_count in re.findall(r"(?<!\w)(\d+)d\d+(?=$|[^\w]|x\d)", item, flags=re.I):
+                    if int(dice_count) > 100:
+                        raise ValueError("Dice expressions may contain at most 100 dice.")
         elif isinstance(item, (int, float)) and not isinstance(item, bool):
             if abs(item) > 2**53 - 1 or not math.isfinite(item):
                 raise ValueError("A submitted number is outside the supported range.")
@@ -42,6 +47,20 @@ def validate_json(value, *, max_bytes=5 * 1024 * 1024):
 
 def validate_state(value, *, require_map=False):
     validate_json(value)
+    _validate_state_fields(value, require_map=require_map)
+    floors = value.get("dungeonFloors", {})
+    if not isinstance(floors, dict) or len(floors) > 10:
+        raise ValueError("Invalid dungeon floor history.")
+    for level, floor in floors.items():
+        if not re.fullmatch(r"(?:[1-9]|10)", level) or not isinstance(floor, dict):
+            raise ValueError("Invalid dungeon floor history.")
+        if "dungeonFloors" in floor or floor.get("characters") or floor.get("level") != int(level):
+            raise ValueError("Invalid dungeon floor snapshot.")
+        _validate_state_fields(floor, require_map=True, compact=True)
+    return value
+
+
+def _validate_state_fields(value, *, require_map=False, compact=False):
     if require_map and ("seed" not in value or "level" not in value):
         raise ValueError("A dungeon seed and level are required.")
     if "seed" in value and (type(value["seed"]) is not int or abs(value["seed"]) > 2**32 - 1):
@@ -74,11 +93,26 @@ def validate_state(value, *, require_map=False):
         width, height = map_data.get("width"), map_data.get("height")
         if any(type(size) is not int or not 1 <= size <= 256 for size in (width, height)):
             raise ValueError("Invalid dungeon dimensions.")
-        tiles = value.get("tiles")
-        if not isinstance(tiles, list) or len(tiles) != width * height:
-            raise ValueError("Dungeon tiles do not match its dimensions.")
-        if any(not isinstance(tile, dict) for tile in tiles):
-            raise ValueError("Each tile must be an object.")
+        if compact and "tileRuns" in value:
+            runs = value["tileRuns"]
+            if "tiles" in value or not isinstance(runs, list) or not 1 <= len(runs) <= width * height:
+                raise ValueError("Invalid dungeon floor tile runs.")
+            count = 0
+            for run in runs:
+                if (not isinstance(run, list) or len(run) != 2 or type(run[0]) is not int or
+                        not 1 <= run[0] <= width * height or not isinstance(run[1], dict)):
+                    raise ValueError("Invalid dungeon floor tile runs.")
+                count += run[0]
+                if count > width * height:
+                    raise ValueError("Dungeon floor tile runs exceed its dimensions.")
+            if count != width * height:
+                raise ValueError("Dungeon floor tile runs do not match its dimensions.")
+        else:
+            tiles = value.get("tiles")
+            if not isinstance(tiles, list) or len(tiles) != width * height:
+                raise ValueError("Dungeon tiles do not match its dimensions.")
+            if any(not isinstance(tile, dict) for tile in tiles):
+                raise ValueError("Each tile must be an object.")
         validate_underpasses(value.get("underpasses", []), width, height, value.get("entities", []))
     return value
 

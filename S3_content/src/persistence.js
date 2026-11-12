@@ -184,6 +184,7 @@ export function serializeDungeonState(state) {
       exploredEver: Array.from(state.visibility?.exploredEver || []),
       exploredLightPolygons: normalizeExploredLightPolygons(state.visibility?.exploredLightPolygons),
       visitedRoomIds: Array.from(state.visibility?.visitedRoomIds || []),
+      exploredInnerWallInteriors: Array.from(state.visibility?.exploredInnerWallInteriors || []),
       closedDoorExploredSides: serializeDoorSideMap(state.visibility?.closedDoorExploredSides)
     }
   });
@@ -210,6 +211,7 @@ export function hydrateDungeonState(raw) {
   const routeDarkvisionExplored = Object.fromEntries(Object.entries(raw.visibility?.routeDarkvisionExplored || {})
     .map(([id, cells]) => [id, new Set([...asSet(cells)].filter(key => typeof key === 'string' && /^\d+,\d+$/.test(key)))]));
   const visitedRoomIds = asSet(raw.visibility?.visitedRoomIds);
+  const exploredInnerWallInteriors = asSet(raw.visibility?.exploredInnerWallInteriors);
   const exploredLightPolygons = normalizeExploredLightPolygons(raw.visibility?.exploredLightPolygons);
   const lightGeometryVersion = Number.isSafeInteger(raw.visibility?.lightGeometryVersion)
     ? raw.visibility.lightGeometryVersion
@@ -226,6 +228,7 @@ export function hydrateDungeonState(raw) {
       exploredEver: Array.from(exploredEver),
       exploredLightPolygons,
       visitedRoomIds: Array.from(visitedRoomIds),
+      exploredInnerWallInteriors: Array.from(exploredInnerWallInteriors),
       closedDoorExploredSides: serializeDoorSideMap(closedDoorExploredSides)
     }
   });
@@ -255,6 +258,7 @@ export function hydrateDungeonState(raw) {
     exploredEver,
     exploredLightPolygons,
     visitedRoomIds,
+    exploredInnerWallInteriors,
     closedDoorVisibleSides: new Map(),
     closedDoorExploredSides
   };

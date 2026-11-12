@@ -104,7 +104,7 @@ test('one tag is standard, initial location is fixed, and a small room does not 
   const { state, caster } = scene();
   castMagicCircle(state, caster, { checkRoll: check(11) });
   const beforePresentation = structuredClone(state);
-  assert.deepEqual(magicCirclePresentation(state, caster).preview, { ...magicCircleBounds(at(8, 8)), spell: MAGIC_CIRCLE });
+  assert.deepEqual(magicCirclePresentation(state, caster).preview, { ...magicCircleBounds(at(8, 8)), spell: MAGIC_CIRCLE, artTransform: caster.pendingSpell.artTransform });
   assert.deepEqual(state, beforePresentation);
   caster.x = 15; caster.y = 15;
   const { zone } = resolveMagicCircle(state, caster, { option: 'undead', x: 15, y: 15 });

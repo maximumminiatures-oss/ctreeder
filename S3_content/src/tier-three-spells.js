@@ -13,6 +13,7 @@ import { isFloatingDisc } from './floating-disc.js';
 import { applyFireToTreasure } from './fire-damage.js';
 import { igniteWebsAt, silenceBlocksAction } from './area-spells.js';
 import { circleBlocksHostileAction } from './magic-circle.js';
+import { createSpellArtTransform } from './spell-art-transform.js';
 
 export const TIER_THREE_SPELLS = new Set(['fireball', 'lightning bolt']);
 export const TIER_THREE_CHOICES = {
@@ -52,7 +53,8 @@ export function castTierThreeSpell(state, caster, spell, options = {}) {
     return result;
   }
   caster.pendingSpell = { spell, tier: 3, phase: result.critical ? 'critical' : 'placement',
-    castingTotal: check.total, ...defaults[spell] };
+    castingTotal: check.total, ...defaults[spell],
+    ...(spell === 'fireball' ? { artTransform: createSpellArtTransform(options.artRandom) } : {}) };
   return { ...result, pendingSpell: caster.pendingSpell,
     message: `${result.message} ${result.critical ? 'Choose a critical effect.' : placementMessage(spell)}` };
 }
@@ -184,7 +186,10 @@ export function resolveTierThreeSpell(state, caster, selection = {}, options = {
   if (selection.choice != null) throw new Error('Only an initial critical cast can choose a critical effect.');
   if (!['targeting', 'placement'].includes(pending.phase)) throw new Error('That spell is not awaiting placement.');
   const settings = settingsFor(pending.spell, pending), cells = spellCells(state, caster, pending.spell, selection, settings);
-  if (selection.confirmed !== true) return { preview: { spell: pending.spell, cells, routeId: routeOf(state, caster) },
+  if (selection.confirmed !== true) return { preview: { spell: pending.spell, cells, routeId: routeOf(state, caster),
+    ...(pending.spell === 'fireball' ? { artTransform: pending.artTransform,
+      rect: { x: selection.x - settings.radius, y: selection.y - settings.radius,
+        width: settings.radius * 2 + 1, height: settings.radius * 2 + 1 } } : {}) },
     cells, requiresConfirmation: true, message: 'Confirm this placement?' };
   // Numeric overrides are reserved for the direct mishap API, not ordinary resolution options.
   const result = applyTierThreeBlast(state, caster, pending.spell, selection, { ...options, ...settings });

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
+import { initializeImportChoices } from '../../S3_content/src/class-progression.js';
 
 const root = new URL('../../S3_content/', import.meta.url);
 const dom = new JSDOM(await readFile(new URL('index.html', root), 'utf8'), { url: 'http://localhost/site/' });
@@ -44,8 +45,9 @@ async function attack(input, { empty = false, beforeAttack } = {}) {
   assert.deepEqual(result.state_json.characters[0].attacks, first, 'normalizing must not accumulate ancestry or imported attack bonuses');
   if (beforeAttack) beforeAttack(result.state_json.characters[0]);
   const foe = result.state_json.entities.find(entity => entity.id === 'foe');
+  const attackIndex = result.state_json.characters[0].attacks.findIndex(text => !/^SPELLS:/i.test(text));
   result = await fixedRandom(() => executeGameCommand(result.state_json, { type: empty ? 'attack_empty' : 'attack',
-    character_id: 'hero', monster_id: empty ? undefined : 'foe', x: foe.x, y: foe.y, attack_index: 0 }));
+    character_id: 'hero', monster_id: empty ? undefined : 'foe', x: foe.x, y: foe.y, attack_index: Math.max(0, attackIndex) }));
   const entry = result.state_json.rollHistory.find(entry => entry.type === 'Attack' || /attacks|backstabs/.test(entry.detail || '')) || result.state_json.rollHistory[0];
   assert.ok(Array.isArray(entry?.segments), `Expected attack roll history: ${result.message}`);
   const toHit = Number(entry.segments.find(part => part.bold && Array.isArray(part.tooltip))?.text);
@@ -110,4 +112,18 @@ test('Elf casting Farsight stacks with class casting once across repeated normal
   result = await fixedRandom(() => executeGameCommand(result.state_json, { type: 'spell', character_id: 'hero', spell_name: 'Mage Armor' }));
   assert.match(result.state_json.rollHistory[0].detail, /15 vs DC 11/);
   assert.equal(result.state_json.characters[0].armorClass, 14);
+});
+
+test('future human priest Ambitious attack talent enters actual melee/ranged arithmetic once', async () => {
+  for (const ranged of [false, true]) {
+    const input = scene({ ancestry: 'Human', weapon: ranged ? 'Crossbow' : 'Longsword', distance: ranged ? 4 : 1 });
+    const priest = input.characters[0]; priest.className = 'Priest';
+    Object.assign(priest.stats, { STR: ranged ? 12 : 15, DEX: ranged ? 15 : 12 });
+    priest.ambitionTalentLevel = { level: 1, talentRolledName: 'Plus1ToHit', talentRolledDesc: '+1 to melee or ranged attacks' };
+    initializeImportChoices(priest, { random: (() => { const values = [.5,.5,.2,.2]; let index = 0; return () => values[index++] ?? .2; })() });
+    const outcome = await attack(input);
+    assert.equal(outcome.toHit, 14, '11 roll +2 ability +1 imported Ambitious talent');
+    assert.equal(outcome.result.state_json.characters[0].ancestry, 'Human');
+    assert.equal(outcome.result.state_json.characters[0].maxHitPoints, 50);
+  }
 });

@@ -43,11 +43,15 @@ const resolve = (result, values) => command(result.state_json, { type: 'resolve_
 test('authoritative Fireball remains ready through movement and resolves only once after confirmation', async () => {
   let result = await cast(scene(), 'Fireball');
   assert.equal(result.state_json.characters[0].pendingSpell.spell, 'fireball');
+  const artTransform = structuredClone(result.state_json.characters[0].pendingSpell.artTransform);
+  assert.ok([0, 90, 180, 270].includes(artTransform.rotation));
   result = await command(result.state_json, { type: 'move', dx: 1, dy: 0 });
   assert.equal(result.state_json.characters[0].x, 3);
+  assert.deepEqual(result.state_json.characters[0].pendingSpell.artTransform, artTransform);
   result = await resolve(result, { x: 5, y: 9, confirmed: false });
   assert.equal(result.state_json.characters[0].hp, 100);
   assert.ok(result.state_json.characters[0].pendingSpell);
+  assert.deepEqual(result.state_json.characters[0].pendingSpell.artTransform, artTransform);
   result = await resolve(result, { x: 5, y: 9, confirmed: true });
   assert.equal(result.state_json.characters[0].hp, 84);
   assert.equal(result.state_json.characters[0].pendingSpell, null);

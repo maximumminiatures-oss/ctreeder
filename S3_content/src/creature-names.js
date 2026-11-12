@@ -19,6 +19,34 @@ export function indefiniteArticle(name) {
   return /^[aeiou]/.test(type) ? 'an' : 'a';
 }
 
+// Shadowdark Character Names, p. 38.
+const CHARACTER_NAMES = {
+  'Dwarf': 'Hilde Torbin Marga Bruno Karina Naugrim Brenna Darvin Elga Alric Isolde Gendry Bruga Junnor Vidrid Torson Brielle Ulfgar Sarna Grimm'.split(' '),
+  'Elf': 'Eliara Ryarn Sariel Tirolas Galira Varos Daeniel Axidor Hiralia Cyrwin Lothiel Zaphiel Nayra Ithior Amriel Elyon Jirwyn Natinel Fiora Ruhiel'.split(' '),
+  'Goblin': 'Iggs Tark Nix Lenk Roke Fitz Tila Riggs Prim Zeb Finn Borg Yark Deeg Nibs Brak Fink Rizzo Squib Grix'.split(' '),
+  'Halfling': 'Willow Benny Annie Tucker Marie Hobb Cora Gordie Rose Ardo Alma Norbert Jennie Barvin Tilly Pike Lydia Marlow Astrid Jasper'.split(' '),
+  'Half-Orc': 'Vara Gralk Ranna Korv Zasha Hrogar Klara Tragan Brolga Drago Yelena Krull Ulara Tulk Shiraal Wulf Ivara Hirok Aja Zoraan'.split(' '),
+  'Human': 'Zali Bram Clara Nattias Rina Denton Mirena Aran Morgan Giralt Tamra Oscar Ishana Rogar Jasmin Tarin Yuri Malchor Lienna Godfrey'.split(' '),
+};
+
+function companionNameAncestry(monster, ancestry) {
+  const type = creatureTypeName(monster.name);
+  if (/\b(?:goblin|hobgoblin|bugbear)\b/.test(type)) return 'Goblin';
+  if (/\b(?:duergar|azer)\b/.test(type)) return 'Dwarf';
+  if (/\b(?:drow|drider)\b/.test(type)) return 'Elf';
+  if (/\borc\b/.test(type)) return 'Half-Orc';
+  const knownAncestry = Object.keys(CHARACTER_NAMES).find(label => label.toLowerCase() === clean(ancestry).toLowerCase());
+  const tags = Array.isArray(monster.tags) ? monster.tags : clean(monster.tags).split(/[,;|]/);
+  const humanoid = tags.some(tag => /^humanoid$/i.test(clean(tag))) ||
+    /\b(?:ghost|lich|mummy|vampire|werewolf|wererat)\b/.test(type);
+  return knownAncestry || (humanoid ? 'Human' : null);
+}
+
+export function randomCompanionName(monster, ancestry, random = Math.random) {
+  const names = CHARACTER_NAMES[companionNameAncestry(monster, ancestry)];
+  return names ? names[Math.floor(random() * names.length)] : monster.name;
+}
+
 function intelligenceModifier(monster) {
   const value = monster.I ?? monster['**I**'] ?? monster.intelligence;
   if (typeof value !== 'number' && typeof value !== 'string') return null;

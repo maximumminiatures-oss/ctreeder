@@ -27,6 +27,7 @@ body {
   background: #000;
   color: #fff;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .tagesschrift-regular {
@@ -1114,19 +1115,29 @@ body {
   padding: 8px;
 }
 
-.room-loot-panel button {
-  margin: 6px 0;
+.room-loot-panel:not([hidden]),
+.search-discoveries:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 6px;
+}
+
+.room-loot-panel button,
+.search-discoveries button {
+  width: auto;
+  margin: 0;
 }
 
 .room-loot-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin: 4px 0;
+  max-width: 100%;
 }
 
-.room-loot-row > button {
-  flex: 1 1 auto;
+.room-loot-panel > .trap-card {
+  flex-basis: 100%;
 }
 
 .coin-feature-controls {
@@ -1228,24 +1239,6 @@ body {
 
 .damage-panel * {
   color: #000;
-}
-
-.monster-hp-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 8px 0;
-}
-
-.monster-hp-controls input {
-  width: 5ch;
-  margin: 0;
-  text-align: center;
-}
-
-.monster-hp-controls button {
-  min-width: 3ch;
-  margin: 0;
 }
 
 .manual-dice-controls {
@@ -1598,7 +1591,7 @@ body {
   color: #111;
   cursor: grab;
   touch-action: none;
-  user-select: none;
+  user-select: text;
 }
 
 #character-sheet-modal {
@@ -1860,8 +1853,8 @@ body {
   background: transparent !important;
   color: #d41111 !important;
   font-family: "Times New Roman", Georgia, serif;
-  font-size: clamp(1.6rem, 3vw, 3rem);
-  line-height: 1;
+  font-size: 1rem;
+  line-height: 1.2;
   text-align: center;
   text-transform: uppercase;
   cursor: pointer;
@@ -2944,9 +2937,7 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .character-mini-attack-entry .attack-roll-button { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .sd-gear-lines > div { height: 18px; min-height: 0; box-sizing: border-box; }
 .character-card .character-death-banner:not(.is-dead),
-.character-sheet--popout .character-death-banner:not(.is-dead) { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; box-sizing: border-box; width: 100%; height: 100%; margin: 0; padding: 12px; border: 0; border-radius: 0; background: rgba(255,255,255,.65); color: #b01515; text-align: center; white-space: normal; text-transform: none; pointer-events: none; font-family: "Times New Roman", Georgia, serif; font-weight: 700; }
-.character-sheet--popout .character-death-banner:not(.is-dead) { font-size: 2.5rem; }
-.character-card .character-death-banner:not(.is-dead) { font-size: 1.3rem; }
+.character-sheet--popout .character-death-banner:not(.is-dead) { position: static; width: auto; height: auto; margin: 0; padding: 4px; border: 0; background: transparent; color: #b01515; text-align: center; white-space: normal; text-transform: none; pointer-events: none; font-family: "Times New Roman", Georgia, serif; font-size: 1rem; font-weight: 700; }
 .character-sheet--popout .sd-gear-panel { overflow: visible; }
 .sd-magic-gear-controls { position: absolute; top: 100%; right: 0; z-index: 12; display: none; gap: 2px; width: max-content; max-width: 160px; flex-wrap: wrap; padding: 3px; border: 1px solid #111; background: #fff; }
 .sd-gear-row-has-drop:is(:hover,:focus-within,.is-drop-open) .sd-magic-gear-controls { display: flex; }
@@ -2966,6 +2957,7 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 #selected-character-name { overflow-wrap: anywhere; }
 .party-selected-row .locked-door-actions { display: contents; margin: 0; }
 .party-selected-row :is(#search-btn,#stealth-btn,#pick-lock-btn,#break-door-btn) { margin: 0; padding: 4px 6px; background: var(--selected-character-tint, #fff); }
+.party-selected-row :is(#pick-lock-btn,#break-door-btn).is-door-action-ready { border: 1px solid #000; box-shadow: inset 0 0 0 3px var(--selected-character-color, #888); }
 .party-selected-row button:disabled { opacity: .55; }
 .party-light-controls:has(> :not([hidden])) { margin-top: 2px; }
 .party-light-controls:not(:has(> :not([hidden]))) { display: none; }
@@ -3085,16 +3077,12 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .character-mini-stats > button { font-size: .85rem; padding: 1px 4px; }
 .monster-card { padding: 0; overflow: hidden; border: 1px solid #641919; background: #f8eaea; border-radius: 0; }
 .monster-card > h3 { margin: 0; padding: 3px 6px; background: #be2d2d; color: #fff; font: bold 1rem/1.2 "Times New Roman", Georgia, serif; }
-.monster-card .monster-mini-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; padding: 4px 6px; font-size: .9rem; }
-.monster-mini-stats > div { display: inline-flex; gap: 3px; align-items: center; margin: 0; }
-.monster-mini-stats dt, .monster-mini-stats dd { display: inline; margin: 0; }
-.monster-mini-stats input { width: 3ch; padding: 0; border: 0; background: transparent; appearance: textfield; }
-.monster-mini-stats input::-webkit-inner-spin-button { appearance: none; }
-.monster-card .monster-hp-controls input { width: 3.5ch; min-width: 3.5ch; padding: 0; border: 0; box-shadow: none; background: transparent; appearance: textfield; -moz-appearance: textfield; }
-.monster-card .monster-hp-controls input::-webkit-inner-spin-button,
-.monster-card .monster-hp-controls input::-webkit-outer-spin-button { appearance: none; margin: 0; }
-.monster-card .monster-hp-controls button { opacity: 0; }
-.monster-card .monster-hp-controls:hover button, .monster-card .monster-hp-controls:focus-within button { opacity: 1; }
+.monster-card .monster-mini-stats { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 4px; margin: 0; padding: 4px 6px; font-size: .9rem; }
+.monster-mini-stats > span { min-width: 0; overflow-wrap: anywhere; }
+.monster-mini-stats > span:not(.monster-mini-attack) { white-space: nowrap; }
+.character-sheet :is(.sd-sheet-field, .sd-lined-block, .sd-talents-content),
+.character-mini-identity, .character-mini-stats, .monster-mini-stats, .monster-card > h3,
+.turn-card-layer .character-death-banner { cursor: pointer; user-select: text; }
 .turn-card-flight { box-sizing: border-box; }
 .monster-mini-stats button { min-height: 0; padding: 0 3px; font-size: .85rem; }
 .dice-history-detail { white-space: pre-line; }

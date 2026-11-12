@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { buildGuardianPool, creatureTypeName, indefiniteArticle } from '../../S3_content/src/creature-names.js';
+import { randomCompanionName, buildGuardianPool, creatureTypeName, indefiniteArticle } from '../../S3_content/src/creature-names.js';
 
 test('creature type names use ordinary noun case and reorder category commas without mutating raw identifiers', () => {
   for (const [input, expected] of [['Hag, Sea', 'sea hag'], ['Wasp, Giant', 'giant wasp'], ['Giant, Cloud', 'cloud giant'],
@@ -69,4 +69,17 @@ test('the complete local catalog yields the documented guardian list without cha
   const rows = report.split('\n').filter(line => /^\| [a-z]/.test(line));
   assert.equal(rows.length, pool.length);
   for (const entry of pool) assert.ok(rows.includes(`| ${entry.name} | +${entry.intelligence} | ${entry.sourceName} |`), entry.name);
+});
+
+test('companion names use their rulebook table with species precedence and humanoid fallback', () => {
+  for (const [species, name] of [
+    ['Goblin', 'Iggs'], ['Hobgoblin', 'Iggs'], ['Bugbear', 'Iggs'],
+    ['Duergar', 'Hilde'], ['Azer', 'Hilde'], ['Drow, Priestess', 'Eliara'], ['Drider', 'Eliara'], ['Orc', 'Vara']
+  ]) assert.equal(randomCompanionName({ name: species }, 'Human', () => 0), name);
+  for (const species of ['Ghost', 'Lich', 'Mummy', 'Vampire', 'Vampire Spawn', 'Werewolf', 'Wererat']) {
+    assert.equal(randomCompanionName({ name: species }, null, () => .999), 'Godfrey');
+  }
+  assert.equal(randomCompanionName({ name: 'Acolyte', tags: ['humanoid'] }, 'Halfling', () => 0), 'Willow');
+  assert.equal(randomCompanionName({ name: 'Apprentice', tags: ['humanoid'] }, null, () => 0), 'Zali');
+  assert.equal(randomCompanionName({ name: 'Giant Wasp' }, null, () => 0), 'Giant Wasp');
 });

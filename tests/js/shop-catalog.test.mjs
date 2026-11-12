@@ -56,7 +56,7 @@ test('shop tabs replace the item list without closing, preserve the active tab o
   let buys = 0;
   const context = vm.createContext({ document: dom.window.document, window: dom.window, SHOP_CATEGORIES, STARTING_ROOM_SHOP_ITEMS,
     getCurrentCharacter: () => character, canControlCharacter: () => true, isCharacterAbleToAct: () => true,
-    isCharacterInStartingRoom: () => true, isCombatActive: () => false, state: { characters: [character] },
+    isCharacterInTradeRoom: () => true, isCombatActive: () => false, state: { characters: [character] },
     getCharacterMoney: (character, coin) => character[coin], ensurePartyAssets: () => ({ gold: 0, silver: 0, copper: 0 }),
     getCharacterMoneyCopper: character => character.gold * 100, getMoneyCopper: () => 0,
     formatPartyAssetsText: () => 'Party Assets: 0 Gold', formatMoneyParts: () => '0 gp', formatFieldName: name => name,

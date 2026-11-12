@@ -17,6 +17,8 @@ import { placeMagicTreasure } from './magic-items.js';
 import { addUnderpasses, routeOf, routeExistsAt, routeStep, routeKey, pitTraversalNeighbors } from './underpasses.js';
 import { addPitFeatures } from './pit-tunnels.js';
 import { isPit, pitContains } from './pits.js';
+import { isSlowWaterTile } from './terrain-movement.js';
+import { livingFloorMonsters, MAX_FLOOR_MONSTERS } from './floor-limits.js';
 import { addCryptHallways, CRYPT_RULES, isUndeadMonster } from "./crypts.js";
 import { enforceSecretDoorApproaches } from "./secret-door-placement.js";
 import { pickReviewedLayout, applyReviewedLayout, canCrossReviewedGeometry, hasRangedMonsterAttack } from "./reviewed-layouts.js";
@@ -826,58 +828,27 @@ function floodFillReachableRooms(state, startRoomId) {
 
 function isWalkableForValidation(state, tile) {
   return tile?.type === TILE_TYPES.FLOOR &&
-    !tile.meta?.layoutBlocks && !tile.meta?.encounterOnly &&
+    (!tile.meta?.layoutBlocks || isSlowWaterTile(state, tile.x, tile.y)) && !tile.meta?.encounterOnly &&
     !isOrganicMovementBlockingTile(tile) &&
     !isInnerWallBlockingTile(tile) &&
     !isAngledWallMovementBlockingTile(tile) &&
     !isBlockingDecorAt(state, tile.x, tile.y);
 }
 
-function validateTileConnectivity(state) {
-  const start = getTile(state, state.player.x, state.player.y);
-  if (!isWalkableForValidation(state, start)) {
-    return false;
+function validateTileConnectivity(state, visited = dungeonTraversalDistances(state, state.player)) {
+  if (!visited.size) return false;
+  if (!visited.has(routeKey({ ...state.player, routeId: routeOf(state, state.player) }))) return false;
+  const rooms = new Set();
+  for (const tile of state.tiles) {
+    const point = { x: tile.x, y: tile.y, routeId: '' };
+    if (!isDungeonTraversalCell(state, point)) continue;
+    if (!visited.has(routeKey(point))) return false;
+    if (tile.roomId) rooms.add(tile.roomId);
   }
-
-  const visited = new Set();
-  const queue = [start];
-  while (queue.length) {
-    const tile = queue.shift();
-    const key = `${tile.x},${tile.y}`;
-    if (visited.has(key)) {
-      continue;
-    }
-    visited.add(key);
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-      [1, 1], [1, -1], [-1, 1], [-1, -1]
-    ]) {
-      const neighbor = getTile(state, tile.x + dx, tile.y + dy);
-      if(dx&&dy&&!(tile.meta?.reviewed&&neighbor?.meta?.reviewed))continue;
-      if (isWalkableForValidation(state, neighbor) && !visited.has(`${neighbor.x},${neighbor.y}`) &&
-        canCrossReviewedGeometry(state,tile.x,tile.y,neighbor.x,neighbor.y)) {
-        queue.push(neighbor);
-      }
-    }
+  for (const route of state.underpasses || []) for (const cell of route.lowerCells) {
+    if (!visited.has(routeKey({ ...cell, routeId: route.id }))) return false;
   }
-
-  return state.rooms.every((room) => {
-    for (let y = room.y; y < room.y + room.height; y += 1) {
-      for (let x = room.x; x < room.x + room.width; x += 1) {
-        if (!isRoomFloorTile(room, x, y)) {
-          continue;
-        }
-        if (visited.has(`${x},${y}`)) {
-          return true;
-        }
-      }
-    }
-    const center = getRoomCenter(room);
-    return visited.has(`${center.x},${center.y}`);
-  });
+  return state.rooms.length > 1 && state.rooms.every(room => rooms.has(room.id));
 }
 
 function isActiveOccupant(entity) {
@@ -1018,6 +989,7 @@ function pickRandomFloorTileInRoom(state, rng, room, options = {}) {
 }
 
 function spawnEntity(state, rng, room, idPrefix, type, subtype, visible = true, extra = {}) {
+  if (type === ENTITY_TYPES.MONSTER && livingFloorMonsters(state).length >= MAX_FLOOR_MONSTERS) return null;
   const spawnTile = pickRandomFloorTileInRoom(state, rng, room, extra.placement || {});
   if (!spawnTile) {
     return null;
@@ -1082,12 +1054,22 @@ function spawnTrap(state, rng, room, trapTable, targetType, targetEntityId = nul
     });
     return state.entities[state.entities.length - 1];
   }
-  return spawnEntity(state, rng, room, "trap", ENTITY_TYPES.TRAP, "hidden-trap", false, {
+  const trap = spawnEntity(state, rng, room, "trap", ENTITY_TYPES.TRAP, "hidden-trap", false, {
     ...details,
     targetType,
     targetEntityId,
     placement: { allowOccupied: room.crypt === true }
   });
+  if (trap && isPit(trap)) {
+    const hasArrivalFloor = state.tiles.some(tile => tile.roomId === room.id &&
+      isSafeDungeonArrival(state, tile, { allowWater: true, ignoreOccupants: true }));
+    if (!hasArrivalFloor || !validateTileConnectivity(state)) {
+      // Reject only this tentative spawn, not the already reviewed floor layout.
+      state.entities.pop();
+      return null;
+    }
+  }
+  return trap;
 }
 
 function pickLootBucket(level) {
@@ -3633,7 +3615,7 @@ function populateRoomEntities(state, rng, monsterTable = [], trapTable = [], loo
     if(room.isolatedBankKeys?.length && rng.nextFloat()<.45) {
       const monster=createMonsterDetails(rng,monsterTable.filter(hasRangedMonsterAttack));
       const point=rng.pick(room.isolatedBankKeys);
-      if(monster&&point) {
+      if(monster&&point&&livingFloorMonsters(state).length<MAX_FLOOR_MONSTERS) {
         const [x,y]=point.split(',').map(Number);
         state.entities.push({id:`monster-${state.entities.length}`,type:ENTITY_TYPES.MONSTER,subtype:'foe',roomId:room.id,
           x,y,visible:true,...monster,canalSentry:true});
@@ -3647,7 +3629,7 @@ function populateRoomEntities(state, rng, monsterTable = [], trapTable = [], loo
         ? pickBossMonsterDetails(state, rng, bossMonsterTable, monsterTable)
         : createMonsterDetails(rng, room.crypt ? cryptMonsters : monsterTable);
       if (monster) {
-        spawnEntity(
+        const spawned = spawnEntity(
           state,
           rng,
           room,
@@ -3657,7 +3639,7 @@ function populateRoomEntities(state, rng, monsterTable = [], trapTable = [], loo
           true,
           secretTreasureRoom ? { ...monster, boss: true, bossRoom: true } : monster
         );
-        monsterSpawned = true;
+        monsterSpawned = Boolean(spawned);
       }
     }
     trySpawnRoomTreasure(
@@ -6845,7 +6827,8 @@ function createRectGraphDungeon(seed, level, options = {}) {
 
   const reachableRooms = floodFillReachableRooms(state, firstRoom.id);
   state.generation.connectivityValid = reachableRooms.size === state.rooms.length &&
-    (architecturePattern === "organic" || validateTileConnectivity(state)) && validateOrganicPassableConnectivity(state);
+    validateTileConnectivity(state);
+  if (!state.generation.connectivityValid) return state;
 
   populateRoomEntities(state, rng, options.monsterTable || [], options.trapTable || [], options.contentCatalog?.loot || {});
   ensureBossRooms(
@@ -6866,19 +6849,24 @@ function createRectGraphDungeon(seed, level, options = {}) {
 export function generateDungeon(seed = Date.now(), level = 1, options = {}) {
   const rng = new SeededRng(seed);
   const architecturePattern = options.architecturePattern || chooseArchitecturePattern(rng);
-  const state=createRectGraphDungeon(seed,level,{...options,architecturePattern});
-  if(!state.generation.connectivityValid&&options.reviewedLayouts!==false) {
-    const fallback=createRectGraphDungeon(seed,level,{...options,architecturePattern,reviewedLayouts:false});
-    fallback.generation.reviewedLayoutFallback=true;
-    placeMagicTreasure(fallback, new SeededRng(Number(seed) + 7291), options.spells || []);
-    finishUnderpasses(fallback, seed, options);
-    placeDungeonDownstairs(fallback);
-    return fallback;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const generationSeed = attempt < 2 ? seed : (Number(seed) + (attempt - 1) * 104729) >>> 0;
+    const reviewedLayouts = attempt === 1 ? false : options.reviewedLayouts;
+    const state = createRectGraphDungeon(generationSeed, level, { ...options, architecturePattern, reviewedLayouts });
+    if (!state.generation.connectivityValid) continue;
+    placeMagicTreasure(state, new SeededRng(Number(generationSeed) + 7291), options.spells || []);
+    finishUnderpasses(state, generationSeed, options);
+    // Decoration and lower routes can invalidate a previously connected room graph.
+    const distances = dungeonTraversalDistances(state);
+    if (!validateTileConnectivity(state, distances)) continue;
+    const stairs = placeDungeonDownstairs(state, { distances, minArrivalCapacity: options.partySize ?? 16 });
+    if (Number(level) < DEEPEST_DUNGEON_LEVEL && !stairs) continue;
+    state.generation.connectivityValid = true;
+    if (attempt) state.generation.connectivityRetry = { requestedSeed: seed, generationSeed, attempt };
+    if (attempt === 1 && options.reviewedLayouts !== false) state.generation.reviewedLayoutFallback = true;
+    return state;
   }
-  placeMagicTreasure(state, new SeededRng(Number(seed) + 7291), options.spells || []);
-  finishUnderpasses(state, seed, options);
-  placeDungeonDownstairs(state);
-  return state;
+  throw new Error(`Unable to generate a traversable dungeon with downstairs for seed ${seed} (${architecturePattern}).`);
 }
 
 function finishUnderpasses(state, seed, options) {
@@ -6896,7 +6884,7 @@ function finishUnderpasses(state, seed, options) {
   if (options.pits !== false) addPitFeatures(state, new SeededRng(Number(seed) + 29471), { networks: options.pitTunnels !== false, canStep });
 }
 
-export function generateClassicDungeon(seed = Date.now(), level = 1, options = {}) {
+function createClassicDungeon(seed, level, options) {
   const state = createEmptyDungeonState(seed, level);
   state.rulesData = options.rulesData || options.contentCatalog?.rulesData || null;
   const rng = new SeededRng(seed);
@@ -6956,8 +6944,22 @@ export function generateClassicDungeon(seed = Date.now(), level = 1, options = {
   ensureVisibleGroundTreasure(state, rng, options.contentCatalog?.loot || {});
   createEntranceStairs(state, entranceRoom, rng);
   finishUnderpasses(state, seed, options);
-  placeDungeonDownstairs(state);
   return state;
+}
+
+export function generateClassicDungeon(seed = Date.now(), level = 1, options = {}) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const generationSeed = attempt ? (Number(seed) + attempt * 104729) >>> 0 : seed;
+    const state = createClassicDungeon(generationSeed, level, options);
+    const distances = dungeonTraversalDistances(state);
+    state.generation.connectivityValid = validateTileConnectivity(state, distances);
+    if (!state.generation.connectivityValid) continue;
+    const stairs = placeDungeonDownstairs(state, { distances, minArrivalCapacity: options.partySize ?? 16 });
+    if (Number(level) < DEEPEST_DUNGEON_LEVEL && !stairs) continue;
+    if (attempt) state.generation.connectivityRetry = { requestedSeed: seed, generationSeed, attempt };
+    return state;
+  }
+  throw new Error(`Unable to generate a traversable classic dungeon with downstairs for seed ${seed}.`);
 }
 
 // Generation treats doors as openable and pit climbs as deliberate physical paths.
@@ -6965,17 +6967,15 @@ export function generateClassicDungeon(seed = Date.now(), level = 1, options = {
 export function isDungeonTraversalCell(state, point) {
   const routeId = routeOf(state, point), tile = getTile(state, point.x, point.y);
   if (!tile || !routeExistsAt(state, point.x, point.y, routeId)) return false;
-  if (routeId) return true;
+  // Lower-route cells can run beneath solid upper-layer wall tiles.
+  if (routeId) return canCrossReviewedGeometry(state, point.x, point.y, point.x, point.y, point);
   return isWalkableForValidation(state, tile) && canCrossReviewedGeometry(state, point.x, point.y, point.x, point.y, point) &&
     !(state.entities || []).some(entity => isPit(entity) && routeOf(state, entity) === routeId && pitContains(entity, point.x, point.y));
 }
 
-function canTraverseDungeonStep(state, from, to) {
-  if (!isDungeonTraversalCell(state, to)) return false;
+function canTraverseDungeonStep(state, from, to, canStand = point => isDungeonTraversalCell(state, point)) {
+  if (!canStand(to)) return false;
   const dx = to.x - from.x, dy = to.y - from.y;
-  if (dx && dy && [[from.x, to.y], [to.x, from.y]].some(([x, y]) =>
-    !isDungeonTraversalCell(state, { x, y, routeId: from.routeId }))) return false;
-  if (from.routeId || to.routeId) return true;
   return canCrossReviewedGeometry(state, from.x, from.y, to.x, to.y, from) &&
     canCrossOrganicEdge(getTile(state, from.x, from.y), getTile(state, to.x, to.y), dx, dy);
 }
@@ -6992,17 +6992,23 @@ export function dungeonEntrancePoint(state) {
 export function dungeonTraversalDistances(state, start = dungeonEntrancePoint(state)) {
   const first = { x: start.x, y: start.y, routeId: routeOf(state, start) };
   const distances = new Map(), queue = [];
-  if (!isDungeonTraversalCell(state, first)) return distances;
+  const cells = new Map();
+  const canStand = point => {
+    const key = routeKey(point);
+    if (!cells.has(key)) cells.set(key, isDungeonTraversalCell(state, point));
+    return cells.get(key);
+  };
+  if (!canStand(first)) return distances;
   distances.set(routeKey(first), 0); queue.push(first);
   for (let i = 0; i < queue.length; i++) {
     const from = queue[i], distance = distances.get(routeKey(from)) + 1;
     const neighbors = [];
     for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]]) {
       const to = routeStep(state, from, { x: from.x + dx, y: from.y + dy });
-      if (to && canTraverseDungeonStep(state, from, to)) neighbors.push(to);
+      if (to && !distances.has(routeKey(to)) && canTraverseDungeonStep(state, from, to, canStand)) neighbors.push(to);
     }
     neighbors.push(...pitTraversalNeighbors(state, from).filter(to => {
-      if (!isDungeonTraversalCell(state, to)) return false;
+      if (!canStand(to)) return false;
       const upper = from.routeId ? to : from;
       return canCrossReviewedGeometry(state, from.x, from.y, to.x, to.y, upper) &&
         canCrossOrganicEdge(getTile(state, from.x, from.y), getTile(state, to.x, to.y), to.x - from.x, to.y - from.y);
@@ -7027,54 +7033,81 @@ export function isSafeDungeonArrival(state, point, { allowWater = false, ignoreO
         (entity.type === ENTITY_TYPES.MONSTER || entity.type === ENTITY_TYPES.TRAP))));
 }
 
-function reserveDownstairsCell(state, points, distances) {
-  const clear = points.find(point => isSafeDungeonArrival(state, point, { allowWater: true }));
-  if (clear) return clear;
-  // Tiny crypts can have all their floor cells populated. Relocate those spawns,
-  // not the stairs, so the physical farthest room remains the destination.
-  for (const point of points) {
-    const occupants = state.entities.filter(entity => entity.x === point.x && entity.y === point.y &&
-      routeOf(state, entity) === point.routeId && !entity.defeated && !entity.disarmed &&
-      [ENTITY_TYPES.MONSTER, ENTITY_TYPES.TRAP].includes(entity.type));
-    const cells = state.tiles.map(tile => ({ x: tile.x, y: tile.y, routeId: point.routeId }))
-      .filter(cell => routeKey(cell) !== routeKey(point) && distances.has(routeKey(cell)) &&
-        isSafeDungeonArrival(state, cell, { allowWater: true }))
-      .sort((a, b) => Number(getTile(state, b.x, b.y).roomId === getTile(state, point.x, point.y).roomId) -
-        Number(getTile(state, a.x, a.y).roomId === getTile(state, point.x, point.y).roomId) ||
-        Math.hypot(a.x - point.x, a.y - point.y) - Math.hypot(b.x - point.x, b.y - point.y) || a.y - b.y || a.x - b.x);
-    if (cells.length < occupants.length) continue;
-    occupants.forEach((entity, index) => {
-      const cell = cells[index], tile = getTile(state, cell.x, cell.y);
-      Object.assign(entity, cell, { roomId: tile.roomId, hallId: tile.hallId });
+function reserveDownstairsCell(state, points, distances, minArrivalCapacity) {
+  const clear = points.filter(point => isSafeDungeonArrival(state, point));
+  if (clear.length > minArrivalCapacity) return clear[0];
+  const clearKeys = new Set(clear.map(routeKey));
+  const occupied = points.filter(point => !clearKeys.has(routeKey(point)) && !state.entities.some(entity =>
+    entity.x === point.x && entity.y === point.y && routeOf(state, entity) === point.routeId &&
+    entity.type === ENTITY_TYPES.TRAP && entity.targetType !== 'tile' && !entity.disarmed));
+  const reserved = [...clear, ...occupied].slice(0, minArrivalCapacity + 1);
+  if (reserved.length <= minArrivalCapacity) return null;
+  const reservedKeys = new Set(reserved.map(routeKey)), point = reserved[0];
+  const occupants = state.entities.filter(entity => reservedKeys.has(routeKey({ ...entity, routeId: routeOf(state, entity) })) &&
+    !entity.defeated && !entity.collected && !entity.disarmed && [ENTITY_TYPES.MONSTER, ENTITY_TYPES.TRAP].includes(entity.type))
+    .sort((a, b) => Number(b.type === ENTITY_TYPES.MONSTER && !isUndeadMonster(b)) -
+      Number(a.type === ENTITY_TYPES.MONSTER && !isUndeadMonster(a)));
+  const cells = state.tiles.map(tile => ({ x: tile.x, y: tile.y, routeId: point.routeId }))
+    .filter(cell => !reservedKeys.has(routeKey(cell)) && distances.has(routeKey(cell)) &&
+      isSafeDungeonArrival(state, cell, { allowWater: true }))
+    .sort((a, b) => Number(getTile(state, b.x, b.y).roomId === getTile(state, point.x, point.y).roomId) -
+      Number(getTile(state, a.x, a.y).roomId === getTile(state, point.x, point.y).roomId) ||
+      Math.hypot(a.x - point.x, a.y - point.y) - Math.hypot(b.x - point.x, b.y - point.y) || a.y - b.y || a.x - b.x);
+  const cryptRoomIds = new Set(state.rooms.filter(room => room.crypt).map(room => room.id));
+  const used = new Set(), moves = [];
+  for (const entity of occupants) {
+    const cell = cells.find(cell => {
+      if (used.has(routeKey(cell))) return false;
+      const tile = getTile(state, cell.x, cell.y);
+      return entity.type !== ENTITY_TYPES.MONSTER || isUndeadMonster(entity) ||
+        !(tile.meta?.crypt || cryptRoomIds.has(tile.roomId));
     });
-    if (isSafeDungeonArrival(state, point, { allowWater: true })) return point;
+    if (!cell) return null;
+    used.add(routeKey(cell)); moves.push({ entity, cell });
   }
-  return null;
+  // Reserve the stair plus the whole party without deleting or splitting linked spawns.
+  moves.forEach(({ entity, cell }) => {
+    const tile = getTile(state, cell.x, cell.y);
+    Object.assign(entity, cell, { roomId: tile.roomId, hallId: tile.hallId });
+  });
+  return reserved.every(cell => isSafeDungeonArrival(state, cell)) ? point : null;
 }
 
-export function placeDungeonDownstairs(state) {
-  state.entities = state.entities.filter(entity => entity.doorKind !== 'stairs-down');
+export function placeDungeonDownstairs(state, { minArrivalCapacity = 16, distances = null } = {}) {
+  if (!Number.isInteger(minArrivalCapacity) || minArrivalCapacity < 1 || minArrivalCapacity > 16)
+    throw new RangeError('Downstairs arrival capacity must be between 1 and 16.');
+  if (Number(state.level) >= DEEPEST_DUNGEON_LEVEL) {
+    state.entities = state.entities.filter(entity => entity.doorKind !== 'stairs-down');
+    delete state.generation.downstairs;
+    return null;
+  }
+  const existing = state.entities.find(entity => entity.doorKind === 'stairs-down');
+  if (existing) return existing;
   delete state.generation.downstairs;
-  if (Number(state.level) >= DEEPEST_DUNGEON_LEVEL) return null;
-  const distances = dungeonTraversalDistances(state);
+  distances ||= dungeonTraversalDistances(state);
   const candidates = state.rooms.filter(room => room.id !== state.generation.entranceRoomId).map(room => {
     const points = state.tiles.filter(tile => tile.roomId === room.id).map(tile => ({ x: tile.x, y: tile.y, routeId: room.routeId || '' }))
-      .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point, { allowWater: true, ignoreOccupants: true }));
+      .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point, { ignoreOccupants: true }));
     const reachable = state.tiles.filter(tile => tile.roomId === room.id).map(tile => distances.get(routeKey({ ...tile, routeId: room.routeId || '' })))
       .filter(Number.isFinite);
-    return { room, points, distance: reachable.length ? Math.min(...reachable) : -1 };
-  }).filter(candidate => candidate.points.length && candidate.distance >= 0)
-    .sort((a, b) => b.distance - a.distance || a.room.id.localeCompare(b.room.id));
-  const chosen = candidates[0];
-  if (!chosen) return null;
-  chosen.points.sort((a, b) => distances.get(routeKey(b)) - distances.get(routeKey(a)) || a.y - b.y || a.x - b.x);
-  const point = reserveDownstairsCell(state, chosen.points, distances);
+    const arrivalCapacity = points.length - 1;
+    return { room, points, arrivalCapacity, distance: reachable.length ? Math.min(...reachable) : -1 };
+  }).filter(candidate => candidate.distance >= 0 && candidate.arrivalCapacity >= minArrivalCapacity)
+    .sort((a, b) => b.distance - a.distance || b.arrivalCapacity - a.arrivalCapacity || a.room.id.localeCompare(b.room.id));
+  let chosen, point;
+  for (const candidate of candidates) {
+    candidate.points.sort((a, b) => distances.get(routeKey(b)) - distances.get(routeKey(a)) || a.y - b.y || a.x - b.x);
+    point = reserveDownstairsCell(state, candidate.points, distances, minArrivalCapacity);
+    if (point) { chosen = candidate; break; }
+  }
   if (!point) return null;
   // Keep the existing renderer's feature/door contract; north/south centers art in this cell.
   const stairs = { id: `stairs-down-${state.level}`, type: ENTITY_TYPES.FEATURE, subtype: 'door', doorKind: 'stairs-down',
     ...point, roomId: chosen.room.id, hallId: null, doorState: DOOR_STATES.OPEN, visible: true,
     orientation: 'horizontal', wallSide: 'north', hallDirection: 'south', highestStep: 'north', watabouDoorType: 8 };
   state.entities.push(stairs);
-  state.generation.downstairs = { entityId: stairs.id, roomId: chosen.room.id, routeId: point.routeId, distance: chosen.distance };
+  state.generation.downstairs = { entityId: stairs.id, roomId: chosen.room.id, routeId: point.routeId,
+    distance: chosen.distance, minArrivalCapacity,
+    arrivalCapacity: chosen.points.filter(cell => isSafeDungeonArrival(state, cell)).length };
   return stairs;
 }

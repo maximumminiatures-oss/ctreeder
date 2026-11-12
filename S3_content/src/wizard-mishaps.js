@@ -3,6 +3,26 @@ import { rollCheck } from './interactions.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { routeOf, sameRoute } from './underpasses.js';
 import { applyHigherMishap, HIGHER_MISHAPS, processArcanaLoop, advanceArcanePhenomena } from './higher-mishaps.js';
+import { normalizeSpellLookupKey } from './spells.js';
+
+export function selectedSpellCastingAdvantage(character, spell) {
+  const target = normalizeSpellLookupKey(typeof spell === 'string' ? spell : spell?.name);
+  if (!target) return false;
+  const bonuses = character?.bonuses || character?.raw?.bonuses || [];
+  const selectedBonuses = bonuses.filter(bonus => /adv.*cast|AdvantageOnSpellcasting/i.test(`${bonus.name || ''} ${bonus.bonusName || ''}`));
+  if (selectedBonuses.some(bonus => {
+    const selected = [bonus.spellName, bonus.bonusTo, bonus.bonusName].map(value => String(value || '').replace(/^casting\s+|\s+spell$/gi, '').trim())
+      .find(value => value && !/^(?:adv.*cast.*|spellcasting|spell|casting|(?:one|a)(?: known)? spell)$/i.test(value));
+    return Boolean(selected && normalizeSpellLookupKey(selected) === target);
+  })) return true;
+  return (character?.levels || character?.raw?.levels || []).some(level => {
+    if (selectedBonuses.some(bonus => /^class$/i.test(bonus.sourceType || '') && Number(bonus.gainedAtLevel || 1) === Number(level.level || 1))) return false;
+    const text = level.Rolled12ChosenTalentDesc || level.talentRolledDesc || '';
+    const selected = text.match(/^(?:Gain\s+)?advantage (?:on )?casting\s+(.+?)[.!]?$/i)?.[1] ||
+      text.match(/^Cast\s+(.+?)\s+at advantage[.!]?$/i)?.[1];
+    return Boolean(selected && normalizeSpellLookupKey(selected) === target);
+  });
+}
 
 export const SPELL_ROUND_MS = 10000;
 export const SPELL_WEEK_MS = 7 * 24 * 60 * 60 * 1000;

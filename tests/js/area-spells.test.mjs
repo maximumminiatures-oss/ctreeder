@@ -87,7 +87,7 @@ test('placement centers even-sized areas and does not mutate authoritative state
   assert.deepEqual(state, before);
   assert.equal(result.requiresConfirmation, true);
   assert.deepEqual(result.preview, { x: 7, y: 7, width: 6, height: 6, anchor: { x: 10, y: 10 }, routeId: '',
-    spell: 'silence', outlineColor: '#347abc', fill: '#ffffff', fillOpacity: .1, exploredOnly: true });
+    spell: 'silence', outlineColor: '#347abc', fill: '#ffffff', fillOpacity: .1, exploredOnly: true, artTransform: caster.pendingSpell.artTransform });
   const { zone } = resolveAreaSpell(state, caster, { x: 10, y: 10, confirmed: true });
   assert.equal(state.areaSpells.length, 1);
   assert.equal(caster.focusSpell.areaId, zone.id);
@@ -100,7 +100,7 @@ test('critical placement uses 12x12, tests clicked center range rather than nort
   const state = scene(), caster = cast(state, 'web', 20);
   resolveAreaSpell(state, caster, { choice: 'area' });
   assert.deepEqual(areaSpellPlacement(state, caster, { x: 0, y: 10 }), {
-    x: -6, y: 4, width: 12, height: 12, anchor: { x: 0, y: 10 }, routeId: ''
+    x: -6, y: 4, width: 12, height: 12, anchor: { x: 0, y: 10 }, routeId: '', artTransform: caster.pendingSpell.artTransform
   });
   assert.throws(() => areaSpellPlacement(state, caster, { x: 23, y: 10 }), /center/);
   assert.throws(() => areaSpellPlacement(state, caster, { x: 12.5, y: 10 }), /center/);

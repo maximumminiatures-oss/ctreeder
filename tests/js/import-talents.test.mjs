@@ -17,9 +17,10 @@ const sequence=(...values)=>{let i=0;return()=>values[Math.min(i++,values.length
 test('fresh casters discard imported spells and choose exactly two distinct tier-one spells; priests retain Turn Undead',()=>{
   for(const key of ['Wizard','Priest']) {
     const character=hero(key);character.bonuses=[{name:'Spell: Wizard, Tier 1',bonusName:'Magic Missile',bonusTo:'Tier:1, Spell:1'},{name:'StatBonus',bonusTo:'INT:+2'}];
-    initializeImportChoices(character);const event=character.advancements[0];
-    assert.equal(character.spellsKnown,key==='Priest'?'Turn Undead':'');assert.equal(character.bonuses.length,1);
+    initializeImportChoices(character,{random:()=>.5});const event=character.advancements[0];
+    assert.equal(character.spellsKnown,key==='Priest'?'Turn Undead':'');assert.equal(character.bonuses.some(bonus=>bonus.name==='StatBonus'),false);
     for(const task of event.tasks) {
+      if(task.done)continue;
       const options=advancementOptions(character,event,task,{spells});assert.ok(options.every(option=>spells.find(spell=>spell.name===option.value).tier===1));
       assert.ok(!options.some(option=>option.value==='Turn Undead'));
       resolveAdvancement(character,event.id,task.id,options[0].value,{spells});
@@ -31,7 +32,7 @@ test('fresh casters discard imported spells and choose exactly two distinct tier
 
 test('fighter chooses new mastery and Grit rather than imported selections, gains weapon, and duplicate mastery is unavailable',()=>{
   const character=hero('Fighter');character.bonuses=[{name:'WeaponMastery',bonusTo:'Shortsword'},{name:'Grit',bonusName:'Dexterity',bonusTo:'AdvantageOnStatChecks'},{name:'Plus1ToHit',bonusTo:'Melee and ranged attacks'}];
-  initializeImportChoices(character);const event=character.advancements[0];
+  initializeImportChoices(character,{random:()=>.2});const event=character.advancements[0];
   assert.equal(character.bonuses.length,1);
   const result=resolveAdvancement(character,event.id,'mastery','dagger',{weapons:rules.weapons});assert.equal(result.createdItem.name,'dagger');
   resolveAdvancement(character,event.id,'grit','STR',{weapons:rules.weapons});assert.equal(hasGrit(character,'STR'),true);assert.equal(hasGrit(character,'DEX'),false);

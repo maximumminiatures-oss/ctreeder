@@ -150,7 +150,10 @@ test('native monster turns are protected, while an unselected family can still d
     result = await command(result.state_json, { type: 'end_turn' }, .8);
     assert.equal(member(result.state_json).hp === 80, selected);
     if (selected) {
-      assert.match(result.state_json.combat.log.join(' '), /Magic Circle prevents/);
+      // AI may reject the protected attack before attempting it or logging a block.
+      const zone = circles(result.state_json)[0], foe = result.state_json.entities.find(entity => entity.id === 'foe');
+      assert.ok(foe.x >= zone.x && foe.x < zone.x + zone.width && foe.y >= zone.y && foe.y < zone.y + zone.height,
+        'the selected creature starts inside and cannot escape the circle while repositioning');
       assert.equal(result.state_json.rollHistory.some(entry => entry.label === 'Attack'), false);
     } else assert.ok(result.state_json.rollHistory.some(entry => entry.label === 'Attack'));
   }

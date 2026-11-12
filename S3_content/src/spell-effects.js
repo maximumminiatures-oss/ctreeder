@@ -36,27 +36,39 @@ export function cureWoundsDiceCount(character) {
   return 1 + Math.floor(Math.max(1, Math.min(99, Number(character.level) || 1)) / 2);
 }
 
-export function castingBonus(character, casterClass = 'priest') {
+export function castingBonusSources(character, casterClass = 'priest') {
   const bonuses = character.bonuses || [];
-  const fromBonuses = bonuses.reduce((total, bonus) => {
-    if (ancestryKey(character) === 'elf' && isRepresentedAncestryBonus(character, bonus)) return total;
+  const sources = [];
+  const ancestry = ancestryCastingBonus(character);
+  if (ancestry) sources.push({ label: 'Farsight', amount: ancestry });
+  for (const bonus of bonuses) {
+    if (ancestryKey(character) === 'elf' && isRepresentedAncestryBonus(character, bonus)) continue;
     const name = String(bonus.bonusName || bonus.name || '');
     const detail = String(bonus.bonusTo || '');
-    if (/advantage/i.test(name)) return total;
-    if (!/spellcasting|casting.*spells/i.test(`${name} ${detail}`) || new RegExp(casterClass === 'wizard' ? 'priest' : 'wizard', 'i').test(detail)) return total;
+    if (/advantage/i.test(name)) continue;
+    if (!/spellcasting|casting.*spells/i.test(name + ' ' + detail) || new RegExp(casterClass === 'wizard' ? 'priest' : 'wizard', 'i').test(detail)) continue;
     const amount = Number(bonus.bonusAmount ?? bonus.bonusValue ?? bonus.value ?? detail.match(/[+-]?\d+/)?.[0]);
-    return total + (Number.isFinite(amount) ? amount : 0);
-  }, 0);
-  return ancestryCastingBonus(character) + fromBonuses + (character.levels || []).reduce((total, level) => {
-    const text = level.Rolled12ChosenTalentDesc || `${level.talentRolledName || ''} ${level.talentRolledDesc || ''}`;
+    if (Number.isFinite(amount) && amount) {
+      const source = bonus.sourceName || character.className || 'Talent';
+      sources.push({ label: [source, bonus.gainedAtLevel].filter(Boolean).join(' '), amount });
+    }
+  }
+  for (const level of character.levels || []) {
+    const text = level.Rolled12ChosenTalentDesc || ((level.talentRolledName || '') + ' ' + (level.talentRolledDesc || ''));
     // A rolled choice is not a second bonus; imported selected bonuses resolve it.
-    if (/\bor\b|choose/i.test(text)) return total;
-    if (!/spellcasting/i.test(text)) return total;
-    const alreadyIncluded = bonuses.some(bonus => /spellcasting/i.test(`${bonus.bonusName || ''} ${bonus.bonusTo || ''}`) &&
+    if (/\bor\b|choose/i.test(text) || !/spellcasting/i.test(text)) continue;
+    const alreadyIncluded = bonuses.some(bonus => /spellcasting/i.test((bonus.bonusName || '') + ' ' + (bonus.bonusTo || '')) &&
       /class/i.test(bonus.sourceType || '') && Number(bonus.gainedAtLevel) === Number(level.level));
     const amount = Number(text.match(/[+-]\d+/)?.[0]);
-    return total + (!alreadyIncluded && Number.isFinite(amount) ? amount : 0);
-  }, 0);
+    if (!alreadyIncluded && Number.isFinite(amount) && amount) {
+      sources.push({ label: [character.className || 'Class', level.level].filter(Boolean).join(' '), amount });
+    }
+  }
+  return sources;
+}
+
+export function castingBonus(character, casterClass = 'priest') {
+  return castingBonusSources(character, casterClass).reduce((total, source) => total + source.amount, 0);
 }
 
 export const priestCastingBonus = character => castingBonus(character, 'priest');

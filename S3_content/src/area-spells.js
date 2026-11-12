@@ -13,6 +13,7 @@ import { hasGrit } from './class-progression.js';
 import { handItemKind, syncEquipmentLight } from './equipment.js';
 import { elementalDamage } from './elemental-effects.js';
 import { activeMagicCircles, circleBlocksHostileAction } from './magic-circle.js';
+import { createSpellArtTransform } from './spell-art-transform.js';
 
 export const AREA_SPELLS = new Set(['fixed object', 'knock', 'silence', 'web']);
 export const AREA_CRITICAL_CHOICES = {
@@ -73,7 +74,8 @@ export function castAreaSpell(state, caster, spell, options = {}) {
     return result;
   }
   caster.pendingSpell = { spell, phase: result.critical ? 'critical' : ['silence', 'web'].includes(spell) ? 'placement' : 'targeting',
-    castingTotal: check.total, tier: 2, size: 6, rounds: 5, radius: 12 };
+    castingTotal: check.total, tier: 2, size: 6, rounds: 5, radius: 12,
+    ...(['web', 'silence'].includes(spell) ? { artTransform: createSpellArtTransform(options.artRandom) } : {}) };
   if (spell === 'knock' && !result.critical) return { ...result, ...applyKnock(state, caster, options) };
   return { ...result, message: `${result.message} ${result.critical ? 'Choose a critical effect.' : spell === 'fixed object' ? 'Pick carried gear or a floor item within touch range.' : 'Choose the center of the area, then confirm placement.'}` };
 }
@@ -82,7 +84,7 @@ export function areaSpellPlacement(state, caster, { x, y, routeId } = {}, size =
   if (![6, 12].includes(size) || !canAimAtSquare(state, caster, { x, y, routeId }, 12))
     throw new Error('Choose an area center within twelve squares and clear line of sight on the same route.');
   return { x: x - Math.floor(size / 2), y: y - Math.floor(size / 2), width: size, height: size,
-    anchor: { x, y }, routeId: routeOf(state, caster) };
+    anchor: { x, y }, routeId: routeOf(state, caster), artTransform: caster.pendingSpell?.artTransform };
 }
 
 export function resolveAreaSpell(state, caster, selection = {}, options = {}) {
@@ -311,7 +313,7 @@ export function areaSpellVisuals(state, { now = Date.now(), isExplored } = {}) {
         const point = { x, y, routeId: zone.routeId };
         if (routeExistsAt(state, x, y, zone.routeId) && explored(point)) clipCells.push(point);
       }
-    return { id: zone.id, spell: zone.spell, rect: { x: zone.x, y: zone.y, width: zone.width, height: zone.height }, routeId: zone.routeId,
+    return { id: zone.id, spell: zone.spell, artTransform: zone.artTransform, rect: { x: zone.x, y: zone.y, width: zone.width, height: zone.height }, routeId: zone.routeId,
       outlineColor: zone.color, lineWidth: 1, fill: zone.burnedAt != null ? '#ff0000' : '#ffffff', fillOpacity: zone.burnedAt != null ? .4 : .1,
       opacity: zone.burnedAt != null ? Math.max(0, 1 - (now - zone.burnedAt) / zone.burnFadeMs) : 1, exploredOnly: true, clipCells };
   });

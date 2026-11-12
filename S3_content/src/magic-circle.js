@@ -1,4 +1,5 @@
 import { abilityScoreModifier } from './characters.js';
+import { createSpellArtTransform } from './spell-art-transform.js';
 import { rollCheck } from './interactions.js';
 import { castingBonus } from './spell-effects.js';
 import { wizardCastingMode, rollWizardMishaps, spellLockRemaining } from './wizard-mishaps.js';
@@ -161,7 +162,7 @@ export function castMagicCircle(state, caster, options = {}) {
   const id = `magic-circle-${crypto.randomUUID()}`;
   caster.focusSpell = { id, spell: MAGIC_CIRCLE, tier: 3, castingTotal: check.total, lastCheck: check.total, focusedRounds: 0 };
   caster.pendingSpell = { spell: MAGIC_CIRCLE, tier: 3, phase: 'options', focusId: id, origin,
-    castingTotal: check.total, maxTags: result.critical ? 2 : 1, tags: [] };
+    castingTotal: check.total, maxTags: result.critical ? 2 : 1, tags: [], artTransform: createSpellArtTransform(options.artRandom) };
   saveCaster(caster);
   return { ...result, message: `${result.message} Choose ${result.critical ? 'two creature tags' : 'a creature tag'}.` };
 }
@@ -184,7 +185,7 @@ export function resolveMagicCircle(state, caster, selection = {}) {
   }
   const zone = { ...magicCircleBounds(pending.origin), id: `area-${focus.id}`, spell: MAGIC_CIRCLE, kind: 'area',
     sourceModule: 'magic-circle', casterId: caster.id, focusId: focus.id, castingTotal: pending.castingTotal,
-    color: caster.colorValue || '#ffffff', tags: [...pending.tags] };
+    color: caster.colorValue || '#ffffff', tags: [...pending.tags], artTransform: pending.artTransform };
   state.areaSpells ||= []; state.areaSpells.push(zone);
   focus.areaId = zone.id;
   caster.pendingSpell = null;
@@ -224,7 +225,7 @@ export function magicCirclePresentation(state, caster) {
       pending.tags.length ? 'Choose a second creature tag.' : 'Choose a creature tag.',
     selectedTags: [...pending.tags], maxTags: pending.maxTags,
     options: MAGIC_CIRCLE_TAGS.map(([key, label]) => ({ key, label, disabled: pending.tags.includes(key) })),
-    preview: { ...magicCircleBounds(pending.origin), spell: MAGIC_CIRCLE } };
+    preview: { ...magicCircleBounds(pending.origin), spell: MAGIC_CIRCLE, artTransform: pending.artTransform } };
 }
 
 // Parent may merge these into area visuals; the existing template map selects mqgic-circle.png.
@@ -240,7 +241,7 @@ export function magicCircleVisuals(state, { isExplored } = {}) {
       if (point.x >= 0 && point.y >= 0 && point.x < state.map?.width && point.y < state.map?.height &&
           routeExistsAt(state, point.x, point.y, point.routeId) && explored(point)) clipCells.push(point);
     }
-    return { id: zone.id, spell: MAGIC_CIRCLE, routeId: zone.routeId,
+    return { id: zone.id, spell: MAGIC_CIRCLE, routeId: zone.routeId, artTransform: zone.artTransform,
       rect: { x: zone.x, y: zone.y, width: 7, height: 7 }, outlineColor: zone.color, lineWidth: 1,
       fill: '#ffffff', fillOpacity: .1, opacity: 1, exploredOnly: true, clipCells };
   });

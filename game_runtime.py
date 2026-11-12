@@ -74,7 +74,11 @@ class GameRuntime:
             raise GameRuntimeError("The game rules service is busy. Please retry.")
         try:
             self._start()
-            self._process.stdin.write(json.dumps({"state": state, "command": command}, allow_nan=False) + "\n")
+            # Ordinary commands need only the live board. Keep inactive floors
+            # out of hot-path JSON parsing/copying; travel alone reads the cache.
+            floors = state.get("dungeonFloors") if command.get("type") not in {"ascend", "descend"} else None
+            active_state = {key: value for key, value in state.items() if key != "dungeonFloors"} if floors is not None else state
+            self._process.stdin.write(json.dumps({"state": active_state, "command": command}, allow_nan=False) + "\n")
             self._process.stdin.flush()
             line = self._responses.get(timeout=30)
             if line is None:
@@ -82,6 +86,8 @@ class GameRuntime:
             result = json.loads(line)
             if not result.get("ok"):
                 raise ValueError(result.get("message") or "Invalid game action.")
+            if floors is not None and isinstance(result.get("state_json"), dict):
+                result["state_json"]["dungeonFloors"] = floors
             return result
         except (OSError, queue.Empty, json.JSONDecodeError) as exc:
             self.close()

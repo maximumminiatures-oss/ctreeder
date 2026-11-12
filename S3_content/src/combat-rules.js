@@ -49,7 +49,7 @@ export function attackCreatureName(creature, { article = false, sentenceStart = 
   return sentenceStart ? commonName.charAt(0).toUpperCase() + commonName.slice(1) : commonName;
 }
 
-export function attackRollSegments({ character, monster, weapon, spell, roll, ability, abilityModifier, hit, damage, damageRoll, magic = 0, hiddenMagic = 0, backstab = false, advantageReason = '' }) {
+export function attackRollSegments({ character, monster, weapon, spell, roll, ability, abilityModifier, hit, damage, damageRoll, targetAC = monster.ac ?? monster.armorClass, magic = 0, hiddenMagic = 0, backstab = false, advantageReason = '' }) {
   const modifier = Number(abilityModifier) || 0;
   const other = (Number(roll.modifier) || 0) - modifier - magic - hiddenMagic;
   const signed = number => `${number < 0 ? '-' : '+'}${Math.abs(number)}`;
@@ -75,7 +75,11 @@ export function attackRollSegments({ character, monster, weapon, spell, roll, ab
   const hasDamage = hit && damage != null;
   const rollCard = createCheckRollCard(roll, {
     heading: spell || formatFieldName(weapon || 'unarmed strike'), actorId: character.id ?? null,
-    actorName, type: spell ? 'Spellcasting' : 'Attack', tooltip
+    actorName, type: spell ? 'Spellcasting' : 'Attack', tooltip,
+    actionName: spell || formatFieldName(weapon || 'unarmed strike'), targetId: monster.id ?? null,
+    targetName: monster.name === 'nothing' ? 'nothing' : attackCreatureName(monster, { article: true }),
+    ...(monster.name !== 'nothing' && Number.isFinite(Number(targetAC)) && targetAC != null ? { targetAC: Number(targetAC) } : {}),
+    outcome: roll.roll === 1 ? 'Fumble!' : roll.roll === 20 ? 'Critical!' : hit ? 'Hit' : 'Miss'
   });
   parts[0].rollCard = rollCard;
   parts.push({ text: String(roll.total), bold: true, tooltip }, { text: hit ? hasDamage ? ' hits for ' : ' hits.' : ' misses.' });

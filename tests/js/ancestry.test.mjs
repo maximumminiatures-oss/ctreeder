@@ -90,27 +90,27 @@ test('Human Ambition displays only the actual recorded benefit, never reapplies 
   assert.equal(isRepresentedAncestryBonus(character, unrelated), false);
 });
 
-test('fresh import choices remove only class-owned selections, preserving ancestry and ambition spell mechanics', () => {
+test('fresh native import rolls preserve non-talent ancestry mechanics but replace imported class and Ambition talents', () => {
   const ancestry = elfBonus('AdvOnCastOneSpell', 'Magic Missile', { name: 'AdvOnCastOneSpell' });
   const ambition = { sourceType: 'Ambition', sourceName: 'Wizard', name: 'Spell: Wizard, Tier 1', bonusName: 'Sleep', bonusTo: 'Tier:1, Spell:1' };
   const classSpell = { sourceType: 'Class', sourceName: 'Wizard', name: 'Spell: Wizard, Tier 1', bonusName: 'Light', bonusTo: 'Tier:1, Spell:1' };
   for (const extraClassTalent of [false, true]) {
     const character = hero('Elf', { className: 'Wizard', bonuses: [ancestry, ambition, classSpell], spellsKnown: 'Light, Sleep' });
     if (extraClassTalent) character.bonuses.push({ sourceType: 'Class', sourceName: 'Wizard', name: 'AdvOnCastOneSpell', bonusName: 'AdvOnCastOneSpell', bonusTo: 'Light' });
-    initializeImportChoices(character);
+    initializeImportChoices(character, { random: () => .5 });
     assert.ok(character.bonuses.includes(ancestry));
-    assert.ok(character.bonuses.includes(ambition));
+    assert.ok(!character.bonuses.includes(ambition));
     assert.ok(!character.bonuses.includes(classSpell));
-    assert.equal(character.spellsKnown, 'Sleep', 'the inherited spell is actually available, not only displayed');
-    assert.equal(character.advancements[0].tasks.filter(task => task.type === 'spell-advantage').length, extraClassTalent ? 1 : 0);
+    assert.equal(character.spellsKnown, '');
+    assert.equal(character.advancements[0].tasks.filter(task => task.type === 'spell-advantage').length, 1, 'native roll, not imported talent text');
   }
   const mastery = { sourceType: 'Ambition', name: 'WeaponMastery', bonusTo: 'Spear' };
   const fighter = hero('Human', { bonuses: [mastery] });
-  initializeImportChoices(fighter);
-  assert.ok(fighter.bonuses.includes(mastery));
+  initializeImportChoices(fighter, { random: () => .2 });
+  assert.ok(!fighter.bonuses.includes(mastery));
   const human = hero('Human', { className: 'Wizard', bonuses: [ambition, classSpell], learnedScrollSpells: ['Feather Fall'], spellsKnown: 'Light, Sleep, Feather Fall' });
-  initializeImportChoices(human);
-  assert.equal(human.spellsKnown, 'Sleep, Feather Fall');
+  initializeImportChoices(human, { random: () => .5 });
+  assert.equal(human.spellsKnown, 'Feather Fall');
   assert.deepEqual(human.learnedScrollSpells, ['Feather Fall']);
   assert.deepEqual(human.raw.learnedScrollSpells, ['Feather Fall']);
 });

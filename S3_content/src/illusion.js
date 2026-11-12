@@ -12,6 +12,7 @@ import { isSleeping } from './conditions.js';
 import { buildMonsterCompanion, nativeAttackLines } from './companions.js';
 import { monsterModifier, moraleImmune, isDungeonMoraleSubject } from './encounters.js';
 import { illusionCells, illusionContains, isIllusionCreature, illusionsAt } from './illusion-geometry.js';
+import { createSpellArtTransform } from './spell-art-transform.js';
 
 export const ILLUSION_OPTIONS = [
   ['horrible behemoth', 'Horrible Behemoth'], ['skeleton', 'Skeleton'], ['marilith', 'Marilith'],
@@ -88,7 +89,8 @@ export function castIllusion(state, caster, options = {}) {
   }
   const focusId = `illusion-${crypto.randomUUID()}`;
   caster.focusSpell = { id: focusId, spell: 'illusion', tier: 3, castingTotal: check.total, lastCheck: check.total, illusionIds: [] };
-  caster.pendingSpell = { spell: 'illusion', tier: 3, phase: 'options', focusId, remaining: result.critical ? 2 : 1 };
+  caster.pendingSpell = { spell: 'illusion', tier: 3, phase: 'options', focusId, remaining: result.critical ? 2 : 1,
+    artTransform: createSpellArtTransform(options.artRandom) };
   return result;
 }
 
@@ -145,13 +147,13 @@ export function resolveIllusion(state, caster, selection = {}, options = {}) {
     return { privateCharacterId: caster.id, message: 'Choose the illusion center, then confirm.' };
   }
   const rect = illusionPlacement(state, caster, selection);
-  if (!selection.confirmed) return { privateCharacterId: caster.id, preview: rect, requiresConfirmation: true, message: 'Confirm this placement?' };
+  if (!selection.confirmed) return { privateCharacterId: caster.id, preview: { ...rect, artTransform: pending.artTransform }, requiresConfirmation: true, message: 'Confirm this placement?' };
   if (caster.focusSpell?.id !== pending.focusId) throw new Error('The caster is no longer focusing on this Illusion.');
   const id = `projection-${crypto.randomUUID()}`, form = pending.form;
   let projection;
   if (form === 'floor' || form === 'pit') {
     projection = { id, type: 'feature', subtype: 'illusion', name: title(form), ...rect, visible: true,
-      illusion: { id, casterId: caster.id, kind: form } };
+      illusion: { id, casterId: caster.id, kind: form, artTransform: pending.artTransform } };
     state.entities.push(projection);
   } else {
     if (state.characters.length >= 16) throw new Error('The party has no room for a creature illusion.');
@@ -160,7 +162,7 @@ export function resolveIllusion(state, caster, selection = {}, options = {}) {
     if (!source) throw new Error('That creature stat block is unavailable.');
     projection = buildMonsterCompanion({ ...structuredClone(source), id, x: selection.x, y: selection.y, routeId: rect.routeId,
       roomId: getTile(state, selection.x, selection.y)?.roomId }, { id, kind: 'illusion', controllerId: caster.id });
-    projection.illusion = { id, casterId: caster.id, kind: 'creature', form, footprint: rect.width };
+    projection.illusion = { id, casterId: caster.id, kind: 'creature', form, footprint: rect.width, artTransform: pending.artTransform };
     projection.ownerMemberId = caster.ownerMemberId; projection.controllerMemberId = caster.controllerMemberId;
     projection.colorId = caster.colorId; projection.colorValue = caster.colorValue;
     projection.gear = []; projection.baseAttacks = projection.attacks = nativeAttackLines(source);
@@ -170,7 +172,7 @@ export function resolveIllusion(state, caster, selection = {}, options = {}) {
   }
   caster.focusSpell.illusionIds.push(id);
   pending.remaining--;
-  if (pending.remaining) { pending.phase = 'options'; delete pending.form; }
+  if (pending.remaining) { pending.phase = 'options'; delete pending.form; pending.artTransform = createSpellArtTransform(options.artRandom); }
   else caster.pendingSpell = null;
   writeRaw(caster, 'focusSpell');
   const morale = [];

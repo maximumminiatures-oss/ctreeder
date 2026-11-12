@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEmptyDungeonState } from '../../S3_content/src/state-schema.js';
-import { clickEntity, getDoorClickContext } from '../../S3_content/src/interactions.js';
+import { clickEntity, getDoorClickContext, getPendingLockedDoorAction, movePlayer } from '../../S3_content/src/interactions.js';
 
 function scene() {
   const state = createEmptyDungeonState(7);
@@ -118,4 +118,22 @@ test('door closing uses the same nearby actor and no-character previews still wo
   preview.characters = [];
   preview.entities[0].doorState = 'locked';
   assert.equal(clickEntity(preview, 5, 5).message, 'Door opened.');
+});
+
+test('a neighboring lock needs illumination or a bump by the selected character', () => {
+  const state = scene(), door = state.entities[0], near = state.characters[1];
+  Object.assign(door, { doorState: 'locked', lockPickDc: 8, breakDc: 8 });
+  state.activeCharacterId = near.id;
+  Object.assign(state.player, { x: near.x, y: near.y, torchLit: false, lightRadius: 0 });
+  assert.equal(getPendingLockedDoorAction(state, near), null);
+  // The existing darkness interaction first identifies the door, then tests the lock.
+  movePlayer(state, 0, 1);
+  movePlayer(state, 0, 1);
+  assert.equal(getPendingLockedDoorAction(state, near)?.doorId, 'door');
+  assert.equal(getPendingLockedDoorAction(state, { ...near, id: 'another' }), null);
+  state.lockedDoorAction = null;
+  Object.assign(near, { lightSpellLit: true, lightRadius: 6, lightSource: 'light-spell' });
+  assert.equal(getPendingLockedDoorAction(state, near)?.doorId, 'door');
+  door.secret = true;
+  assert.equal(getPendingLockedDoorAction(state, near), null);
 });

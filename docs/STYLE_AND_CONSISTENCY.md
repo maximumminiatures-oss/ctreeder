@@ -65,6 +65,17 @@ visible message must not remove those details, alter the calculation, or conceal
 information the game is meant to reveal. Preserve established token-name colors
 and minimum/maximum die indicators.
 
+Roll History cards use the actor's name and token color in their heading stripe.
+Their body identifies the action, relevant DC or target AC, ordered rolled totals,
+and outcome. Keep chosen totals bold (both when tied), minimum dice red and maximum
+dice green. Attack damage follows a successful hit; area spells name each affected
+creature and its actual damage. Detailed arithmetic remains in accessible hovers.
+Spell names retain canonical capitalization, including `Shield of Faith`.
+
+Text fields are selectable for copying, with pointer cursors over text. Selection
+must not trigger sheet dragging, character actions, or game keyboard shortcuts.
+Dying text is a nonblocking status label, not an overlay or modal control.
+
 ## Ancestry Invariants
 
 These are immutable presentation and behavior invariants, not optional copy:

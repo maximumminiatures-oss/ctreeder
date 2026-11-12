@@ -677,14 +677,25 @@ test('fresh imports choose starting spells while saved characters retain their e
   for (const className of ['Wizard','Priest']) for (const fresh of [false,true]) {
     const state=scene();state.combat.active=false;state.entities=state.entities.slice(0,1);
     const raw={name:'New caster',class:className,level:1,stats:{STR:10,CON:10,INT:14,WIS:14},maxHitPoints:6,gear:[],spellsKnown:'Light, Sleep'};
-    let result=await executeGameCommand(state,{type:'import',character_json:raw,new_character_id:'new',fresh_import:fresh});
+    let result=await withRandom(.5,()=>executeGameCommand(state,{type:'import',character_json:raw,new_character_id:'new',fresh_import:fresh}));
     let hero=result.state_json.characters.find(character=>character.id==='new');
     if(!fresh) { assert.equal(hero.spellsKnown,'Light, Sleep');assert.ok(!hero.advancements.length);continue; }
     assert.equal(hero.spellsKnown,className==='Priest'?'Turn Undead':'');
     const spells=className==='Priest'?['Cure Wounds','Holy Weapon']:['Sleep','Magic Missile'];
     for(const [index,name] of spells.entries()) result=await executeGameCommand(result.state_json,{type:'advance_choice',character_id:'new',event_id:'initial',task_id:`spell-${index+1}`,value:name});
     hero=result.state_json.characters.find(character=>character.id==='new');
-    assert.ok(hero.advancements[0].completed);assert.ok(spells.every(name=>hero.spellsKnown.includes(name)));
+    const event=hero.advancements[0];
+    assert.ok(event.tasks.filter(task=>task.type==='spell').every(task=>task.done));
+    assert.ok(spells.every(name=>hero.spellsKnown.includes(name)));
+    if(className==='Wizard') {
+      const nativeTalent=event.tasks.find(task=>task.id==='talent');
+      assert.equal(nativeTalent.type,'spell-advantage');assert.ok(!nativeTalent.done);assert.equal(event.completed,false);
+      result=await executeGameCommand(result.state_json,{type:'advance_choice',character_id:'new',event_id:'initial',task_id:nativeTalent.id,value:'Sleep'});
+      hero=result.state_json.characters.find(character=>character.id==='new');
+      assert.ok(hero.advancements[0].tasks.find(task=>task.id==='talent').done);
+      assert.ok(hero.bonuses.some(bonus=>bonus.name==='AdvantageOnSpellcasting'&&bonus.bonusTo==='Sleep'));
+    }
+    assert.ok(hero.advancements[0].completed);
   }
 });
 

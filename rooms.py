@@ -37,7 +37,7 @@ CHARACTER_COMMANDS = {
     "revive", "stand", "wake",
     "move", "move_batch", "attack", "end_turn", "search", "stealth", "get", "leave", "disarm",
     "interact", "pick_lock", "break_door", "spell", "light", "snuff", "guard",
-    "drop_gear", "pickup", "collect", "persuade", "edit_character", "dismiss", "bury",
+    "drop_gear", "pickup", "collect", "persuade", "edit_character", "rename_character", "dismiss", "bury",
     "roll", "money", "coin_adjust", "coin_amount", "equip", "buy_gear", "follow_step",
     "resolve_spell", "penance", "rest", "rest_accept", "rest_cancel", "rest_alarm",
     "ancestry_invisibility", "reaction", "attack_treasure", "bury_corpse", "reorder_gear",
@@ -179,6 +179,17 @@ def validate_viewer_visibility(value, state):
     }
 
 
+def update_viewer_visibility(member, value, state):
+    # Client visibility only updates the active floor. Inactive memories are
+    # server-owned so a stale heartbeat cannot replace another floor's fog.
+    if isinstance(value, dict) and "floorLevel" in value:
+        if type(value["floorLevel"]) is not int or value["floorLevel"] != state["level"]:
+            return
+    memories = (member.visibility_json or {}).get("_floors", {})
+    current = validate_viewer_visibility(value, state)
+    member.visibility_json = {**current, **({"_floors": memories} if memories else {})}
+
+
 def player_feedback_state(state, owned_ids):
     """Private spell feedback is not part of another player's displayed history."""
     view = dict(state)
@@ -210,9 +221,10 @@ def room_view(db, room, member, *, include_state=True):
         "group_action": group_action_view(room, online),
     }
     if include_state:
-        view["state_json"] = {**player_feedback_state(room.state_json, set(view["owned_character_ids"])),
+        active_state = {key: value for key, value in room.state_json.items() if key != "dungeonFloors"}
+        view["state_json"] = {**player_feedback_state(active_state, set(view["owned_character_ids"])),
                               "groupAction": view["group_action"]}
-        view["viewer_visibility"] = member.visibility_json or {}
+        view["viewer_visibility"] = {key: value for key, value in (member.visibility_json or {}).items() if key != "_floors"}
     return view
 
 
@@ -453,7 +465,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
     def room_group_action(room_id):
         data = body()
         action = data.get("action")
-        if action not in {"save_party", "descend"}:
+        if action not in {"save_party", "descend", "ascend"}:
             raise ValueError("Unknown group action.")
         with Session(engine) as db:
             room, member = member_room(db, room_id)
@@ -466,7 +478,9 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             member.last_seen_at = utcnow()
             db.add(member)
             db.flush()
-            _, _, online = room_presence(db, room)
+            _, host_present, online = room_presence(db, room)
+            if action in {"ascend", "descend"} and member.role != "host" and not (host_present or room.autonomous_exploration):
+                return {"error": "host_absent", "message": "The host is away. Character loading, saving and viewing remain available."}, 403
             vote_id = data.get("vote_id")
             if vote_id is not None:
                 if not isinstance(vote_id, str) or type(data.get("accept")) is not bool:
@@ -494,6 +508,8 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
                     raise ValueError("Add at least one character first.")
                 if action == "descend" and room.state_json.get("level", 1) >= 10:
                     raise ValueError("This is the deepest dungeon level.")
+                if action == "ascend" and room.state_json.get("level", 1) <= 1:
+                    raise ValueError("These stairs lead out of the dungeon.")
                 now = utcnow()
                 proposal = {"id": uuid.uuid4().hex, "action": action, "status": "pending",
                             "initiatorMemberId": member.id, "requiredMemberIds": sorted(online),
@@ -515,15 +531,21 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
                 else:
                     previous_ownership = dict(room.ownership_json or {})
                     old_ids = {char["id"] for char in room.state_json.get("characters", [])}
-                    result = game_runtime.apply(room.state_json, {"type": "descend", "confirmed": True})
+                    old_level = room.state_json["level"]
+                    result = game_runtime.apply(room.state_json, {"type": action, "confirmed": True})
                     descended = validate_state(result["state_json"], require_map=True)
-                    if descended["level"] != room.state_json["level"] + 1 or {char["id"] for char in descended.get("characters", [])} != old_ids:
-                        raise ValueError(result.get("message") or "Gather your party before descending deeper.")
+                    expected_level = old_level + (-1 if action == "ascend" else 1)
+                    if descended["level"] != expected_level or {char["id"] for char in descended.get("characters", [])} != old_ids:
+                        raise ValueError(result.get("message") or "Gather your party before using the stairs.")
                     room.state_json = descended
                     room.ownership_json = previous_ownership
                     reconcile_companion_ownership(db, room, previous_ownership)
                     for viewer in db.exec(select(RoomMember).where(RoomMember.room_id == room.id)).all():
-                        viewer.visibility_json = {}
+                        old_visibility = viewer.visibility_json or {}
+                        memories = dict(old_visibility.get("_floors", {}))
+                        memories[str(old_level)] = {key: value for key, value in old_visibility.items() if key != "_floors"}
+                        restored = memories.pop(str(expected_level), {})
+                        viewer.visibility_json = {**restored, "_floors": memories}
                         db.add(viewer)
                     room.simulated_at = utcnow()
                     proposal.update(status="completed", result={"level": descended["level"], "message": result.get("message", "")[:2000]})
@@ -570,7 +592,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             now = utcnow()
             member.last_seen_at = now
             if "viewer_visibility" in data:
-                member.visibility_json = validate_viewer_visibility(data["viewer_visibility"], room.state_json)
+                update_viewer_visibility(member, data["viewer_visibility"], room.state_json)
             db.add(member)
             db.flush()
             _, host_present, online = room_presence(db, room)
@@ -835,7 +857,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             if not room:
                 return not_found
             if "viewer_visibility" in data:
-                member.visibility_json = validate_viewer_visibility(data["viewer_visibility"], room.state_json)
+                update_viewer_visibility(member, data["viewer_visibility"], room.state_json)
             member.last_seen_at = utcnow() - HOST_LEASE * 2
             cancel_group_action(room, "membership_changed")
             room.revision += 1

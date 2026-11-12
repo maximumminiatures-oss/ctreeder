@@ -1,6 +1,6 @@
 import { DOOR_STATES, ENTITY_TYPES, TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
 import { loadLocalJson } from './data-loader.js';
-import { collectLightSources, computeLightPolygon, withLightPolygonCache } from "./light-geometry.js";
+import { collectLightSources, computeLightPolygon, withLightPolygonCache, getDoorTiles } from "./light-geometry.js";
 import { tileKey } from "./state-schema.js";
 import { getOrganicTileData, isOrganicMovementBlockingTile, isOrganicPillarTile } from "./organic-tiles.js";
 import { getInnerWallTileData } from "./inner-walls.js";
@@ -27,7 +27,8 @@ import { pitIsOpen, pitArt, PIT_ASSET_KEYS } from './pits.js';
 import { ropeBridgeArt } from './rope-actions.js';
 import { mirrorImagePaintTokens } from './transformation-spells.js';
 import { areaSpellVisuals } from './area-spells.js';
-import { SPELL_TEMPLATE_ART, spellTemplateFits, ongoingSpellTemplates } from './spell-template-art.js';
+import { SPELL_TEMPLATE_ART, spellTemplateFits, ongoingSpellTemplates, burningHandsArtPreview } from './spell-template-art.js';
+import { drawSpellArtImage } from './spell-art-transform.js';
 import { isMonsterCurrentlyVisible, isFeatureCurrentlyVisible, isMonsterTileIlluminated } from './monster-perception.js';
 import { partyDarkvisionReveals } from './darkvision.js';
 import { concealedAnimatedArmor, animatedArmorDisguiseAsset } from './companions.js';
@@ -282,10 +283,10 @@ async function resolveAssetGroups(groups) {
   return Object.fromEntries(await Promise.all(Object.entries(groups).map(async ([key, value]) => [key, await value])));
 }
 
-async function loadAssetImageMap(keys) {
+async function loadAssetImageMap(keys, filenames = {}) {
   const entries = await Promise.all(keys.map(async (key) => [
     key,
-    await loadOptionalImage(`./assets/${key}.png`, { quiet: true })
+    await loadOptionalImage(`./assets/${filenames[key] || key}.png`, { quiet: true })
   ]));
   return Object.fromEntries(entries.filter(([, image]) => image));
 }
@@ -348,7 +349,7 @@ export async function preloadRendererAssets() {
     innerWalls: loadInnerWallImageMap(),
     angledWalls: loadAngledWallImageMap(),
     canals: loadAssetImageMap(CANAL_KEYS),
-    junk: loadAssetImageMap(JUNK_KEYS),
+    junk: loadAssetImageMap(JUNK_KEYS, { 'junk-2x1-ew': 'stairs-hall' }),
     wells: loadAssetImageMap(WELL_KEYS),
     crypts: loadAssetImageMap(CRYPT_ASSET_KEYS),
     reviewed: loadAssetImageMap([...REVIEWED_ASSET_KEYS, ...STATUE_ASSET_KEYS]),
@@ -2005,7 +2006,7 @@ export function drawIllusionArtwork(state, ctx, options = {}) {
     for (const cell of cells) ctx.rect(cell.x * TILE_SIZE_PX, cell.y * TILE_SIZE_PX, TILE_SIZE_PX, TILE_SIZE_PX);
     ctx.clip();
     if (creature && (source.visualRouteId ?? routeOf(state, source))) ctx.globalAlpha *= UNDERPASS_OPACITY;
-    ctx.drawImage(image, rect.x * TILE_SIZE_PX, rect.y * TILE_SIZE_PX, rect.width * TILE_SIZE_PX, rect.height * TILE_SIZE_PX);
+    drawSpellArtImage(ctx, image, rect, source.illusion.artTransform, TILE_SIZE_PX);
     ctx.restore();
   }
 }
@@ -2819,7 +2820,7 @@ export function drawSpellTemplateArtwork(state, ctx, { visuals = ongoingSpellTem
     clipToFloorTiles(ctx, state, tile => tile.x >= rect.x && tile.x < rect.x + rect.width && tile.y >= rect.y && tile.y < rect.y + rect.height &&
       routeExistsAt(state, tile.x, tile.y, routeId) && templateCellExplored(state, tile.x, tile.y, routeId));
     ctx.globalAlpha *= visual.opacity;
-    ctx.drawImage(image, rect.x * TILE_SIZE_PX, rect.y * TILE_SIZE_PX, rect.width * TILE_SIZE_PX, rect.height * TILE_SIZE_PX);
+    drawSpellArtImage(ctx, image, rect, visual.artTransform, TILE_SIZE_PX);
     ctx.restore();
   }
 }
@@ -2831,26 +2832,34 @@ function spellTemplateKnownCells(state, visual) {
   return cells.join(';');
 }
 
-export function drawAreaSpellOverlays(state, ctx, { areaPreview = null, now = Date.now() } = {}) {
+export function drawAreaSpellOverlays(state, ctx, { areaPreview = null, previewCasterId = null, now = Date.now() } = {}) {
   const explored = (x, y, routeId) => {
     const cells = state.visibility?.routeExplored?.[routeId] || (!state.underpasses?.length && !routeId ? state.visibility?.exploredEver : null);
     return cells instanceof Set ? cells.has(tileKey(x, y)) : Array.isArray(cells) && cells.includes(tileKey(x, y));
   };
   const visuals = areaSpellVisuals(state, { now, isExplored: point => explored(point.x, point.y, point.routeId || '') });
-  if (Array.isArray(areaPreview?.cells)) {
-    const image = areaPreview.spell === 'fireball' && spellTemplateFits('fireball', areaPreview.rect) && rendererAssets.decor.spellTemplates?.fireball;
-    if (image) {
-      const cells = areaPreview.cells.filter(cell => explored(cell.x, cell.y, cell.routeId || '') &&
-        templateCellExplored(state, cell.x, cell.y, cell.routeId || ''));
-      if (cells.length) {
-        const rect = areaPreview.rect;
-        ctx.save(); ctx.beginPath();
-        for (const cell of cells) ctx.rect(cell.x * TILE_SIZE_PX, cell.y * TILE_SIZE_PX, TILE_SIZE_PX, TILE_SIZE_PX);
-        ctx.clip(); ctx.globalAlpha *= .4;
-        ctx.drawImage(image, rect.x * TILE_SIZE_PX, rect.y * TILE_SIZE_PX, rect.width * TILE_SIZE_PX, rect.height * TILE_SIZE_PX);
-        ctx.restore();
-      }
+  if (areaPreview) {
+    // Pointer previews are ephemeral; read the authoritative cast's saved metadata.
+    const caster = (state.characters || []).find(character => character.pendingSpell?.spell === areaPreview.spell &&
+      (!previewCasterId || character.id === previewCasterId) && routeOf(state, character) === (areaPreview.routeId || ''));
+    const pending = caster?.pendingSpell, rect = areaPreview.rect || areaPreview;
+    const transform = areaPreview.artTransform || pending?.artTransform;
+    const illusionKind = pending?.form === 'horrible behemoth' ? 'creature' : pending?.form;
+    const image = areaPreview.spell === 'illusion' && rect.width === 3 && rect.height === 3
+      ? rendererAssets.decor.illusions?.[illusionKind]
+      : spellTemplateFits(areaPreview.spell, rect) && rendererAssets.decor.spellTemplates?.[areaPreview.spell];
+    if (image && [rect.x, rect.y].every(Number.isFinite)) {
+      const cells = Array.isArray(areaPreview.cells) ? new Set(areaPreview.cells.map(cell => `${cell.routeId || ''}:${tileKey(cell.x, cell.y)}`)) : null;
+      ctx.save();
+      clipToFloorTiles(ctx, state, tile => tile.x >= rect.x && tile.x < rect.x + rect.width && tile.y >= rect.y && tile.y < rect.y + rect.height &&
+        (!cells || cells.has(`${areaPreview.routeId || ''}:${tileKey(tile.x, tile.y)}`)) &&
+        routeExistsAt(state, tile.x, tile.y, areaPreview.routeId || '') && templateCellExplored(state, tile.x, tile.y, areaPreview.routeId || ''));
+      ctx.globalAlpha *= .4;
+      drawSpellArtImage(ctx, image, rect, transform, TILE_SIZE_PX);
+      ctx.restore();
     }
+  }
+  if (Array.isArray(areaPreview?.cells)) {
     ctx.save();
     ctx.lineWidth = 1; ctx.strokeStyle = '#fff4d4';
     for (const cell of areaPreview.cells) {
@@ -2877,6 +2886,31 @@ export function drawAreaSpellOverlays(state, ctx, { areaPreview = null, now = Da
     ctx.strokeRect(x, y, width, height);
     ctx.restore();
   }
+}
+
+function drawDiscoveryPulse(state, ctx, { entity, color, progress }) {
+  const target = entity.targetType === 'door'
+    ? state.entities.find(door => door.id === entity.targetEntityId) || entity : entity;
+  const cells = target.subtype === 'door' && (target.wallSide || target.hallDirection)
+    ? Object.values(getDoorTiles(target)) : target.cells;
+  let center;
+  if (cells?.length) {
+    const points = cells.map(cell => visualTilePoint(state, cell.x, cell.y));
+    const xs = points.map(point => point[0]), ys = points.map(point => point[1]);
+    center = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+  } else {
+    center = visualTilePoint(state, target.x, target.y);
+    center[0] += (Math.max(1, Number(target.width) || 1) - 1) / 2;
+    center[1] += (Math.max(1, Number(target.height) || 1) - 1) / 2;
+  }
+  ctx.save();
+  ctx.globalAlpha = 1 - progress;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(center[0] * TILE_SIZE_PX, center[1] * TILE_SIZE_PX, (0.15 + 5.85 * progress) * TILE_SIZE_PX, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function renderDungeon(state, layers, options = {}) {
@@ -2915,9 +2949,9 @@ function drawDungeonFrame(state, layers, options) {
     const visibleEntities = visibleDungeonEntities(state, { darkness: options.forceBlackout === true });
     const artwork = illusionArtwork(state, { darkness: options.forceBlackout === true });
     const spellTemplates = ongoingSpellTemplates(state, { now: options.areaNow ?? Date.now() });
-    const spellKey = spellTemplates.map(visual => `${visual.id}:${visual.spell}:${visual.routeId}:${JSON.stringify(visual.rect)}:${visual.opacity}:${spellTemplateKnownCells(state, visual)}`).join('|');
+    const spellKey = spellTemplates.map(visual => `${visual.id}:${visual.spell}:${visual.routeId}:${JSON.stringify(visual.rect)}:${JSON.stringify(visual.artTransform)}:${visual.opacity}:${spellTemplateKnownCells(state, visual)}`).join('|');
     const illusionKey = artwork.map(({ source, rect, cells }) =>
-      `${source.id}:${source.illusion.id}:${source.illusion.kind}:${source.visualRouteId ?? routeOf(state, source)}:${rect.x},${rect.y}:${cells.map(cell => tileKey(cell.x, cell.y)).join(';')}`).join('|');
+      `${source.id}:${source.illusion.id}:${source.illusion.kind}:${JSON.stringify(source.illusion.artTransform)}:${source.visualRouteId ?? routeOf(state, source)}:${rect.x},${rect.y}:${cells.map(cell => tileKey(cell.x, cell.y)).join(';')}`).join('|');
     const monsterKey = visibleEntities.map(entity => `${entity.id}:${entity.x},${entity.y}:${entity.disguiseRevealed ? 1 : 0}`).join('|');
     const previousObjects = objectFrames.get(objectsCtx);
     if (options.motionOnly !== true || !previousObjects || previousObjects.monsterKey !== monsterKey ||
@@ -2930,7 +2964,10 @@ function drawDungeonFrame(state, layers, options) {
   }
   fogCtx.clearRect(0, 0, widthPx, heightPx);
   drawFog(state, fogCtx, widthPx, heightPx, options.forceBlackout === true);
-  drawAreaSpellOverlays(state, fogCtx, { areaPreview: options.areaPreview, now: options.areaNow ?? Date.now() });
+  const previewCaster = (state.characters || []).find(character => character.id === options.targeting?.characterId);
+  const burningPreview = options.targeting?.spellKey === 'burning hands' ? burningHandsArtPreview(state, previewCaster) : null;
+  drawAreaSpellOverlays(state, fogCtx, { areaPreview: options.areaPreview || burningPreview,
+    previewCasterId: previewCaster?.id, now: options.areaNow ?? Date.now() });
   if (!options.forceBlackout || options.targeting) drawCombatMovement(state, fogCtx, options.targeting);
   drawProtectionAuras(state,fogCtx);
   drawRestScene(state, fogCtx, options);
@@ -2945,4 +2982,5 @@ function drawDungeonFrame(state, layers, options) {
   }
   fogCtx.restore();
   drawCharacters(state, fogCtx, { darkness: options.forceBlackout === true });
+  if (options.discoveryPulse) drawDiscoveryPulse(state, fogCtx, options.discoveryPulse);
 }

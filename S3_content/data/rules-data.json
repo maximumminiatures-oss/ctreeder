@@ -32,6 +32,7 @@
     { "name": "crossbow", "costGp": 8, "slots": 1, "type": "R", "range": "F", "damage": "1d6", "properties": "2H, L" },
     { "name": "dagger", "costGp": 1, "slots": 1, "type": "M/R", "range": "C/N", "damage": "1d4", "properties": "F, Th" },
     { "name": "greataxe", "costGp": 10, "slots": 2, "type": "M", "range": "C", "damage": "1d8", "versatileDamage": "1d10", "properties": "V" },
+    { "name": "greatsword", "costGp": 12, "slots": 2, "type": "M", "range": "C", "damage": "1d12", "properties": "2H" },
     { "name": "javelin", "costGp": 0.5, "slots": 1, "type": "M/R", "range": "C/F", "damage": "1d4", "properties": "Th" },
     { "name": "longbow", "costGp": 8, "slots": 1, "type": "R", "range": "F", "damage": "1d8", "properties": "2H", "ammoType": "arrows" },
     { "name": "longsword", "costGp": 9, "slots": 1, "type": "M", "range": "C", "damage": "1d8" },

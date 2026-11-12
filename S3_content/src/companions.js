@@ -6,6 +6,7 @@ import { isSleeping } from './conditions.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { monsterAlignmentName, monsterGearName, normalizeMonsterGearItem } from './monster-terms.js';
 import { formatFieldName } from './ui-text.js';
+import { randomCompanionName } from './creature-names.js';
 import { STARTING_ROOM_SHOP_ITEMS } from './shop-catalog.js';
 
 const clone=value=>JSON.parse(JSON.stringify(value));
@@ -187,8 +188,9 @@ export function buildMonsterCompanion(monster,{id,controllerId,ancestries=['Huma
   const classLike=CLASS_NAMES.test(monster.name||'');
   const choices=['Human',...ancestries];
   const stats=Object.fromEntries([['STR','S'],['DEX','D'],['CON','C'],['INT','I'],['WIS','W'],['CHA','Ch']].map(([name,key])=>[name,monsterScore(monster,key)]));
-  const character={id:id||`companion-${monster.id}`,name:impersonated?.name||monster.name,
-    ancestry:impersonated?.ancestry||(classLike?choices[Math.floor(random()*choices.length)]:monster.name),
+  const ancestry = impersonated?.ancestry || monster.ancestry || (classLike ? choices[Math.floor(random() * choices.length)] : null);
+  const character={id:id||`companion-${monster.id}`,name:impersonated?.name || randomCompanionName(monster, ancestry, random),
+    ancestry:ancestry || monster.name,
     className:impersonated?.className||(classLike?monster.name:isAnimalMonster(monster)?'Animal':'Monster'),
     level:Number(impersonated?.level||monster.level)||1,stats,hp:Number.parseInt(monster.hp,10)||1,maxHitPoints:Number(monster.maxHp)||Number.parseInt(monster.hp,10)||1,
     armorClass:Number.parseInt(monster.ac,10)||10,x:monster.x,y:monster.y,routeId:monster.routeId,roomId:monster.roomId,

@@ -1,7 +1,15 @@
 import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import { drawSpellTemplateArtwork, drawAreaSpellOverlays, renderDungeon, preloadRendererAssets } from '../../S3_content/src/render.js';
-import { SPELL_TEMPLATE_ART, spellTemplateFits, ongoingSpellTemplates } from '../../S3_content/src/spell-template-art.js';
+import { SPELL_TEMPLATE_ART, spellTemplateFits, ongoingSpellTemplates, burningHandsArtPreview } from '../../S3_content/src/spell-template-art.js';
+import { createSpellArtTransform, drawSpellArtImage } from '../../S3_content/src/spell-art-transform.js';
+import { castAreaSpell, resolveAreaSpell } from '../../S3_content/src/area-spells.js';
+import { castTierThreeSpell, resolveTierThreeSpell } from '../../S3_content/src/tier-three-spells.js';
+import { castBurningHands, chooseBurningHands } from '../../S3_content/src/burning-hands.js';
+import { castIllusion, resolveIllusion } from '../../S3_content/src/illusion.js';
+import { castMagicCircle, resolveMagicCircle, magicCirclePresentation } from '../../S3_content/src/magic-circle.js';
+import { canTargetAtRange } from '../../S3_content/src/targeting.js';
+import { serializeDungeonState, hydrateDungeonState } from '../../S3_content/src/persistence.js';
 import { createEmptyDungeonState } from '../../S3_content/src/state-schema.js';
 import { recomputeVisibility } from '../../S3_content/src/visibility.js';
 
@@ -36,9 +44,119 @@ function context(layer = 'objects', events = []) {
   return { ctx: new Proxy(target, { get: (object, key) => key in object ? object[key] : () => {} }), events, stack };
 }
 
-test('all four supplied PNGs are optional renderer assets, preserving the existing Magic Circle filename', () => {
+test('all supplied PNGs are optional renderer assets, preserving the existing Magic Circle filename', () => {
   for (const { path } of Object.values(SPELL_TEMPLATE_ART)) assert.ok(loaded.includes(path));
   assert.equal(SPELL_TEMPLATE_ART['magic circle'].path, './assets/mqgic-circle.png');
+});
+
+const check = () => ({ roll: 15, total: 20 });
+const reload = state => hydrateDungeonState(JSON.parse(JSON.stringify(serializeDungeonState(state))));
+function castingScene() {
+  const state = scene(); state.areaSpells = []; state.characters[0].focusSpell = null;
+  Object.assign(state.characters[0], { className: 'Wizard', level: 5, stats: { INT: 18 }, spellsKnown: 'Web, Silence, Fireball, Burning Hands, Illusion, Magic Circle' });
+  return state;
+}
+
+test('rotation and independent coin flips cover all 16 combinations with exactly three visual draws', () => {
+  for (let quarter = 0; quarter < 4; quarter++) for (const flipH of [false, true]) for (const flipV of [false, true]) {
+    const values = [(quarter + .5) / 4, flipH ? .49 : .5, flipV ? .49 : .5]; let calls = 0;
+    assert.deepEqual(createSpellArtTransform(() => values[calls++]), { rotation: quarter * 90, flipH, flipV });
+    assert.equal(calls, 3);
+    const operations = [], ctx = Object.fromEntries(['save', 'restore', 'translate', 'rotate', 'scale', 'drawImage'].map(name =>
+      [name, (...args) => operations.push([name, ...args])]));
+    const transform = { rotation: quarter * 90, flipH, flipV };
+    drawSpellArtImage(ctx, 'image', { x: 2, y: 3, width: 3, height: 3 }, transform, 54);
+    if (!quarter && !flipH && !flipV) assert.deepEqual(operations, [['drawImage', 'image', 108, 162, 162, 162]]);
+    else assert.deepEqual(operations, [['save'], ['translate', 189, 243], ['rotate', quarter * Math.PI / 2],
+      ['scale', flipH ? -1 : 1, flipV ? -1 : 1], ['drawImage', 'image', -81, -81, 162, 162], ['restore']]);
+  }
+});
+
+test('Web, Silence and Magic Circle carry a single saved cast transform through preview and effect lifetime', () => {
+  for (const spell of ['web', 'silence', 'magic circle']) {
+    let state = castingScene(), caster = state.characters[0];
+    const options = { rollCheck: check, artRandom: () => .3, random: () => { throw new Error('visuals consumed gameplay RNG'); } };
+    if (spell === 'magic circle') castMagicCircle(state, caster, options);
+    else castAreaSpell(state, caster, spell, options);
+    const expected = structuredClone(caster.pendingSpell.artTransform);
+    assert.deepEqual(expected, { rotation: 90, flipH: true, flipV: true });
+    state = reload(state); caster = state.characters[0];
+    const preview = spell === 'magic circle' ? magicCirclePresentation(state, caster).preview : resolveAreaSpell(state, caster, { x: 8, y: 8 }).preview;
+    assert.deepEqual(preview.artTransform, expected);
+    if (spell === 'magic circle') resolveMagicCircle(state, caster, { option: 'undead' });
+    else resolveAreaSpell(state, caster, { x: 8, y: 8, confirmed: true });
+    for (let pass = 0; pass < 3; pass++) {
+      state = reload(state);
+      assert.deepEqual(state.areaSpells[0].artTransform, expected);
+      assert.deepEqual(ongoingSpellTemplates(state)[0].artTransform, expected);
+      const before = structuredClone(state), first = context(), second = context();
+      drawSpellTemplateArtwork(state, first.ctx); drawSpellTemplateArtwork(state, second.ctx);
+      assert.deepEqual(first.events, second.events); assert.deepEqual(state, before);
+      assert.equal(first.stack.length, 0);
+    }
+  }
+});
+
+test('Fireball pointer and resolved previews reuse saved cast metadata without rerolling or changing cells', () => {
+  let state = castingScene(), caster = state.characters[0];
+  castTierThreeSpell(state, caster, 'fireball', { rollCheck: check, artRandom: () => .8 });
+  const expected = structuredClone(caster.pendingSpell.artTransform);
+  state = reload(state); caster = state.characters[0];
+  const preview = resolveTierThreeSpell(state, caster, { x: 8, y: 8 }).preview;
+  assert.deepEqual(preview.artTransform, expected);
+  const pointer = { ...preview }; delete pointer.artTransform;
+  const before = structuredClone(state), first = context(), second = context();
+  drawAreaSpellOverlays(state, first.ctx, { areaPreview: pointer, previewCasterId: caster.id });
+  drawAreaSpellOverlays(state, second.ctx, { areaPreview: preview });
+  assert.deepEqual(first.events, second.events); assert.deepEqual(state, before);
+  assert.deepEqual(first.events.find(event => event.type === 'image').args, [-189, -189, 378, 378]);
+});
+
+test('Illusion critical projections keep independent transforms across creature normalization and save/load', () => {
+  let state = castingScene(), caster = state.characters[0];
+  castIllusion(state, caster, { rollCheck: () => ({ roll: 20, total: 24 }), artRandom: () => .3 });
+  const first = structuredClone(caster.pendingSpell.artTransform);
+  resolveIllusion(state, caster, { option: 'horrible behemoth' });
+  assert.deepEqual(resolveIllusion(state, caster, { x: 8, y: 8 }).preview.artTransform, first);
+  resolveIllusion(state, caster, { x: 8, y: 8, confirmed: true }, { artRandom: () => .8 });
+  const second = structuredClone(caster.pendingSpell.artTransform);
+  assert.notDeepEqual(first, second);
+  resolveIllusion(state, caster, { option: 'floor' });
+  resolveIllusion(state, caster, { x: 12, y: 8, confirmed: true });
+  for (let pass = 0; pass < 3; pass++) {
+    state = reload(state);
+    const creature = state.characters.find(character => character.illusion);
+    assert.deepEqual(creature.illusion.artTransform, first);
+    assert.deepEqual(creature.raw.illusion.artTransform, first);
+    assert.deepEqual(state.entities.find(entity => entity.illusion).illusion.artTransform, second);
+  }
+});
+
+test('Burning Hands preview uses actual close geometry, LOS, known cells, and critical fallback without mutating rules', () => {
+  let state = castingScene(), caster = state.characters[0];
+  castBurningHands(state, caster, { rollCheck: check, artRandom: () => .3 });
+  const expected = structuredClone(caster.pendingSpell.artTransform);
+  state = reload(state); caster = state.characters[0];
+  assert.equal(burningHandsArtPreview(state, caster).cells.length, 9, 'close range includes adjacent diagonals');
+  state.tiles[8 * 20 + 9].type = 'wall';
+  const before = structuredClone(state), preview = burningHandsArtPreview(state, caster);
+  assert.deepEqual(preview.artTransform, expected);
+  const reaches = state.tiles.filter(tile => canTargetAtRange(state, caster, tile, 1, { requireLight: false, areaEffect: true }));
+  assert.deepEqual(preview.cells.map(({ x, y }) => `${x},${y}`).sort(), reaches.map(({ x, y }) => `${x},${y}`).sort());
+  const { ctx, events } = context(); drawAreaSpellOverlays(state, ctx, { areaPreview: preview });
+  const art = events.find(event => event.type === 'image');
+  assert.equal(art.image.src, './assets/burning-hands.png');
+  assert.ok(art.clips[0].every(([x, y]) => preview.cells.some(cell => cell.x * 54 === x && cell.y * 54 === y)));
+  assert.ok(!art.clips[0].some(([x, y]) => x === 9 * 54 && y === 8 * 54));
+  assert.deepEqual(state, before);
+  state.tiles[8 * 20 + 9].type = 'floor';
+  caster.pendingSpell.phase = 'critical'; chooseBurningHands(caster, 'double-radius');
+  const critical = burningHandsArtPreview(state, caster);
+  assert.equal(critical.cells.length, 13, 'radius two is circular, not a 5x5 square');
+  assert.ok(!critical.cells.some(cell => cell.x === 10 && cell.y === 10));
+  assert.equal(spellTemplateFits('burning hands', critical.rect), false);
+  events.length = 0; drawAreaSpellOverlays(state, ctx, { areaPreview: critical });
+  assert.equal(events.some(event => event.type === 'image'), false);
 });
 
 test('only standard footprints use art; enlarged critical areas retain their geometric fallback', () => {
@@ -108,6 +226,8 @@ test('ongoing art is under monster tokens and fog; motion frames refresh it when
   const fogStart = events.findIndex(event => event.layer === 'fog'); assert.ok(art >= 0 && art < monster && monster < fogStart);
   const clears = () => events.filter(event => event.layer === 'objects' && event.type === 'clear').length;
   const first = clears(); frame(); assert.equal(clears(), first);
-  state.visibility.routeExplored[''].delete('2,2'); frame(); assert.equal(clears(), first + 1);
-  state.areaSpells = []; frame(); assert.equal(clears(), first + 2);
+  state.areaSpells[0].artTransform = { rotation: 90, flipH: true, flipV: false }; frame(); assert.equal(clears(), first + 1);
+  frame(); assert.equal(clears(), first + 1);
+  state.visibility.routeExplored[''].delete('2,2'); frame(); assert.equal(clears(), first + 2);
+  state.areaSpells = []; frame(); assert.equal(clears(), first + 3);
 });

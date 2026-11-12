@@ -2,6 +2,7 @@ import { abilityScoreModifier } from './characters.js';
 import { normalizeSpellLookupKey } from './spells.js';
 import { forgottenSpells } from './arcane-effects.js';
 import { ancestryKey, hasAncestryTrait, isRepresentedAncestryBonus } from './ancestry.js';
+import { classTalentForRoll, resetFreshImportTalents, syncFreshImportHitPoints, isImportedClassBonus } from './import-talents.js';
 
 export const MAX_CHARACTER_LEVEL = 10;
 export const STAT_NAMES = { STR: 'Strength', DEX: 'Dexterity', CON: 'Constitution', INT: 'Intelligence', WIS: 'Wisdom', CHA: 'Charisma' };
@@ -32,14 +33,14 @@ const talentNames = { mastery: 'Additional Weapon Mastery', attack: '+1 melee an
 
 function save(character) {
   character.raw ||= {};
-  for (const field of ['level','XP','hp','maxHitPoints','title','stats','levels','bonuses','spellsKnown','advancements','gearSlotsTotal']) character.raw[field] = clone(character[field] ?? (field === 'advancements' ? [] : null));
+  for (const field of ['level','XP','hp','maxHitPoints','title','stats','levels','ambitionTalentLevel','bonuses','spellsKnown','advancements','gearSlotsTotal']) character.raw[field] = clone(character[field] ?? (field === 'advancements' ? [] : null));
   character.raw.xp = character.XP;
   character.raw.xpNext = xpTarget(character);
 }
 
 function addBonus(character, event, name, target, amount = 1, description = '') {
   character.bonuses ||= [];
-  character.bonuses.push({ sourceType: 'Class', sourceName: character.className, sourceCategory: 'Talent', gainedAtLevel: event.level,
+  character.bonuses.push({ sourceType: event.sourceType || 'Class', sourceName: character.className, sourceCategory: 'Talent', gainedAtLevel: event.level,
     name, bonusName: name, bonusTo: target, bonusAmount: amount, description, progression: true });
   const level = character.levels.find(entry => entry.level === event.level);
   if (level && !event.initial && description && !name.startsWith('Spell:')) { level.talentRolledName = name; level.talentRolledDesc = description; }
@@ -47,33 +48,20 @@ function addBonus(character, event, name, target, amount = 1, description = '') 
 
 export function advancementButtonLabel(character) {
   const pending = character?.advancements?.find(event => !event.completed);
-  return pending?.initial ? /fighter/i.test(character.className) ? 'Pick Talent' : 'Pick Spells' : 'Level Up';
+  return pending?.initial ? /priest|wizard/i.test(character.className) ? 'Pick Spells' : 'Pick Talent' : 'Level Up';
 }
 
-export function initializeImportChoices(character) {
+export function initializeImportChoices(character, { random = Math.random } = {}) {
   const key = classKey(character);
-  if (!['fighter','priest','wizard'].includes(key) || character.advancements?.some(event => event.initial)) return;
-  character.bonuses ||= []; character.levels ||= [];
-  const tasks = [], discarded = [];
-  const classOwned = bonus => /^class$/i.test(bonus.sourceType || '') ||
-    !bonus.sourceType && (!bonus.sourceName || String(bonus.sourceName).toLowerCase() === key);
+  if (!['fighter','priest','wizard','thief'].includes(key) || character.advancements?.some(event => event.initial)) return;
+  const importedHp = resetFreshImportTalents(character), tasks = [];
+  const classOwned = bonus => isImportedClassBonus(character, bonus);
   if (key === 'fighter') {
-    character.bonuses = character.bonuses.filter(bonus => {
-      const remove = classOwned(bonus) && /WeaponMastery|\bGrit\b|AdvantageOnStatChecks/i.test(`${bonus.name} ${bonus.bonusName} ${bonus.bonusTo}`);
-      if (remove) discarded.push(bonus); return !remove;
-    });
+    character.bonuses = character.bonuses.filter(bonus => !(classOwned(bonus) && /WeaponMastery|\bGrit\b|AdvantageOnStatChecks/i.test(`${bonus.name} ${bonus.bonusName} ${bonus.bonusTo}`)));
     tasks.push({ id: 'mastery', type: 'mastery', grantWeapon: true }, { id: 'grit', type: 'grit' });
-    const extraMasteries = discarded.filter(bonus => /WeaponMastery/i.test(bonus.name || '')).length - 1;
-    for (let index = 0; index < extraMasteries; index++) tasks.push({ id: `extra-mastery-${index + 1}`, type: 'mastery', grantWeapon: true });
-  } else {
-    const spellChoiceTalent = character.bonuses.some(bonus => classOwned(bonus) && /adv.*cast.*spell/i.test(`${bonus.name} ${bonus.bonusName}`));
-    const extraSpellTalent = character.levels.some(level => classOwned(level) && /learn.*(?:extra|additional).*spell/i.test(`${level.talentRolledName} ${level.talentRolledDesc}`));
-    character.bonuses = character.bonuses.filter(bonus => {
-      const text = `${bonus.name} ${bonus.bonusName} ${bonus.bonusTo}`;
-      const remove = classOwned(bonus) && (/^Spell:/i.test(bonus.name || '') || /Tier:\s*\d.*Spell:/i.test(bonus.bonusTo || '') ||
-        /adv.*cast.*spell|learn.*extra.*spell/i.test(text));
-      if (remove) discarded.push(bonus); return !remove;
-    });
+  } else if (key !== 'thief') {
+    character.bonuses = character.bonuses.filter(bonus => !(classOwned(bonus) &&
+      (/^Spell:/i.test(bonus.name || '') || /Tier:\s*\d.*Spell:/i.test(bonus.bonusTo || ''))));
     const inheritedSpells = character.bonuses.filter(bonus => !classOwned(bonus) &&
       (/^Spell:/i.test(bonus.name || '') || /Tier:\s*\d.*Spell:|learn.*spell/i.test(`${bonus.bonusTo || ''} ${bonus.name || ''}`)))
       .map(bonus => bonus.spellName || bonus.bonusName).filter(name => typeof name === 'string' && name && !/^LearnExtraSpell$/i.test(name));
@@ -82,29 +70,26 @@ export function initializeImportChoices(character) {
     const uniqueSpells = new Map(preservedSpells.map(name => [normalizeSpellLookupKey(name), name]));
     character.spellsKnown = [...uniqueSpells.values()].join(', ');
     tasks.push({ id: 'spell-1', type: 'spell', tier: 1 }, { id: 'spell-2', type: 'spell', tier: 1 });
-    if (extraSpellTalent) tasks.push({ id: 'extra-spell', type: 'extra-spell', tier: 1 });
-    if (spellChoiceTalent) tasks.push({ id: 'spell-advantage', type: 'spell-advantage' });
   }
-  for (const level of character.levels) {
-    const text = `${level.talentRolledName} ${level.talentRolledDesc}`;
-    if (classOwned(level) && discarded.some(bonus => /Spell:|WeaponMastery|Grit|AdvantageOnStatChecks|adv.*cast.*spell/i.test(`${bonus.name} ${bonus.bonusTo}`)) &&
-      /weapon.*mastery|\bgrit\b|adv.*cast.*spell|learn.*(?:extra|additional).*spell/i.test(text)) {
-      level.talentRolledName = ''; level.talentRolledDesc = '';
-      level.Rolled12ChosenTalentDesc = ''; level.Rolled12ChosenTalentName = '';
+  const event = { id: 'initial', initial: true, level: 1, hpRolls: [], hpGain: 0, importedHp, tasks, completed: false };
+  for (const ambition of ancestryKey(character) === 'human' ? [false, true] : [false]) {
+    let rolls, total;
+    const duplicateInitiative = () => key === 'thief' && total === 2 && (tasks.some(task => task.type === 'initiative') || /initiative/i.test(bonusText(character)));
+    for (let attempt = 0; attempt < 32; attempt++) {
+      rolls = [die(6, random), die(6, random)]; total = rolls[0] + rolls[1];
+      if (!duplicateInitiative()) break;
     }
+    const type = duplicateInitiative() ? 'backstab' : classTalentForRoll(key, total), id = ambition ? 'ambition' : 'talent';
+    event[ambition ? 'ambitionTalentRoll' : 'talentRoll'] = { rolls, total };
+    tasks.push({ id, type, ambition, grantWeapon: type === 'mastery', tier: 1 });
+    const record = ambition ? (character.ambitionTalentLevel = { level: 1, progression: true }) : character.levels.find(level => Number(level.level) === 1);
+    Object.assign(record, { talentRoll: { rolls, total }, talentRolledName: type, talentRolledDesc: `Choose: ${talentNames[type] || 'a talent or two stat points'}` });
   }
   character.advancements ||= [];
-  character.advancements.unshift({ id: 'initial', initial: true, level: 1, hpRolls: [], hpGain: 0, tasks, completed: false });
+  character.advancements.unshift(event);
+  resolveAutomaticTalents(character, event);
   character.raw ||= {}; character.raw.learnedScrollSpells = clone(character.learnedScrollSpells || []); delete character.raw.spells;
   save(character);
-}
-
-function talentForRoll(key, roll) {
-  if (roll === 12) return 'wild';
-  if (key === 'fighter') return roll === 2 ? 'mastery' : roll <= 6 ? 'attack' : roll <= 9 ? 'stat' : 'armor';
-  if (key === 'priest') return roll === 2 ? 'spell-advantage' : roll <= 6 ? 'attack-choice' : roll <= 9 ? 'casting' : 'stat';
-  if (key === 'thief') return roll === 2 ? 'initiative' : roll <= 5 ? 'backstab' : roll <= 9 ? 'stat' : 'attack';
-  return roll === 2 ? 'magic-item' : roll <= 7 ? 'casting-or-int' : roll <= 9 ? 'spell-advantage' : 'extra-spell';
 }
 
 export function canLevelUp(character) {
@@ -144,7 +129,7 @@ export function beginLevelUp(character, { random = Math.random } = {}) {
         rolled = { rolls, total: rolls[0] + rolls[1] };
         if (!(key === 'thief' && rolled.total === 2 && /initiative/i.test(bonusText(character)))) break;
       }
-      const type = key === 'thief' && rolled.total === 2 && /initiative/i.test(bonusText(character)) ? 'backstab' : talentForRoll(key, rolled.total);
+      const type = key === 'thief' && rolled.total === 2 && /initiative/i.test(bonusText(character)) ? 'backstab' : classTalentForRoll(key, rolled.total);
       event.talentRoll = rolled;
       event.tasks.push({ id: 'talent', type });
     }
@@ -160,11 +145,17 @@ export function beginLevelUp(character, { random = Math.random } = {}) {
 }
 
 function resolveAutomaticTalents(character, event) {
-  const task = event.tasks.find(entry => entry.id === 'talent' && !entry.done);
-  if (task?.type === 'attack') { addBonus(character,event,'Plus1ToHit','Melee and ranged attacks',1,'+1 to melee and ranged attacks'); task.done = true; }
-  if (task?.type === 'casting') { addBonus(character,event,'PriestSpellcasting','priest spellcasting checks',1,'+1 to priest spellcasting checks'); task.done = true; }
-  if (task?.type === 'backstab') { addBonus(character,event,'BackstabIncrease','Backstab increase',1,'Backstab increase: +1 damage die'); task.done = true; }
-  if (task?.type === 'initiative') { addBonus(character,event,'InitiativeAdvantage','Initiative',1,'Advantage on initiative'); task.done = true; }
+  for (const task of event.tasks.filter(entry => !entry.done)) {
+    const sourceEvent = { ...event, sourceType: task.ambition ? 'Ambition' : 'Class' };
+    if (task.type === 'attack-choice' && event.initial) {
+      const mode = Number(character.stats.STR) > Number(character.stats.DEX) ? 'Melee' : 'Ranged';
+      addBonus(character,sourceEvent,'AttackBonus',`${mode} attacks`,1,`+1 to ${mode.toLowerCase()} attacks`); task.done = true; task.choice = mode;
+    }
+    if (task.type === 'attack') { addBonus(character,sourceEvent,'Plus1ToHit','Melee and ranged attacks',1,'+1 to melee and ranged attacks'); task.done = true; }
+    if (task.type === 'casting') { addBonus(character,sourceEvent,'PriestSpellcasting','priest spellcasting checks',1,'+1 to priest spellcasting checks'); task.done = true; }
+    if (task.type === 'backstab') { addBonus(character,sourceEvent,'BackstabIncrease','Backstab increase',1,'Backstab increase: +1 damage die'); task.done = true; }
+    if (task.type === 'initiative') { addBonus(character,sourceEvent,'InitiativeAdvantage','Initiative',1,'Advantage on initiative'); task.done = true; }
+  }
   event.completed = event.tasks.every(entry => entry.done);
 }
 
@@ -194,7 +185,7 @@ export function advancementOptions(character, event, task, { spells = [], weapon
     return spells.filter(spell => spell.implementationStatus !== 'unfinished' && !forgottenSpells(character).has(normalizeSpellLookupKey(spell.name)) && spell.classes?.includes(key) && (task.type === 'spell-advantage' ? known.has(normalizeSpellLookupKey(spell.name)) &&
       !(character.bonuses || []).some(bonus => bonus.name === 'AdvantageOnSpellcasting' && normalizeSpellLookupKey(bonus.bonusTo) === normalizeSpellLookupKey(spell.name)) :
       !known.has(normalizeSpellLookupKey(spell.name)) && (task.type === 'spell' ? spell.tier === task.tier : spell.tier <= Math.min(5, Math.ceil(event.level / 2)))))
-      .sort((a,b) => a.tier-b.tier || a.name.localeCompare(b.name)).map(spell => ({ value: spell.name, label: `Tier ${spell.tier}: ${spell.name}` }));
+      .sort((a,b) => a.tier-b.tier || a.name.localeCompare(b.name)).map(spell => ({ value: spell.name, label: `Tier ${spell.tier}: ${spell.name.replace(/^Shield Of Faith$/i, 'Shield of Faith')}` }));
   }
   return [];
 }
@@ -203,6 +194,7 @@ export function resolveAdvancement(character, eventId, taskId, value, context = 
   const event = character.advancements?.find(entry => entry.id === eventId && !entry.completed);
   const task = event?.tasks.find(entry => entry.id === taskId && !entry.done);
   if (!event || event !== character.advancements.find(entry => !entry.completed) || !task || !advancementOptions(character,event,task,context).some(option => option.value === value)) throw new Error('Choose a valid pending level-up option.');
+  const sourceEvent = { ...event, sourceType: task.ambition ? 'Ambition' : 'Class' };
   if (task.type === 'wild') {
     if (value === 'talents') task.mode = 'talents';
     else { task.fromWild = true; task.type = value; if (value === 'points') task.remaining = 2; resolveAutomaticTalents(character,event); }
@@ -215,32 +207,33 @@ export function resolveAdvancement(character, eventId, taskId, value, context = 
     for (const stat of stats) character.stats[stat] = Math.min(99, (Number(character.stats[stat]) || 10) + 1);
     const newCapacity = Math.max(10, Number(character.stats.STR) || 10) + (classKey(character) === 'fighter' ? Math.max(0, abilityScoreModifier(character.stats.CON)) : 0);
     character.gearSlotsTotal = Math.max(10, (Number(character.gearSlotsTotal) || oldCapacity) + newCapacity - oldCapacity);
-    if (stats.includes('CON')) for (const advancement of character.advancements.filter(entry => entry.level >= event.level)) {
+    if (stats.includes('CON') && event.importedHp) syncFreshImportHitPoints(character, event.importedHp);
+    else if (stats.includes('CON')) for (const advancement of character.advancements.filter(entry => entry.level >= event.level)) {
       const modifier = abilityScoreModifier(character.stats.CON);
       const gain = Math.max(1, Math.max(...advancement.hpRolls) + modifier);
       character.maxHitPoints += gain - advancement.hpGain;
       if (Number(character.hp) > 0) character.hp += gain - advancement.hpGain;
       advancement.hpGain = gain; advancement.conModifier = modifier;
     }
-    addBonus(character,event,'StatBonus',stats.map(stat => `${stat}:+1`).join(', '),stats.length,stats.length === 1 ? `+1 ${stats[0]}` : stats[0] === stats[1] ? `+2 ${stats[0]}` : `+1 ${stats.join(', +1 ')}`);
+    addBonus(character,sourceEvent,'StatBonus',stats.map(stat => `${stat}:+1`).join(', '),stats.length,stats.length === 1 ? `+1 ${stats[0]}` : stats[0] === stats[1] ? `+2 ${stats[0]}` : `+1 ${stats.join(', +1 ')}`);
     if (task.type === 'points') {
       task.remaining = (task.remaining ?? 2) - 1;
       if (task.remaining > 0) { save(character); return {}; }
     }
   } else if (task.type === 'mastery') {
-    addBonus(character,event,'WeaponMastery',value,1,`${value} mastery`);
+    addBonus(character,sourceEvent,'WeaponMastery',value,1,`${value} mastery`);
     if (task.grantWeapon) createdItem = { ...clone(context.weapons.find(item => item.name === value)), type: 'weapon', quantity: 1, totalUnits: 1, equipped: false };
   }
-  else if (task.type === 'grit') addBonus(character,event,'Grit','AdvantageOnStatChecks',1,`Grit: ${STAT_NAMES[value]}`);
-  else if (task.type === 'armor') addBonus(character,event,'ArmorMastery',value,1,`Armor mastery: +1 AC with ${value}`);
-  else if (task.type === 'attack-choice') addBonus(character,event,'AttackBonus',`${value} attacks`,1,`+1 to ${value.toLowerCase()} attacks`);
-  else if (task.type === 'casting-or-int') addBonus(character,event,'WizardSpellcasting','wizard spellcasting checks',1,'+1 to wizard spellcasting checks');
-  else if (task.type === 'spell-advantage') addBonus(character,event,'AdvantageOnSpellcasting',value,1,`Gain advantage on casting ${value}`);
+  else if (task.type === 'grit') addBonus(character,sourceEvent,'Grit','AdvantageOnStatChecks',1,`Grit: ${STAT_NAMES[value]}`);
+  else if (task.type === 'armor') addBonus(character,sourceEvent,'ArmorMastery',value,1,`Armor mastery: +1 AC with ${value}`);
+  else if (task.type === 'attack-choice') addBonus(character,sourceEvent,'AttackBonus',`${value} attacks`,1,`+1 to ${value.toLowerCase()} attacks`);
+  else if (task.type === 'casting-or-int') addBonus(character,sourceEvent,'WizardSpellcasting','wizard spellcasting checks',1,'+1 to wizard spellcasting checks');
+  else if (task.type === 'spell-advantage') addBonus(character,sourceEvent,'AdvantageOnSpellcasting',value,1,`Gain advantage on casting ${value}`);
   else if (task.type === 'spell' || task.type === 'extra-spell') {
     const spell = context.spells.find(entry => entry.name === value);
     const names = String(character.spellsKnown || '').split(/,\s*/).filter(name => name && name !== 'None');
     character.spellsKnown = [...new Set([...names,value])].join(', ');
-    addBonus(character,event,`Spell: ${character.className}, Tier ${spell.tier}, Level ${event.level}`,value,1,`Learn ${value}`);
+    addBonus(character,sourceEvent,`Spell: ${character.className}, Tier ${spell.tier}, Level ${event.level}`,value,1,`Learn ${value}`);
     character.bonuses.at(-1).bonusName = value;
   } else if (task.type === 'magic-item') {
     if (context.createMagicItem) createdItem = context.createMagicItem(value, character);
@@ -252,7 +245,7 @@ export function resolveAdvancement(character, eventId, taskId, value, context = 
     let roll = random() * total;
     createdItem = clone(catalog.find(entry => (roll -= entry.weight) < 0)?.item || catalog.at(-1).item);
     }
-    addBonus(character,event,'CreateMagicItem',value,1,`Created a magic ${value}`);
+    addBonus(character,sourceEvent,'CreateMagicItem',value,1,`Created a magic ${value}`);
   }
   task.done = true; task.choice = value; event.completed = event.tasks.every(entry => entry.done);
   if (task.type === 'grit') character.bonuses.at(-1).bonusName = STAT_NAMES[value];

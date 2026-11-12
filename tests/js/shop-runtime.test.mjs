@@ -31,6 +31,14 @@ function scene(gear = []) {
 const money = actor => actor.gold * 100 + actor.silver * 10 + actor.copper;
 const buy = (state, id) => executeGameCommand(state, { type: 'buy_gear', character_id: 'hero', item_id: id });
 
+test('deeper starting rooms remain sanctuaries but never offer buying or selling', async () => {
+  for (const level of [2, 5, 10]) {
+    const state = scene(); state.level = level;
+    await assert.rejects(() => buy(state, 'torch'), /level-one starting room/);
+    await assert.rejects(() => executeGameCommand(state, { type: 'sell_treasure', character_id: 'hero', gear_indices: [] }), /level-one starting room/);
+  }
+});
+
 test('every catalog purchase works through authoritative commands with exact prices, quantities and no XP loss', async () => {
   for (const config of STARTING_ROOM_SHOP_ITEMS) {
     const result = await buy(scene(), config.id);

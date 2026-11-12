@@ -244,6 +244,8 @@ test('physical distance includes pit descents, connected lower tunnel and a seco
   assert.equal(dungeonTraversalDistances(state).has('|19,3'), false);
   for (const cell of exitRim) delete getTile(state, cell.x, cell.y).meta.layoutBlocks;
   state.underpasses = [];
+  assert.equal(dungeonTraversalDistances(state).has('|19,4'), false);
+  state.entities = state.entities.filter(entity => entity.doorKind !== 'stairs-down');
   assert.equal(placeDungeonDownstairs(state), null); // never place unreachable stairs
 });
 
@@ -266,14 +268,13 @@ test('crossings do not create a shortcut between routes; stairs avoid pillars, p
   assert.ok(stairs); assert.ok(!bad.some(point => point.x === stairs.x && point.y === stairs.y));
 });
 
-test('the farthest room remains the destination even when it is flooded or fully occupied by spawns', () => {
+test('flooded rooms are ineligible and populated rooms reserve the full party without deleting spawns', () => {
   const state = scene();
   state.entities = state.entities.filter(entity => entity.doorKind !== 'stairs-down');
   const far = state.rooms[1];
   state.decor.water = [{ x: far.x, y: far.y, widthTiles: far.width, heightTiles: far.height, assetKey: 'water-1x1' }];
   const stairs = placeDungeonDownstairs(state);
-  assert.equal(stairs.roomId, 'far');
-  assert.equal(isSafeDungeonArrival(state, stairs), false);
+  assert.equal(stairs, null);
   state.entities = state.entities.filter(entity => entity.doorKind !== 'stairs-down');
   state.decor.water = [];
   const originalIds = [];
@@ -284,6 +285,62 @@ test('the farthest room remains the destination even when it is flooded or fully
   const reserved = placeDungeonDownstairs(state);
   assert.equal(reserved.roomId, 'far');
   assert.ok(!state.entities.some(entity => entity.type === 'monster' && entity.x === reserved.x && entity.y === reserved.y));
+  assert.deepEqual(state.entities.filter(entity => entity.type === 'monster').map(entity => entity.id), originalIds);
+  assert.ok(state.tiles.filter(tile => tile.roomId === far.id && isSafeDungeonArrival(state, tile)).length >= 16);
+});
+
+test('downstairs choose the farthest capacity-qualified room and never move an existing stair', () => {
+  const create = () => {
+    const state = scene();
+    state.entities = state.entities.filter(entity => entity.doorKind !== 'stairs-down');
+    const room = { id: 'tiny-farthest', x: 30, y: 2, width: 3, height: 3 };
+    state.rooms.push(room);
+    for (let y = 2; y < 5; y++) for (let x = 30; x < 33; x++)
+      Object.assign(getTile(state, x, y), { type: 'floor', roomId: room.id });
+    for (let x = 23; x < 30; x++) Object.assign(getTile(state, x, 4), { type: 'floor', hallId: 'tiny-hall' });
+    return state;
+  };
+  const largeParty = create(), largeStairs = placeDungeonDownstairs(largeParty);
+  assert.equal(largeStairs.roomId, 'far');
+  assert.equal(largeParty.generation.downstairs.minArrivalCapacity, 16);
+  assert.ok(largeParty.generation.downstairs.arrivalCapacity >= 16);
+  const solo = create(), soloStairs = placeDungeonDownstairs(solo, { minArrivalCapacity: 1 });
+  assert.equal(soloStairs.roomId, 'tiny-farthest');
+  assert.equal(solo.generation.downstairs.arrivalCapacity, 8);
+  solo.rooms.find(room => room.id === soloStairs.roomId).discovered = true;
+  const before = structuredClone(solo);
+  assert.equal(placeDungeonDownstairs(solo, { minArrivalCapacity: 16 }), soloStairs);
+  assert.deepEqual(solo, before, 'capacity changes never rewrite an existing floor or stair');
+  const eight = create();
+  assert.equal(placeDungeonDownstairs(eight, { minArrivalCapacity: 8 }).roomId, 'tiny-farthest');
+  const nine = create();
+  assert.equal(placeDungeonDownstairs(nine, { minArrivalCapacity: 9 }).roomId, 'far');
+});
+
+test('party-capacity reservation never relocates ordinary monsters into crypts or invalid route cells', () => {
+  const state = scene();
+  state.entities = state.entities.filter(entity => entity.doorKind !== 'stairs-down');
+  state.rooms.push({ id: 'crypt', x: 25, y: 7, width: 1, height: 2, crypt: true });
+  for (const y of [7, 8]) Object.assign(getTile(state, 25, y), { type: 'floor', roomId: 'crypt', meta: { crypt: true } });
+  for (const x of [23, 24]) Object.assign(getTile(state, x, 7), { type: 'floor', hallId: 'crypt-approach' });
+  state.entities.push({ id: 'crypt-door', type: 'feature', subtype: 'door', x: 25, y: 7,
+    roomId: 'crypt', doorState: 'open', routeId: '' });
+  const originalIds = [];
+  for (const tile of state.tiles.filter(tile => tile.roomId === 'far')) {
+    const id = `ordinary-${tile.x}-${tile.y}`; originalIds.push(id);
+    state.entities.push({ id, type: 'monster', name: 'Goblin', tags: ['humanoid'], hp: 5,
+      x: tile.x, y: tile.y, roomId: 'far', routeId: '' });
+  }
+  const stairs = placeDungeonDownstairs(state);
+  assert.equal(stairs.roomId, 'far');
+  assert.ok(state.generation.downstairs.arrivalCapacity >= 16);
+  const distances = dungeonTraversalDistances(state);
+  for (const monster of state.entities.filter(entity => entity.type === 'monster')) {
+    assert.notEqual(monster.roomId, 'crypt');
+    assert.equal(monster.routeId, '');
+    assert.ok(isDungeonTraversalCell(state, monster));
+    assert.ok(distances.has(routeKey(monster)));
+  }
   assert.deepEqual(state.entities.filter(entity => entity.type === 'monster').map(entity => entity.id), originalIds);
 });
 
@@ -296,7 +353,7 @@ test('a real sixteen-member party can descend to level ten with no overlapping o
   assert.ok(next.characters.every(member => isSafeDungeonArrival(next, member) && member.roomId === next.generation.entranceRoomId));
 });
 
-test('generated seeds place exactly one reachable stair in the farthest room, preserve upstairs and stop at level ten', () => {
+test('generated seeds place exactly one reachable stair in the farthest viable room, preserve upstairs and stop at level ten', () => {
   for (const pattern of ['processional', 'angled', 'organic', 'innerWalls']) for (const seed of [1, 3, 10, 23, 564643]) {
     const state = generateDungeon(seed, seed % 9 + 1, { architecturePattern: pattern, organicAssets });
     const stairs = state.entities.filter(entity => entity.doorKind === 'stairs-down');
@@ -308,9 +365,13 @@ test('generated seeds place exactly one reachable stair in the farthest room, pr
     assert.ok(distances.has(routeKey(stairs[0])));
     const roomDistances = state.rooms.filter(room => room.id !== state.generation.entranceRoomId).map(room => {
       const cells = state.tiles.filter(tile => tile.roomId === room.id).map(tile => ({ ...tile, routeId: room.routeId || '' }));
+      const capacity = cells.filter(cell => distances.has(routeKey(cell)) &&
+        (routeKey(cell) === routeKey(stairs[0]) || isSafeDungeonArrival(state, cell, { ignoreOccupants: true }))).length - 1;
+      if (capacity < 16) return -Infinity;
       return Math.min(...cells.map(cell => distances.get(routeKey(cell))).filter(Number.isFinite));
     }).filter(Number.isFinite);
     assert.equal(state.generation.downstairs.distance, Math.max(...roomDistances));
+    assert.ok(state.generation.downstairs.arrivalCapacity >= 16);
     state.level = 10; placeDungeonDownstairs(state);
     assert.equal(downstairsIn(state), null);
     assert.ok(state.entities.some(entity => entity.doorKind === 'stairs-up'));
