@@ -101,6 +101,7 @@ function normalizeCombat(raw = {}) {
   return {
     active: raw.active === true,
     surpriseRound: raw.surpriseRound === true,
+    surpriseInitiatorId: typeof raw.surpriseInitiatorId === 'string' ? raw.surpriseInitiatorId : null,
     surpriseParticipantIds: Array.isArray(raw.surpriseParticipantIds) ? raw.surpriseParticipantIds : [],
     round: Math.max(0, Number.parseInt(raw.round ?? 0, 10) || 0),
     turnIndex: Math.max(0, Number.parseInt(raw.turnIndex ?? 0, 10) || 0),
@@ -426,7 +427,10 @@ export async function importShadowdarklingsCharacter(options = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           base_classes_only: options.baseClassesOnly === true,
-          room_id: options.roomId || null
+          room_id: options.roomId || null,
+          mode: options.mode,
+          ancestries: options.ancestries,
+          classes: options.classes
         })
       }),
       deadline

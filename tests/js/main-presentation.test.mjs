@@ -54,8 +54,8 @@ test('advancement choices show title-case labels but submit exact original optio
   const dom = new JSDOM('<div id="advancement-modal" data-character-id="fighter"><section></section></div>');
   const event = { id: 'level-3', level: 3, initial: false, completed: false, hpGain: 4, hpRolls: [4], conModifier: 0,
     tasks: [{ id: 'mastery', type: 'mastery' }, { id: 'magic', type: 'magic-item' }] };
-  const bonus = Object.freeze({ progression: true, gainedAtLevel: 3, description: 'war hammer mastery' });
-  const character = { id: 'fighter', name: 'Dagger', className: 'Fighter', stats: { INT: 12 }, title: 'Knight',
+  const bonus = Object.freeze({ progression: true, sourceName: 'Fighter', gainedAtLevel: 3, description: 'war hammer mastery' });
+  const character = { id: 'fighter', name: 'Dagger', className: 'Fighter', level: 3, stats: { INT: 12 }, title: 'Knight',
     advancements: [event], bonuses: [bonus] };
   const options = {
     mastery: Object.freeze([Object.freeze({ value: 'war hammer', label: 'war hammer' }), Object.freeze({ value: 'rusty short sword', label: 'rusty short sword' })]),
@@ -76,7 +76,7 @@ test('advancement choices show title-case labels but submit exact original optio
     names[0].click(); names[4].click();
     assert.deepEqual(submitted, [{ task: 'mastery', value: 'war hammer' }, { task: 'magic-item', value: 'wand' }]);
     assert.equal(character.name, 'Dagger'); assert.equal(bonus.description, 'war hammer mastery');
-    assert.ok([...dom.window.document.querySelectorAll('p')].some(node => node.textContent === 'Warhammer mastery'));
+    assert.ok([...dom.window.document.querySelectorAll('p')].some(node => node.textContent === 'Warhammer mastery: Fighter Level 3'));
     assert.equal(options.mastery[0].label, 'war hammer');
   } finally { dom.window.close(); }
 });

@@ -1,4 +1,5 @@
 import { DOOR_STATES, ENTITY_TYPES, FEATURE_NAMES, TILE_TYPES } from "./constants.js";
+import { isBrokenDoor, isDoorPassable } from './door-geometry.js';
 import { getTile } from "./state-schema.js";
 import { canCrossReviewedGeometry } from "./reviewed-layouts.js";
 import { SeededRng } from "./rng.js";
@@ -220,6 +221,7 @@ function createWorthlessLootEntity(state, feature, name = feature?.name) {
 
 function findEntityAt(state, x, y) {
   return state.entities.find((entity) => {
+    if (entity.subtype === 'door' && isBrokenDoor(entity)) return false;
     if (!sameRoute(state, entity, state.player)) return false;
     if (entity.x !== x || entity.y !== y) {
       return false;
@@ -283,7 +285,7 @@ export function getDoorBetween(state, fromX, fromY, toX, toY, routeId = null) {
 
 function findDoorTouchingTile(state, x, y) {
   return state.entities.find((entity) => {
-    if (entity.subtype !== "door") {
+    if (entity.subtype !== "door" || isBrokenDoor(entity)) {
       return false;
     }
     const { hall, room } = getDoorTiles(entity);
@@ -293,13 +295,6 @@ function findDoorTouchingTile(state, x, y) {
 
 export function getDoorAt(state, x, y) {
   return findDoorTouchingTile(state, x, y);
-}
-
-function isDoorPassable(door) {
-  return door?.doorState === DOOR_STATES.OPEN ||
-    door?.doorState === "gone" ||
-    door?.gone === true ||
-    door?.destroyed === true;
 }
 
 function findBlockingDoorAtTile(state, x, y, routeId = null) {
@@ -356,7 +351,15 @@ function ensureDoorLockDcs(door) {
 export function setDoorState(door, nextState) {
   delete door.transition;
   door.doorState = nextState;
-  if (nextState === DOOR_STATES.OPEN) {
+  if (nextState === DOOR_STATES.GONE) {
+    delete door.holdPortal;
+    if (door.secret || door.isSecret) {
+      door.secretFound = true;
+      door.revealed = true;
+      door.visible = true;
+    }
+  }
+  if (isDoorPassable(door)) {
     door.everOpened = true;
   }
 }
@@ -1552,7 +1555,8 @@ export function attemptLockedDoor(state, method, modifier = 0, options = {}) {
   }
 
   const door = state.entities.find((entity) => entity.id === action.doorId && entity.subtype === "door");
-  if (door && !sameRoute(state, door, state.player)) return { opened: false, message: 'That door is in a different passage.' };
+  if (!door || isBrokenDoor(door)) return { opened: false, message: 'No intact door selected.' };
+  if (!sameRoute(state, door, state.player)) return { opened: false, message: 'That door is in a different passage.' };
   if (method !== 'break' && isMagicallyLocked(door)) return { opened: false, message: 'Magically locked.' };
   const dc = method === "break" ? action.breakDc : action.pickDc;
   const check = rollCheck(modifier, options);
@@ -1569,10 +1573,7 @@ export function attemptLockedDoor(state, method, modifier = 0, options = {}) {
 
   const trap = findActiveTrapForTarget(state, "door", door?.id);
   if (method === "break") {
-    const doorIndex = state.entities.findIndex((entity) => entity.id === action.doorId && entity.subtype === "door");
-    if (doorIndex !== -1) {
-      state.entities.splice(doorIndex, 1);
-    }
+    setDoorState(door, DOOR_STATES.GONE);
   } else {
     setDoorState(door, DOOR_STATES.OPEN);
   }

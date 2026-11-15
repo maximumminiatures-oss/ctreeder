@@ -52,16 +52,20 @@ test('a torch-reset animation does not reveal a monster before the growing light
   assert.equal(isMonsterCurrentlyVisible(state, monster), true);
 });
 
-test('one stealth roll beats every passive Wisdom within fourteen squares, including equality and later arrivals', () => {
-  const state = scene(), monster = { id: 'foe', type: 'monster', name: 'Bandit', hp: 8, x: 15, y: 3, D: 2 };
+test('stealth rolls at the light boundary using the highest Wisdom in line of sight', () => {
+  const state = scene(), monster = { id: 'foe', type: 'monster', name: 'Bandit', hp: 8, x: 15, y: 3, D: 1 };
   state.entities.push(monster);
   let rolls = 0;
-  const options = { random: () => { rolls++; return .55; } };
+  let lit = false, seeSage = false;
+  const options = { random: () => { rolls++; return .55; }, isLit: () => lit,
+    canSee: observer => observer.id !== 'sage' || seeSage };
   updateMonsterStealth(state, options);
-  assert.equal(rolls, 1); assert.equal(monster.stealthState.total, 14); assert.equal(isHiddenMonster(monster), true);
-  state.characters.push({ id: 'sage', hp: 8, x: 0, y: 3, stats: { WIS: 18 } });
-  updateMonsterStealth(state, options); assert.equal(isHiddenMonster(monster), true);
-  state.characters[1].x = 1;
+  assert.equal(rolls, 0);
+  state.characters.push({ id: 'sage', hp: 8, x: 2, y: 3, stats: { WIS: 20 } });
+  lit = true;
+  updateMonsterStealth(state, options);
+  assert.equal(rolls, 1); assert.equal(monster.stealthState.total, 13); assert.equal(isHiddenMonster(monster), true);
+  seeSage = true;
   updateMonsterStealth(state, options); assert.equal(isHiddenMonster(monster), false); assert.equal(rolls, 1);
 });
 

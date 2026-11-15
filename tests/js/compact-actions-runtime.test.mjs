@@ -189,7 +189,7 @@ function assertLit(state, source, before, reset) {
   assert.equal(character.lightRadius, source === 'torch' ? 6 : 12);
   assert.equal(state.player.torchLit, true);
   assert.equal(state.timers.lightEverLit, true);
-  assert.equal(state.timers.torchElapsedMs, reset || !before.timers.lightEverLit ? 0 : before.timers.torchElapsedMs);
+  assert.equal(state.timers.torchElapsedMs, reset || !before.characters.some(member => member.gear.some(item => item.lit)) ? 0 : before.timers.torchElapsedMs);
   assert.equal(state.timers.torchDurationMs, before.timers.torchDurationMs);
   assert.equal(state.timers.actualElapsedMs, before.timers.actualElapsedMs);
   assert.equal(units(character, /oil/i), units(actor(before), /oil/i) - (source === 'lantern' ? 1 : 0));

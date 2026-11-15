@@ -52,6 +52,7 @@ function runtime(characters, extra = {}) {
       canAttackFrom: (x, y, point) => sameRoute(state, point, target) && distance({ x, y }, target) <= range,
       stepCost: (x, y) => context.movementStepCost(state, x, y) }),
     isIncorporeal: actor => !!actor.conditions?.incorporeal, canPhase: () => false,
+    isDuergar: () => false, isStealthed: () => false, conditionAttackMode, revealAfterOffense() {},
     isSleeping: actor => !!actor.conditions?.sleeping, isProne: actor => !!actor.conditions?.prone,
     isRestrainedByWeb: (_state, actor) => !!actor.web, isTied: actor => !!actor.tied,
     escapeWeb: () => ({ message: 'Escapes web.' }), escapeRope: () => ({ escaped: false, check: { total: 1 }, dc: 12 }), pitActionOptions: () => ({}),

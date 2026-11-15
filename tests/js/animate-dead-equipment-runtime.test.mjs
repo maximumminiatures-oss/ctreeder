@@ -53,7 +53,7 @@ test('skeleton has only claw +1 for 1 damage without gear, not catalog weapons o
   assert.equal(childOf(result.state_json).armorClass, 10);
   result = await command(result.state_json, { type: 'attack', monster_id: 'foe', attack_index: 0 });
   assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').hp, 99);
-  assert.match(result.message, /12 hits for 1 damage/);
+  assert.ok(result.state_json.rollHistory.some(entry => /12 hits for 1 damage/.test(entry.detail)));
 });
 
 test('inherited mundane spiked mace uses skeleton +1, preserves metadata, and survives repeated save/normalize', async () => {
@@ -65,7 +65,7 @@ test('inherited mundane spiked mace uses skeleton +1, preserves metadata, and su
   assert.deepEqual(childOf(result.state_json).gear[0], item);
   result = await command(result.state_json, { type: 'attack', monster_id: 'foe', attack_index: 0 });
   assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').hp, 96);
-  assert.match(result.message, /12 hits for 4 damage/);
+  assert.ok(result.state_json.rollHistory.some(entry => /12 hits for 4 damage/.test(entry.detail)));
 });
 
 test('skeleton can equip fighter weapons, armor, shields, torches and lanterns', async () => {
@@ -168,7 +168,7 @@ test('both undead can open and smash doors, pick up cargo, and climb with STR', 
     door.doorState = 'locked'; door.breakDc = 1;
     result.state_json.lockedDoorAction = { doorId: 'door', breakDc: 1, pickDc: 12 };
     result = await command(result.state_json, { type: 'break_door' });
-    assert.equal(result.state_json.entities.some(entity => entity.id === 'door'), false);
+    assert.equal(result.state_json.entities.find(entity => entity.id === 'door')?.doorState, 'gone');
     result.state_json.entities.push({ id: 'cargo', type: 'treasure', subtype: 'dropped-equipment', kind: 'gear',
       name: 'Rope', slots: 1, x: 3, y: 3, roomId: 'room', visible: true, gearItem: { name: 'Rope', slots: 1 } });
     result = await command(result.state_json, { type: 'pickup', entity_id: 'cargo' });

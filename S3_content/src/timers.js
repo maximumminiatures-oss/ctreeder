@@ -69,6 +69,7 @@ export function syncElapsedTime(state, now = Date.now()) {
 
 export function advanceTorchTime(state, milliseconds) {
   const timers = ensureTimers(state);
+  if (!hasLiveTimedLight(state)) return { crossedWanderingChecks: 0, expired: false, advancedMs: 0 };
   const start = timers.torchElapsedMs;
   timers.torchElapsedMs += Math.max(0, milliseconds);
 

@@ -5,6 +5,7 @@ import { syncEquipmentLight } from './equipment.js';
 import { isMagicItem } from './magic-items.js';
 import { isMagicSuppressed, suppressMagic } from './magic-suppression.js';
 import { routeOf } from './underpasses.js';
+import { wakeCreature } from './conditions.js';
 import { TORCH_DURATION_MS } from './timers.js';
 import { resolveMobilityExpiry } from './tier-three-mobility.js';
 import { isAnimatedDead, cleanupAnimatedDead } from './animate-dead.js';
@@ -222,7 +223,7 @@ function catalog(state) {
 
     const sleeping = holder.conditions?.sleeping;
     if (sleeping?.source === 'sleep') add(key(holder.id, 'conditions', 'sleeping'), 'sleep', holder, effectData(sleeping), () => {
-      delete holder.conditions.sleeping; syncRaw(holder, 'conditions');
+      wakeCreature(holder); syncRaw(holder, 'conditions');
     });
     if (present(holder.invisibility) && ['spell', 'potion', 'monster'].includes(holder.invisibility.source))
       add(key(holder.id, 'invisibility'), 'invisibility', holder,

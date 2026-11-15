@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { awardExperience, canLevelUp, beginLevelUp, resolveAdvancement, advancementOptions, classAttackBonus, classArmorBonus, xpTarget } from '../../S3_content/src/class-progression.js';
+import { advancementButtonLabel, initializeImportChoices, awardExperience, canLevelUp, beginLevelUp, resolveAdvancement, advancementOptions, classAttackBonus, classArmorBonus, xpTarget } from '../../S3_content/src/class-progression.js';
 import { normalizeCharacterState } from '../../S3_content/src/characters.js';
 import { serializeDungeonState, hydrateDungeonState } from '../../S3_content/src/persistence.js';
 import { castingBonus } from '../../S3_content/src/spell-effects.js';
@@ -79,7 +79,7 @@ test('wizard and priest new spell tasks use exactly the requested tier at each l
   for(const className of ['Wizard','Priest'])for(let level=2;level<=10;level++) {
     const character=hero(className);character.level=level-1;character.XP=xpTarget(character);
     const event=beginLevelUp(character,{random:()=>.5});
-    const tasks=event.tasks.filter(task=>task.type==='spell');assert.equal(tasks.length,1);
+    const tasks=event.tasks.filter(task=>task.type==='spell');assert.equal(tasks.length, className === 'Wizard' && level === 2 ? 2 : 1);
     for(const task of tasks) {
       assert.equal(task.tier,Math.floor((level+1)/2));
       for(const option of advancementOptions(character,event,task,{spells}))assert.equal(spells.find(spell=>spell.name===option.value).tier,task.tier);
@@ -110,4 +110,75 @@ test('pending choices and large HP/XP survive normalization and save/load withou
   assert.equal(restored.maxHitPoints,134);assert.equal(restored.XP,5);assert.equal(restored.advancements[0].tasks[0].tier,1);
   assert.throws(()=>beginLevelUp(restored),/no new level/);
   resolveAdvancement(restored,'level-2','spell','Alarm',{spells});assert.ok(restored.spellsKnown.includes('Alarm'));
+});
+
+test('caster labels count the unfinished spell and talent choices independently', () => {
+  for (const className of ['Priest', 'Wizard']) {
+    for (const initial of [true, false]) {
+      const tasks = ['spell', 'extra-spell', 'stat', 'spell-advantage'].map(type => ({ type }));
+      const event = { initial, tasks };
+      const character = { className, advancements: [event] };
+      const cases = [
+        [[], 'Pick Spells + Talents'], [[0], 'Pick Spell + Talents'],
+        [[2], 'Pick Spells + Talent'], [[0, 2], 'Pick Spell + Talent'],
+        [[2, 3], 'Pick Spells'], [[0, 2, 3], 'Pick Spell'],
+        [[0, 1], 'Pick Talents'], [[0, 1, 2], 'Pick Talent'],
+        [[0, 1, 2, 3], 'Level Up']
+      ];
+      for (const [done, expected] of cases) {
+        tasks.forEach((task, index) => task.done = done.includes(index));
+        event.completed = tasks.every(task => task.done);
+        assert.equal(advancementButtonLabel(character), expected);
+      }
+    }
+  }
+});
+
+test('Magic Missile is excluded from the Wizard spell-advantage talent and remains learnable', () => {
+  const wizard = hero('Wizard');
+  wizard.level = 2;
+  wizard.spellsKnown = 'Alarm, Magic Missile';
+  const event = earnLevel(wizard, 20, sequence(.5, .5, .65));
+  const talent = event.tasks.find(task => task.type === 'spell-advantage');
+  assert.ok(advancementOptions(wizard, event, talent, { spells }).some(option => option.value === 'Alarm'));
+  assert.ok(!advancementOptions(wizard, event, talent, { spells }).some(option => option.value === 'Magic Missile'));
+  assert.throws(() => resolveAdvancement(wizard, event.id, talent.id, 'Magic Missile', { spells }), /valid pending/);
+  wizard.spellsKnown = 'Alarm';
+  assert.ok(advancementOptions(wizard, event, { type: 'spell', tier: 1 }, { spells }).some(option => option.value === 'Magic Missile'));
+});
+
+test('a Wizard can defer level choices and later spend four tier-one and two tier-two picks', () => {
+  const wizard = hero('Wizard');
+  wizard.ancestry = 'Elf';
+  initializeImportChoices(wizard, { random: () => .2 });
+  for (const xp of [10, 20, 30]) earnLevel(wizard, xp, () => .2);
+  const tasks = wizard.advancements.flatMap(event => event.tasks.filter(task => task.type === 'spell').map(task => [event, task]));
+  assert.deepEqual(tasks.map(([, task]) => task.tier), [1, 1, 1, 1, 2, 2]);
+  assert.throws(() => resolveAdvancement(wizard, tasks[0][0].id, tasks[0][1].id, 'Acid Arrow', { spells }), /pending/);
+  wizard.learnedScrollSpells = ['Levitate'];
+  for (const [index, name] of ['Magic Missile','Mage Armor','Burning Hands','Detect Magic','Web','Acid Arrow'].entries()) {
+    const [event, task] = tasks[index];
+    resolveAdvancement(wizard, event.id, task.id, name, { spells });
+  }
+  assert.deepEqual(wizard.learnedScrollSpells, ['Levitate']);
+  assert.ok(tasks.every(([, task]) => task.done));
+});
+
+test('level-zero HP and gear persist and a dwarf replaces HP when picking a class at 3 XP', () => {
+  const character = { ...hero('Level 0'), ancestry: 'Dwarf', level: 0, stats: { CON: 12 }, raw: {} };
+  const rng = sequence(0, .28);
+  initializeImportChoices(character, { random: rng });
+  assert.equal(character.hp, 1);
+  assert.deepEqual(character.gear.map(item => [item.name, item.quantity]), [['Arrows', 5], ['Shortbow', 1]]);
+  normalizeCharacterState({ characters: [character] });
+  resolveAdvancement(character, 'choose-alignment', 'alignment', 'Neutral');
+  awardExperience(character, 3);
+  const event = beginLevelUp(character);
+  resolveAdvancement(character, event.id, 'class', 'Fighter', { random: sequence(.2, .8, .2, .2) });
+  assert.equal(character.level, 1);
+  assert.equal(character.className, 'Fighter');
+  assert.equal(character.hp, 10);
+  assert.equal(character.maxHitPoints, 10);
+  assert.equal(character.XP, 0);
+  assert.ok(character.advancements.find(entry => entry.id === 'initial').tasks.some(task => task.id === 'talent'));
 });

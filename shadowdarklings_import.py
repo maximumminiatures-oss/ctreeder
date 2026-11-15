@@ -24,6 +24,40 @@ SOURCE_IDS = {
 }
 ALLOWED_HOSTS = {"shadowdarklings.net", "www.shadowdarklings.net", "fonts.googleapis.com",
     "fonts.gstatic.com", "cdn.jsdelivr.net", "cdnjs.cloudflare.com"}
+CORE_ANCESTRIES = ("Dwarf", "Elf", "Goblin", "Halfling", "Half-Orc", "Human")
+CORE_CLASSES = ("Fighter", "Priest", "Thief", "Wizard")
+
+
+def import_options(data):
+    result = {}
+    if "mode" in data:
+        if data["mode"] not in ("random-1", "best-fit", "random-0", "random-4x0"):
+            raise ValueError("Invalid character generation mode.")
+        result["mode"] = data["mode"]
+    for key, allowed in (("ancestries", CORE_ANCESTRIES), ("classes", CORE_CLASSES)):
+        if key not in data:
+            continue
+        values = data[key]
+        if (not isinstance(values, list) or not values or len(values) > len(allowed)
+                or any(not isinstance(value, str) or value not in allowed for value in values)
+                or len(set(values)) != len(values)):
+            raise ValueError(f"Select at least one valid option for {key}.")
+        result[key] = values
+    return result
+
+
+def validate_export(result, mode=None):
+    if not isinstance(result, str) or len(result.encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise ValueError("Invalid character export")
+    data = json.loads(result)
+    if mode == "random-4x0":
+        if not isinstance(data, list) or len(data) != 4 or not all(isinstance(item, dict) for item in data):
+            raise ValueError("Invalid four-character export")
+    elif not isinstance(data, dict):
+        raise ValueError("Invalid character export")
+    return data
+
+
 MAX_IMPORT_BYTES = 128 * 1024
 IMPORT_PROCESS_TIMEOUT_SECONDS = 30
 IMPORT_WORKER_HARD_TIMEOUT_SECONDS = 35
@@ -71,7 +105,7 @@ def start_worker_deadline():
     return timer
 
 
-def fetch_remote_character_json(service_url, base_classes_only):
+def fetch_remote_character_json(service_url, base_classes_only, **options):
     target = urlsplit(service_url)
     if (target.scheme != "http" or target.hostname not in IMPORT_SERVICE_HOSTS or
             target.username or target.password or target.query or target.fragment):
@@ -79,7 +113,7 @@ def fetch_remote_character_json(service_url, base_classes_only):
     try:
         response = requests.post(
             service_url,
-            json={"base_classes_only": bool(base_classes_only)},
+            json={"base_classes_only": bool(base_classes_only), **options},
             timeout=(2, IMPORT_SERVICE_TIMEOUT_SECONDS),
         )
         data = response.json()
@@ -88,17 +122,14 @@ def fetch_remote_character_json(service_url, base_classes_only):
     if response.status_code != 200 or not isinstance(data, dict):
         raise RuntimeError("The character import service could not generate a character.")
     result = data.get("character_json")
-    if not isinstance(result, str) or len(result.encode("utf-8")) > MAX_IMPORT_BYTES:
-        raise RuntimeError("The character import service returned an invalid character.")
     try:
-        if not isinstance(json.loads(result), dict):
-            raise ValueError
+        validate_export(result, options.get("mode"))
     except (TypeError, ValueError) as exc:
         raise RuntimeError("The character import service returned an invalid character.") from exc
     return result
 
 
-def run_shadowdarklings_import_worker(base_classes_only=False):
+def run_shadowdarklings_import_worker(base_classes_only=False, **options):
     allowed_environment = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "LANG", "PLAYWRIGHT_BROWSERS_PATH"}
     environment = {key: value for key, value in os.environ.items() if key.upper() in allowed_environment}
     environment["SD_IMPORT_SANDBOX"] = "1" if os.environ.get("FLASK_ENV") == "production" else "0"
@@ -106,9 +137,11 @@ def run_shadowdarklings_import_worker(base_classes_only=False):
     command = [sys.executable, str(Path(__file__).resolve()), "--worker"]
     if base_classes_only:
         command.append("--base-only")
-    options = {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    if options:
+        command.extend(["--options", json.dumps(options)])
+    process_options = {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     process = subprocess.Popen(command, env=environment, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, **options)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, **process_options)
     try:
         output, error_output = process.communicate(timeout=IMPORT_PROCESS_TIMEOUT_SECONDS)
         if process.returncode or len(output) > MAX_IMPORT_BYTES:
@@ -116,8 +149,7 @@ def run_shadowdarklings_import_worker(base_classes_only=False):
             suffix = f" Worker reported: {detail}" if detail else ""
             raise RuntimeError(f"Shadowdarklings import is temporarily unavailable.{suffix}")
         result = output.decode("utf-8").strip()
-        if not isinstance(json.loads(result), dict):
-            raise RuntimeError("Shadowdarklings returned an invalid character.")
+        validate_export(result, options.get("mode"))
         return result
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("Shadowdarklings import timed out. Please try again later.") from exc
@@ -129,14 +161,14 @@ def run_shadowdarklings_import_worker(base_classes_only=False):
         process.stderr.close()
 
 
-def fetch_shadowdarklings_character_json(base_classes_only=False):
+def fetch_shadowdarklings_character_json(base_classes_only=False, **options):
     service_url = os.environ.get("SHADOWDARKLINGS_IMPORT_URL", "").strip()
     if service_url:
-        return fetch_remote_character_json(service_url, base_classes_only)
-    return run_shadowdarklings_import_worker(base_classes_only)
+        return fetch_remote_character_json(service_url, base_classes_only, **options)
+    return run_shadowdarklings_import_worker(base_classes_only, **options)
 
 
-def browser_import(base_classes_only):
+def browser_import(base_classes_only, mode="random-1", ancestries=None, classes=None):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True,
@@ -158,7 +190,9 @@ def browser_import(base_classes_only):
             context.grant_permissions(["clipboard-read", "clipboard-write"], origin=CREATE_URL)
             page = context.new_page()
             page.goto(CREATE_URL, wait_until="domcontentloaded", timeout=20000)
-            page.get_by_role("button", name="Random 1").click()
+            zero = mode in ("random-0", "random-4x0")
+            generation = page.get_by_role("button", name="Random 0" if zero else "Random 1", exact=True)
+            generation.first.click()
             for label in SOURCE_SWITCHES:
                 try:
                     page.locator(f"#{SOURCE_IDS[label]}").first.set_checked(not base_classes_only, timeout=1000)
@@ -167,22 +201,40 @@ def browser_import(base_classes_only):
                         page.get_by_role("switch", name=label).set_checked(not base_classes_only, timeout=500)
                     except Exception:
                         continue
-            page.get_by_role("button", name="Generate a Random Character").click()
-            json_button = page.get_by_role("button", name="JSON")
-            json_button.wait_for(state="visible", timeout=30000)
-            json_button.click()
-            page.wait_for_function("""async () => {
-                try {
-                    const value = (await navigator.clipboard.readText()).trim();
-                    return value.startsWith('{') && value.endsWith('}');
-                } catch (_) {
-                    return false;
-                }
-            }""", timeout=3000)
-            result = page.evaluate("Promise.race([navigator.clipboard.readText(), new Promise((_, reject) => setTimeout(() => reject(new Error('Clipboard timeout')), 3000))])")
-            result = str(result).strip()
-            if len(result.encode("utf-8")) > MAX_IMPORT_BYTES or not isinstance(json.loads(result), dict):
-                raise ValueError("Invalid character export")
+            if ancestries is not None or classes is not None:
+                page.get_by_role("button", name="Filter Ancestries & Classes").click()
+                for prefix, allowed, selected in (("anc", CORE_ANCESTRIES, ancestries), ("class", CORE_CLASSES, classes)):
+                    if selected is None:
+                        continue
+                    for index, name in enumerate(allowed):
+                        page.locator(f'[id="{prefix}_{name}_{index}"]:visible').last.set_checked(name in selected)
+                page.keyboard.press("Escape")
+                # Both responsive copies can be present. Only the visible close button is actionable.
+                dialog = page.get_by_role("dialog")
+                if dialog.count() and dialog.last.is_visible():
+                    dialog.last.get_by_role("button", name="Close").click()
+            if not zero:
+                page.get_by_role("button", name="Best Fit" if mode == "best-fit" else "Full Random", exact=True).click()
+            generate = (page.get_by_role("button", name="Random 0", exact=True).last if zero
+                        else page.get_by_role("button", name="Generate a Random Character"))
+            characters = []
+            for _ in range(4 if mode == "random-4x0" else 1):
+                generate.click()
+                page.evaluate("navigator.clipboard.writeText('')")
+                page.get_by_role("button", name="JSON", exact=True).click()
+                page.wait_for_function("""async () => {
+                    const text = (await navigator.clipboard.readText()).trim();
+                    return text.startsWith('{') && text.endsWith('}');
+                }""", timeout=3000)
+                result = page.evaluate("navigator.clipboard.readText()").strip()
+                character = validate_export(result)
+                if ((zero and character.get("level") != 0)
+                        or ancestries is not None and character.get("ancestry") not in ancestries
+                        or not zero and classes is not None and character.get("class") not in classes):
+                    raise ValueError("ShadowDarklings generated a character outside the selected filters.")
+                characters.append(character)
+            result = json.dumps(characters if mode == "random-4x0" else characters[0])
+            validate_export(result, mode)
             return result
         finally:
             browser.close()
@@ -191,7 +243,8 @@ def browser_import(base_classes_only):
 if __name__ == "__main__" and "--worker" in sys.argv:
     deadline = start_worker_deadline()
     try:
-        sys.stdout.buffer.write(browser_import("--base-only" in sys.argv).encode("utf-8"))
+        options = import_options(json.loads(sys.argv[sys.argv.index("--options") + 1])) if "--options" in sys.argv else {}
+        sys.stdout.buffer.write(browser_import("--base-only" in sys.argv, **options).encode("utf-8"))
     except Exception as exc:
         detail = " ".join(str(exc).split())[:1000]
         print(f"{type(exc).__name__}: {detail}", file=sys.stderr)

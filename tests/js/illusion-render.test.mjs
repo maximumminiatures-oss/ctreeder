@@ -54,6 +54,8 @@ function context(layer = 'objects', events = []) {
     restore() { Object.assign(this, stack.pop()); },
     beginPath() { this.path = []; }, rect(...args) { this.path.push(args); }, arc(...args) { this.path.push(args); },
     clip() { this.clips.push(structuredClone(this.path)); },
+    translate(...args) { record('translate', this, { args }); },
+    rotate(angle) { record('rotate', this, { angle }); },
     drawImage(image, ...args) { record('image', this, { image, args }); },
     fillRect(...args) { record('rect', this, { args }); },
     clearRect(...args) { record('clear', this, { args }); },
@@ -207,4 +209,24 @@ test('motion-only object cache invalidates for behemoth movement, partial visibi
   delete summon.illusion; frame(); assert.equal(clears(), first + 3);
   const lastClear = events.findLastIndex(event => event.layer === 'objects' && event.method === 'clear');
   assert.equal(events.slice(lastClear).some(event => event.method === 'image' && /illusion1/.test(event.image.src)), false);
+});
+
+test('broken door art preserves the door transform and draws behind a monster sharing its tile', () => {
+  const state = scene();
+  const door = { id: 'door', type: 'feature', subtype: 'door', x: 4, y: 4, orientation: 'vertical',
+    wallSide: 'west', doorRotationAngle: -Math.PI / 2, doorState: 'open', visible: true };
+  state.entities = [{ id: 'foe', type: 'monster', name: 'Bandit', x: 4, y: 4, hp: 10, visible: true }, door];
+  const events = [], objects = context('objects', events), fog = context('fog', events);
+  const drawDoor = (name) => {
+    renderDungeon(state, { objectsCtx: objects.ctx, fogCtx: fog.ctx }, { motionOnly: true });
+    const index = events.findIndex(event => event.method === 'image' && event.image.src === './assets/' + name + '.png');
+    assert.ok(index >= 0);
+    const monster = events.findIndex(event => event.layer === 'objects' && event.method === 'fill' && event.color === '#df9696');
+    assert.ok(monster > index);
+    return events.slice(index - 2, index).map(event => [event.method, event.args ?? event.angle]);
+  };
+  const originalTransform = drawDoor('door-open');
+  events.length = 0;
+  door.doorState = 'gone';
+  assert.deepEqual(drawDoor('door-broken'), originalTransform);
 });

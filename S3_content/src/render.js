@@ -13,7 +13,7 @@ import { CRYPT_ASSET_KEYS } from "./crypts.js";
 import { REVIEWED_ASSET_KEYS } from "./reviewed-layouts.js";
 import { visualTilePoint } from "./tile-positions.js";
 import { getReviewedTileRule, STATUE_ASSET_KEYS } from "./reviewed-tile-rules.js";
-import { doorRotationAngle, isClosedSecretDoor, secretFoundMarkerRect } from './door-geometry.js';
+import { doorRotationAngle, isBrokenDoor, isDoorPassable, isClosedSecretDoor, secretFoundMarkerRect } from './door-geometry.js';
 import { canMoveBetweenTiles } from './interactions.js';
 import { hasWizardEffect, suppressionZones } from './wizard-mishaps.js';
 import { shredZones } from './arcane-effects.js';
@@ -109,6 +109,7 @@ const ANGLED_WALL_VARIANTS = Object.freeze([
 ]);
 const NEW_DOOR_KEYS = Object.freeze([
   "door-closed",
+  "door-broken",
   "door-gone",
   "door-open",
   "door-portcullis",
@@ -1614,6 +1615,7 @@ function getDoorTrap(state, door) {
 
 
 function getDoorVisualKind(state, door) {
+  if (isBrokenDoor(door)) return 'broken';
   const explicit = String(door.doorKind || door.visualKind || "").toLowerCase();
   if (explicit) {
     return explicit;
@@ -1628,9 +1630,6 @@ function getDoorVisualKind(state, door) {
   }
   if (door.secret === true || door.isSecret === true) {
     return "secret";
-  }
-  if (door.gone === true || door.destroyed === true || door.doorState === "gone") {
-    return "gone";
   }
   if (door.portcullis === true || door.doorState === "portcullis") {
     return "portcullis";
@@ -1680,8 +1679,8 @@ function getNewDoorSpriteKey(state, door) {
   if (kind === "gate" || kind === "portcullis") {
     return "door-portcullis";
   }
-  if (kind === "gone") {
-    return "door-gone";
+  if (kind === 'broken') {
+    return rendererAssets.doors['door-broken'] ? 'door-broken' : 'door-gone';
   }
   if (door.doorState === DOOR_STATES.OPEN || kind === "open") {
     return "door-open";
@@ -1788,22 +1787,23 @@ function drawDoorSprite(state, entity, ctx) {
       return;
     }
   }
-  if (entity.secret === true || entity.isSecret === true) {
+  const secret = entity.secret === true || entity.isSecret === true;
+  if (secret && visualKind !== 'broken') {
     drawSecretDoorSprite(state, entity, ctx);
     return;
   }
   const newKey = getNewDoorSpriteKey(state, entity);
   const image = rendererAssets.doors[newKey];
   if (!image) {
-    drawDoorFallback(state, entity, ctx);
+    if (visualKind !== 'broken') drawDoorFallback(state, entity, ctx);
     return;
   }
 
-  const center = getDoorTileCenter(entity);
+  const center = secret ? getDoorBoundaryCenter(entity) : getDoorTileCenter(entity);
   const size = TILE_SIZE_PX;
   ctx.save();
   ctx.translate(center.x, center.y);
-  ctx.rotate(doorRotationAngle(entity));
+  ctx.rotate(secret ? getSecretDoorRotationAngle(entity) : doorRotationAngle(entity));
   ctx.drawImage(image, -size / 2, -size / 2, size, size);
   ctx.restore();
 }
@@ -1959,7 +1959,8 @@ export function visibleDungeonEntities(state, { darkness = false } = {}) {
     if (entity.subtype === 'door') {
       const route = routeOf(state, entity), key = tileKey(entity.x, entity.y);
       return isFeatureCurrentlyVisible(state, entity) ||
-        !(entity.secret || entity.isSecret) && (state.visibility.routeExplored?.[route]?.has(key) ||
+        (!(entity.secret || entity.isSecret) || isBrokenDoor(entity) && (entity.secretFound || entity.revealed)) &&
+        (state.visibility.routeExplored?.[route]?.has(key) ||
           !state.underpasses?.length && state.visibility.exploredEver?.has(key));
     }
     return isFeatureCurrentlyVisible(state, entity) && (!darkness || partyDarkvisionReveals(state, entity) || isMonsterTileIlluminated(state, entity));
@@ -2055,12 +2056,10 @@ function drawObjects(state, ctx, options = {}) {
   };
   const artwork = options.illusionArtwork || illusionArtwork(state, options);
   const spellTemplates = options.spellTemplates || ongoingSpellTemplates(state);
-  if (artwork.length || spellTemplates.length) {
-    for (const entity of visibleEntities) if (entity.type !== ENTITY_TYPES.MONSTER) draw(entity);
-    drawIllusionArtwork(state, ctx, { artwork });
-    drawSpellTemplateArtwork(state, ctx, { visuals: spellTemplates });
-    for (const entity of visibleEntities) if (entity.type === ENTITY_TYPES.MONSTER) draw(entity);
-  } else for (const entity of visibleEntities) draw(entity);
+  for (const entity of visibleEntities) if (entity.type !== ENTITY_TYPES.MONSTER) draw(entity);
+  if (artwork.length) drawIllusionArtwork(state, ctx, { artwork });
+  if (spellTemplates.length) drawSpellTemplateArtwork(state, ctx, { visuals: spellTemplates });
+  for (const entity of visibleEntities) if (entity.type === ENTITY_TYPES.MONSTER) draw(entity);
 }
 
 function drawPlayer(state, ctx) {
@@ -2455,7 +2454,7 @@ function getVisitedRoomIds(state) {
 function isClosedDoorFogTile(state, tile) {
   return (state.entities || []).some((entity) => (
     entity.subtype === "door" &&
-    entity.doorState !== DOOR_STATES.OPEN &&
+    !isDoorPassable(entity) &&
     entity.x === tile.x &&
     entity.y === tile.y
   ));
@@ -2953,13 +2952,15 @@ function drawDungeonFrame(state, layers, options) {
     const illusionKey = artwork.map(({ source, rect, cells }) =>
       `${source.id}:${source.illusion.id}:${source.illusion.kind}:${JSON.stringify(source.illusion.artTransform)}:${source.visualRouteId ?? routeOf(state, source)}:${rect.x},${rect.y}:${cells.map(cell => tileKey(cell.x, cell.y)).join(';')}`).join('|');
     const monsterKey = visibleEntities.map(entity => `${entity.id}:${entity.x},${entity.y}:${entity.disguiseRevealed ? 1 : 0}`).join('|');
+    const doorKey = visibleEntities.filter(entity => entity.subtype === 'door')
+      .map(entity => entity.id + ':' + getDoorVisualKind(state, entity)).join('|');
     const previousObjects = objectFrames.get(objectsCtx);
-    if (options.motionOnly !== true || !previousObjects || previousObjects.monsterKey !== monsterKey ||
+    if (options.motionOnly !== true || !previousObjects || previousObjects.monsterKey !== monsterKey || previousObjects.doorKey !== doorKey ||
         previousObjects.entities !== state.entities || previousObjects.blackout !== Boolean(options.forceBlackout) || previousObjects.illusionKey !== illusionKey || previousObjects.spellKey !== spellKey) {
       objectsCtx.clearRect(0, 0, widthPx, heightPx);
       objectsCtx.__doorNow = now;
       drawObjects(state, objectsCtx, { darkness: options.forceBlackout === true, visibleEntities, illusionArtwork: artwork, spellTemplates });
-      objectFrames.set(objectsCtx, { monsterKey, illusionKey, spellKey, entities: state.entities, blackout: Boolean(options.forceBlackout) });
+      objectFrames.set(objectsCtx, { monsterKey, doorKey, illusionKey, spellKey, entities: state.entities, blackout: Boolean(options.forceBlackout) });
     }
   }
   fogCtx.clearRect(0, 0, widthPx, heightPx);

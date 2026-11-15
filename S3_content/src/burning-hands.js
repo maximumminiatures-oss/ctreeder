@@ -1,3 +1,4 @@
+import { wakeCreature } from './conditions.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { rollCheck } from './interactions.js';
 import { castingBonus } from './spell-effects.js';
@@ -37,7 +38,7 @@ export function applyBurningHands(state, caster, { center = caster, diceCount = 
     if (entity.type === 'monster' && !entity.defeated && !entity.leftPeacefully && Number(entity.hp) > 0 && !circleBlocksHostileAction(state, caster, entity)) {
       const applied = elementalDamage(entity, damage, { damageType: 'fire', areaEffect: true }).total;
       entity.hp = Math.max(0, Number(entity.hp) - applied);
-      if (applied > 0 && entity.conditions?.sleeping) { delete entity.conditions.sleeping; entity.conditions.prone = true; }
+      if (applied > 0) wakeCreature(entity);
       hits.push({ id: entity.id, name: entity.name, type: 'monster', damage: applied, defeated: entity.hp <= 0 });
     } else if (entity.type !== 'monster' && entity.type !== 'treasure' && entity.flammable === true && !entity.collected && !entity.burning) {
       entity.burning = true;

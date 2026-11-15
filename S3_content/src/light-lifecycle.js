@@ -25,6 +25,36 @@ export function resetBurningLights(state) {
   });
 }
 
+export function burningTorchCount(holder) {
+  if (holder.collected || holder.defeated) return 0;
+  if (holder.subtype === 'dropped-equipment') {
+    return Number(holder.lightSource === 'torch' || holder.gearItem?.lit && handItemKind(holder.gearItem) === 'torch');
+  }
+  return (holder.gear || []).filter(item => item.lit && handItemKind(item) === 'torch').length ||
+    Number(holder.lightSource === 'torch' && holder.lightRadius > 0);
+}
+
+export function extinguishTorches(holders) {
+  let count = 0;
+  for (const holder of holders) {
+    const lit = burningTorchCount(holder);
+    if (!lit) continue;
+    count += lit;
+    if (holder.subtype === 'dropped-equipment') {
+      if (holder.gearItem) holder.gearItem.lit = false;
+      delete holder.lightSource;
+      delete holder.lightRadius;
+      continue;
+    }
+    for (const item of holder.gear || []) {
+      if (item.lit && handItemKind(item) === 'torch') item.lit = false;
+    }
+    syncEquipmentLight(holder);
+    if (holder.raw) holder.raw.gear = structuredClone(holder.gear || []);
+  }
+  return count;
+}
+
 export function releaseUnequippedTorches(character, previouslyEquipped, drop, random = Math.random) {
   for (const item of previouslyEquipped) {
     if (item.equipped || handItemKind(item) !== 'torch' || !character.gear.includes(item)) continue;

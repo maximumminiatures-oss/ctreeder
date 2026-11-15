@@ -1,3 +1,4 @@
+import { wakeCreature } from './conditions.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { rollCheck } from './interactions.js';
 import { castingBonus } from './spell-effects.js';
@@ -130,7 +131,7 @@ function damageTarget(state, caster, target, diceCount, { random = Math.random, 
   if (applyDamage) applyDamage(state, target, damage, context);
   else if ((state.characters || []).includes(target)) setCharacterHp(target, Number(target.hp) - damage, { sourceId: caster.id, damageSource: 'acid' });
   else target.hp = Math.max(0, Number(target.hp) - damage);
-  if (damage > 0 && target.conditions?.sleeping) { delete target.conditions.sleeping; target.conditions.prone = true; }
+  if (damage > 0) wakeCreature(target);
   let defeatHandled = Boolean(target.defeated);
   if (Number(target.hp) <= 0 && !defeatHandled && onDefeat) { onDefeat(state, target, context); defeatHandled = true; }
   return { targetId: target.id, damage, rolls, diceCount, diceSides: 6, defeated: Number(target.hp) <= 0,

@@ -22,9 +22,10 @@ export function isSleeping(creature, state = null) {
 
 export const isProne = (creature, state = null) => creature?.conditions?.prone === true || isSleeping(creature, state);
 
-export function putToSleep(creature, casterId = null) {
+export function putToSleep(creature, casterId = null, rounds = null) {
   creature.conditions ||= {};
-  creature.conditions.sleeping = { source: 'sleep', casterId };
+  creature.conditions.sleeping = { source: 'sleep', casterId, rounds };
+  delete creature.conditions.wokeAt;
   creature.conditions.prone = true;
   creature.focusSpell = null;
   creature.pendingSpell = null;
@@ -35,6 +36,7 @@ export function wakeCreature(creature, state = null) {
   creature.conditions ||= {};
   delete creature.conditions.sleeping;
   creature.conditions.prone = true;
+  creature.conditions.wokeAt = Date.now();
   return true;
 }
 
@@ -44,7 +46,19 @@ export function standCreature(creature, budget, remaining, state = null) {
   const cost = Math.ceil(Math.max(0, Number(budget) || 0) / 2);
   if (remaining < cost) throw new Error(`Standing requires ${cost} movement.`);
   delete creature.conditions.prone;
+  delete creature.conditions.wokeAt;
   return remaining - cost;
+}
+
+export function advanceSleepRounds(state, rounds) {
+  let woke = false;
+  for (const creature of [...(state.characters || []), ...(state.entities || [])]) {
+    const sleep = creature.conditions?.sleeping;
+    if (sleep?.source !== 'sleep' || !(sleep.rounds > 0)) continue;
+    sleep.rounds -= rounds;
+    if (sleep.rounds <= 0) woke = wakeCreature(creature, state) || woke;
+  }
+  return woke;
 }
 
 export function conditionAttackMode(target, { melee = true, close = true, advantage = false, disadvantage = false, state = null } = {}) {

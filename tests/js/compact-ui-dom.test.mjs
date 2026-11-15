@@ -216,3 +216,74 @@ test('discovery buttons identify traps, pulse in the finder color, and clear whe
   context.updateSearchDiscoveries();
   assert.equal(panel.hidden, true);
 });
+
+test('combat clicks target a visible monster before any other occupant or door on its tile', t => {
+  const { context } = sandbox(t);
+  const actor = { id: 'hero' }, monster = { id: 'foe' }, door = { id: 'door' };
+  const state = { combat: { actionUsed: false } }, targets = [];
+  let visible = monster;
+  Object.assign(context, { state, getActiveCharacter: () => actor, canControlCharacter: () => true,
+    isCharacterAbleToAct: () => true, isCombatActive: () => true, concealedMimic: () => false,
+    concealedAnimatedArmor: () => false, isIllusionCreature: () => false, getVisibleMonsterAtTile: () => visible,
+    getCharacterAtTile: () => null, getDoorAt: () => door, attackClickedMonster: target => targets.push(target.id),
+    attackDoor: (_actor, id) => targets.push(id), render: () => {}, updatePanels: () => {}, updateMonsterHoverCursor: () => {},
+    setStatus: message => assert.fail(message) });
+  load(context, 'canClickAttackMonster', 'performMapAttack');
+  assert.equal(context.canClickAttackMonster(actor, monster), true);
+  context.performMapAttack(2, 2);
+  assert.deepEqual(targets, ['foe']);
+  state.combat.actionUsed = true;
+  assert.equal(context.canClickAttackMonster(actor, monster), false);
+  visible = null;
+  context.performMapAttack(2, 2);
+  assert.deepEqual(targets, ['foe', 'door']);
+});
+
+test('combat spell names select on click and open read-only details on right-click', t => {
+  const { context, document, dom } = sandbox(t, '<h2 id="spellcasting-title"></h2><div id="spells"></div>');
+  const caster = { id: 'priest', name: 'Dor' };
+  const calls = [];
+  const ui = { spellcastingList: document.querySelector('#spells'), spellcastingModal: document.createElement('div'),
+    spellDetailModal: document.createElement('div'), characterSheetModal: document.createElement('div') };
+  Object.assign(context, { state: { characters: [caster] }, ui, isCombatActive: () => true,
+    getCharacterKnownSpellNames: () => ['Light'], findSpellRecord: name => ({ name, tier: 1 }),
+    getSpellKey: spell => (spell.name || spell).toLowerCase(), OFFENSIVE_SPELLS: new Set(),
+    isGaseousForm: () => false, canControlCharacter: () => true, isCharacterAbleToAct: () => true,
+    pendingSpellMessage: () => 'Resolve the spell choices first.',
+    hasReadyOffensiveSpell: () => false, isCharacterSpellFailed: () => false, getSpellCastingDc: () => 11,
+    getCurrentCharacter: actor => actor, activateCharacter: () => true, spellPickerReturnId: null,
+    renderSpellDetail: (_, actor, options) => {
+      ui.spellDetailModal.dataset.returnToSpellList = String(options.returnToSpellList);
+      calls.push(['description', actor.id, options.readOnly]);
+    },
+    performSpellCast: (actor, spell) => calls.push(['select', actor.id, spell.name]),
+    openSpellcastingMenu: actor => calls.push(['list', actor.id]) });
+  context.state.combat = { actionUsed: false };
+  load(context, 'renderSpellcastingMenu', 'closeSpellDescription', 'spellMenuCastReason');
+  context.renderSpellcastingMenu(caster);
+  const name = ui.spellcastingList.querySelector('.spellcasting-name');
+  assert.equal(ui.spellcastingList.querySelector('.spell-cast-button'), null);
+  name.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  context.closeSpellDescription();
+  name.click();
+  caster.pendingSpell = { spell: 'light', phase: 'targeting' };
+  context.state.combat.actionUsed = true;
+  assert.equal(context.spellMenuCastReason(caster, { name: 'Light' }), '');
+  assert.equal(context.spellMenuCastReason(caster, { name: 'Sleep' }), 'Resolve the spell choices first.');
+  name.click();
+  assert.deepEqual(calls, [['description', 'priest', true], ['list', 'priest'], ['select', 'priest', 'Light']]);
+});
+
+test('gear coin totals are contiguous selectable text and item rows still include slot numbers', t => {
+  const { context } = sandbox(t);
+  Object.assign(context, { isFloatingDisc: () => false, fieldLore: key => key, getCharacterMoney: (_, key) => key === 'silver' ? 11 : 0,
+    getCharacterGearSlots: () => ({ slots: Array.from({ length: 20 }, (_, i) => ({ text: i ? '' : 'Longsword' })),
+      freeCarry: ['Total Coins x 11', 'Backpack'], freeCarryIndices: [] }) });
+  load(context, 'createSdGearPanel');
+  const panel = context.createSdGearPanel({ gear: [] });
+  assert.deepEqual([...panel.querySelectorAll('.sd-coin-field')].map(item => item.textContent), ['GP 0', 'SP 11', 'CP 0']);
+  assert.equal(panel.querySelector('.sd-coin-fields input'), null);
+  assert.equal(panel.querySelector('.sd-gear-line-label').textContent, '1. Longsword');
+  assert.equal(panel.querySelectorAll('.sd-gear-line-label').length, 20);
+  assert.deepEqual([...panel.querySelectorAll('.sd-free-carry-text')].slice(0, 2).map(item => item.textContent), ['Total Coins x 11', 'Backpack']);
+});

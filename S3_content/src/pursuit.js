@@ -3,7 +3,7 @@ import { isIncorporeal, isSleeping } from './conditions.js';
 const directions = [[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]];
 
 export function planFiringPosition(state, creature, target, { movement, canStep, canAttackFrom, stepCost = () => 1,
-  preferRange = false, isHidden = () => false, maxNodes = 2048 } = {}) {
+  preferRange = false, isHidden = () => false, positionScore = null, maxNodes = 2048 } = {}) {
   const start = { x: Number(creature.x), y: Number(creature.y), routeId: routeOf(state, creature), cost: 0, steps: [] };
   const queue = [start], cheapest = new Map([[routeKey(start), 0]]);
   let best = null;
@@ -11,7 +11,10 @@ export function planFiringPosition(state, creature, target, { movement, canStep,
     queue.sort((a, b) => a.cost - b.cost);
     const point = queue.shift();
     if (point.cost !== cheapest.get(routeKey(point))) continue;
-    if (sameRoute(state, point, target) && canAttackFrom(point.x, point.y, point)) {
+    if (positionScore) {
+      const score = positionScore(point);
+      if (score > 0 && (!best || score > best.score || score === best.score && point.cost < best.cost)) best = { ...point, score };
+    } else if (sameRoute(state, point, target) && canAttackFrom(point.x, point.y, point)) {
       if (!preferRange) return point;
       const distance = Math.hypot(point.x - target.x, point.y - target.y);
       const hidden = isHidden(point.x, point.y, point);

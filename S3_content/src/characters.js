@@ -75,7 +75,7 @@ function getGearSlotCapacity(stats = {}, className = "", raw = {}) {
   return strCapacity + (isFighter && hasHaulerTalent(raw) ? conModifier : 0);
 }
 
-function getSlotsFromGear(gear, excludeFreeBackpack = true) {
+function getSlotsFromGear(gear, excludeFreeBackpack = true, useStoredSlots = false) {
   const normalizedGear = Array.isArray(gear) ? gear : [];
   let backpackUsedForFreeCarry = false;
   let slotsUsed = 0;
@@ -129,7 +129,9 @@ function getSlotsFromGear(gear, excludeFreeBackpack = true) {
       continue;
     }
 
-    const perUnitSlots = isTorch ? 1 : inferGearItemSlots(name, item);
+    const storedSlots = Number(item.slots);
+    const perUnitSlots = useStoredSlots && item.slots != null && Number.isFinite(storedSlots) && storedSlots >= 0
+      ? storedSlots : isTorch ? 1 : inferGearItemSlots(name, item);
     slotsUsed += chargeForSlots * perUnitSlots;
   }
 
@@ -410,7 +412,7 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     ancestry: raw.ancestry || "",
     ancestryChoices: clonePlain(raw.ancestryChoices || raw.raw?.ancestryChoices || {}),
     className: raw.class || raw.className || "",
-    level: clampInt(raw.level ?? 1, 1, MAX_EDITABLE_VALUE, 1),
+    level: clampInt(raw.level ?? 1, 0, MAX_EDITABLE_VALUE, 1),
     XP: clampInt(raw.XP ?? raw.xp ?? 0, 0, 1000000000, 0),
     advancements: Array.isArray(raw.advancements) ? clonePlain(raw.advancements) : [],
     hiddenXp: Math.max(0, Number(raw.hiddenXp ?? raw.xpRemainder ?? 0) || 0),
@@ -494,6 +496,10 @@ export function getCharacterActionModifier(character, action) {
   return abilityModifier(character.stats?.DEX);
 }
 
+export function getUsedGearSlots(gear, { useStoredSlots = false } = {}) {
+  return getSlotsFromGear(gear, true, useStoredSlots).usedSlots;
+}
+
 export function getCharacterGearFreeSlots(character) {
   if (!character) {
     return 0;
@@ -530,7 +536,7 @@ export function getCharacterDisplayHeader(character) {
   return [
     character.name,
     character.ancestry,
-    `${character.className || "Class"} ${character.level || 1}`,
+    `${character.className || "Class"} ${character.level ?? 1}`,
     `AC ${character.armorClass}`
   ].filter(Boolean).join(" | ");
 }
@@ -577,7 +583,7 @@ export function getCharacterStatSummary(character) {
   return [
     `${character.name}`,
     character.ancestry || "Unknown",
-    `${character.className || "Class"} ${character.level || 1}`,
+    `${character.className || "Class"} ${character.level ?? 1}`,
     `AC ${character.armorClass}`,
     `HP ${character.hp}`
   ].join(" | ");

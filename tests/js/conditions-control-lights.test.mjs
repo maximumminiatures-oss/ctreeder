@@ -138,3 +138,20 @@ test('stealing reuses the original roll, excludes equipped armor, and removes on
   const result = takeStolenItem(state, caster, 2); assert.equal(result.item.name, 'Rope');
   assert.equal(monster.gear.length, 2); assert.equal(caster.pendingSteal, null);
 });
+test('Sleep expiration and being woken both start recovery, and standing clears it', async () => {
+  const { advanceSleepRounds } = await import('../../S3_content/src/conditions.js');
+  const expired = {}, woken = {};
+  putToSleep(expired, 'wizard', 2);
+  putToSleep(woken, 'wizard', 2);
+  const state = { characters: [expired, woken] };
+  assert.equal(advanceSleepRounds(state, 1), false);
+  assert.equal(wakeCreature(woken), true);
+  assert.equal(advanceSleepRounds(state, 1), true);
+  for (const creature of [expired, woken]) {
+    assert.equal(isSleeping(creature), false);
+    assert.equal(isProne(creature), true);
+    assert.ok(Number.isFinite(creature.conditions.wokeAt));
+    standCreature(creature, 6, 6);
+    assert.equal(creature.conditions.wokeAt, undefined);
+  }
+});

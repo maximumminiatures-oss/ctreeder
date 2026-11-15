@@ -277,3 +277,113 @@ test('companion rename persists in the runtime without changing the native monst
   assert.equal(companion.raw.name, 'Torchbearer');
   assert.equal(companion.companion.source.name, 'Goblin');
 });
+
+test('ranged spear, dagger and javelin move exactly one weapon; adjacent attacks keep it', async () => {
+  for (const [name, roll, full, adjacent] of [
+    ['Spear', .6, false, false], ['Dagger', .1, false, false],
+    ['Javelin', .6, true, false], ['Spear', .6, false, true]
+  ]) {
+    const state = scene();
+    const [attacker] = state.characters;
+    attacker.className = 'Fighter';
+    const [target] = state.entities;
+    if (!adjacent) target.x = 5;
+    else target.y = 3;
+    const weapon = { name, type: 'weapon', equipped: true, slots: 1, totalUnits: 2, costGp: 7 };
+    attacker.gear = [weapon];
+    target.gear = full ? [{ name: 'Crate', slots: 10, quantity: 1 }] : [];
+    const normalized = await command(state, { type: 'normalize' });
+    const index = normalized.state_json.characters[0].attacks.findIndex(text => text.startsWith(name + ':'));
+    assert.ok(index >= 0);
+    const result = await command(normalized.state_json, { type: 'attack', monster_id: 'foe', attack_index: index }, roll);
+    const current = result.state_json.characters[0];
+    assert.equal(current.gear.filter(item => item.name === name).length, adjacent ? 2 : 1);
+    assert.equal(current.raw.gear.filter(item => item.name === name).length, adjacent ? 2 : 1);
+    const monster = result.state_json.entities.find(entity => entity.id === 'foe');
+    const lodged = monster.gear.find(item => item.name === name);
+    const drop = result.state_json.entities.find(entity => entity.gearItem?.name === name);
+    if (adjacent) assert.ok(!lodged && !drop);
+    else if (roll > .5 && !full) {
+      assert.equal(lodged.totalUnits, 1);
+      assert.equal(lodged.costGp, 7);
+      assert.equal(lodged.equipped, false);
+      assert.equal(monster.carriedGear.length, 1);
+      assert.equal(drop, undefined);
+    } else {
+      assert.equal(lodged, undefined);
+      assert.equal(drop.gearItem.totalUnits, 1);
+      assert.equal(Math.max(Math.abs(drop.x - monster.x), Math.abs(drop.y - monster.y)), 1);
+    }
+  }
+});
+
+test('a thrown hit that kills a monster leaves the weapon among its recoverable gear', async () => {
+  const state = scene();
+  Object.assign(state.entities[0], { x: 5, hp: 1, gear: [] });
+  state.characters[0].className = 'Fighter';
+  const result = await command(state, { type: 'attack', monster_id: 'foe' }, .6);
+  const weapon = result.state_json.entities.find(entity => entity.gearItem?.name === 'Dagger');
+  assert.equal(weapon.x, 5);
+  assert.ok(weapon.corpseEquipment);
+  assert.equal(result.state_json.characters[0].gear.length, 0);
+});
+
+test('a missed throw can become a hit with Luck without refunding or duplicating the weapon', async () => {
+  const state = scene();
+  state.characters[0].luckToken = true;
+  state.characters[0].className = 'Fighter';
+  Object.assign(state.entities[0], { x: 5, gear: [] });
+  const miss = await command(state, { type: 'attack', monster_id: 'foe' }, .1);
+  assert.equal(miss.state_json.characters[0].gear.length, 0);
+  const drop = miss.state_json.entities.find(entity => entity.gearItem?.name === 'Dagger');
+  const hit = await command(miss.state_json, { type: 'luck' }, .8);
+  assert.equal(hit.state_json.characters[0].gear.length, 0);
+  assert.ok(!hit.state_json.entities.some(entity => entity.id === drop.id));
+  assert.equal(hit.state_json.entities.find(entity => entity.id === 'foe').gear[0].name, 'Dagger');
+});
+
+test('empty-square throws land by the aimed tile and out-of-range attempts keep the weapon', async () => {
+  const state = scene();
+  await assert.rejects(() => command(state, { type: 'attack_empty', x: 0, y: 30 }), /range/);
+  const result = await command(state, { type: 'attack_empty', x: 5, y: 2 });
+  assert.equal(result.state_json.characters[0].gear.length, 0);
+  const drop = result.state_json.entities.find(entity => entity.gearItem?.name === 'Dagger');
+  assert.equal(Math.max(Math.abs(drop.x - 5), Math.abs(drop.y - 2)), 1);
+});
+
+test('bow mastery supplies twenty matching rounds, including overflow beside a full pack', async () => {
+  for (const [weapon, type, used] of [['longbow', 'arrows', 0], ['shortbow', 'arrows', 9], ['crossbow', 'bolts', 10]]) {
+    const state = scene(), fighter = state.characters[0];
+    state.combat.active = false;
+    state.entities = [];
+    fighter.className = 'Fighter';
+    fighter.gear = Array.from({ length: used }, () => ({ name: 'Sack', slots: 1 }));
+    initializeImportChoices(fighter, { random: () => .4 });
+    const result = await command(state, { type: 'advance_choice', event_id: 'initial', task_id: 'mastery', value: weapon });
+    const current = result.state_json.characters[0];
+    const supplies = result.state_json.entities.filter(entity => entity.subtype === 'dropped-equipment');
+    assert.equal(supplies.length, Math.max(0, used - 8));
+    assert.equal(new Set(supplies.map(item => item.id)).size, supplies.length);
+    const rewarded = [...current.gear, ...supplies.map(item => item.gearItem)];
+    assert.equal(rewarded.find(item => item.ammoType === type && item.type === 'sundry').totalUnits, 20);
+    assert.ok(rewarded.some(item => item.name === weapon));
+    if (used === 0) {
+      const index = current.gear.findIndex(item => item.name === weapon);
+      const dropped = await command(result.state_json, { type: 'drop_gear', gear_index: index });
+      assert.equal(dropped.state_json.entities.find(entity => entity.gearItem?.name === weapon).name, 'Longbow');
+    }
+    assert.equal(current.ammo[type], used === 0 ? 20 : 0);
+  }
+});
+
+test('throwing at treasure uses the chosen attack and lands the weapon beside it', async () => {
+  const state = scene();
+  state.combat.active = false;
+  state.characters[0].className = 'Fighter';
+  state.entities = [{ id: 'treasure', type: 'treasure', name: 'Pouch', x: 5, y: 2, roomId: 'room', visible: true }];
+  const result = await command(state, { type: 'attack_treasure', entity_id: 'treasure', attack_index: 0 });
+  assert.equal(result.state_json.characters[0].gear.length, 0);
+  const drop = result.state_json.entities.find(entity => entity.gearItem?.name === 'Dagger');
+  assert.equal(Math.max(Math.abs(drop.x - 5), Math.abs(drop.y - 2)), 1);
+  assert.ok(!result.state_json.entities.find(entity => entity.id === 'treasure').collected);
+});

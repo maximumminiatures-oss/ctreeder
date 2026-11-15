@@ -1,8 +1,16 @@
 import { DOOR_STATES, TILE_SIZE_PX } from './constants.js';
 import { DOOR_LIGHT_RULES } from './door-light-data.js';
 
+export function isBrokenDoor(door) {
+  return door?.doorState === DOOR_STATES.GONE || door?.destroyed === true || door?.gone === true;
+}
+
+export function isDoorPassable(door) {
+  return door?.doorState === DOOR_STATES.OPEN || isBrokenDoor(door);
+}
+
 export function isClosedSecretDoor(door) {
-  return (door?.secret === true || door?.isSecret === true) && door.doorState !== DOOR_STATES.OPEN;
+  return (door?.secret === true || door?.isSecret === true) && !isDoorPassable(door);
 }
 
 export function doorApproachTiles(door) {
@@ -30,6 +38,7 @@ export function doorRotationAngle(door) {
 }
 
 export function doorLightSegments(door) {
+  if (isBrokenDoor(door)) return [];
   const secret = door.secret === true || door.isSecret === true;
   const open = door.doorState === DOOR_STATES.OPEN;
   const key = secret ? `${/^door-secret-[123]$/.test(door.doorSpriteId) ? door.doorSpriteId : 'door-secret-1'}${open ? '-open' : ''}` : `door-${open ? 'open' : 'closed'}`;

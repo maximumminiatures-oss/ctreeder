@@ -6,7 +6,7 @@
     <title>ShadowSpawner</title>
     <link rel="icon" type="image/png" sizes="72x72" href="./assets/browser-spawner.png" />
     <link rel="preload" href="./Tagesschrift-Regular.ttf" as="font" type="font/ttf" crossorigin />
-    <link rel="stylesheet" href="./styles.css?v=20261111-dungeon-controls" />
+    <link rel="stylesheet" href="./styles.css?v=20261114-sheet-controls" />
     <link rel="stylesheet" href="./save-menus.css" data-sd-save-menus />
   </head>
   <body>
@@ -105,9 +105,12 @@
             <p>Characters can be saved and loaded to explore new dungeons.</p>
             <p>Dungeon Level [<span id="how-to-play-level">1</span>]: a dungeon that 4 characters of [<span id="how-to-play-level-repeat">1</span>] character level will find moderately challenging.</p>
           </section>
-          <nav class="site-links" aria-label="Project links">
-            <a href="https://github.com/ShadowDarklings">ShadowSpawner on GitHub</a>
-          </nav>
+          <footer class="site-links" aria-label="Credits">
+            <div>ShadowDark TTRPG created by Kelsey Dionne and the Arcane Library. Buy it <a href="https://www.thearcanelibrary.com/collections/shadowdark-core-rules/products/shadowdark-rpg">here</a>.</div>
+            <div>artwork, design and code by <a href="https://ctreeder.com/">Charles T. Reeder</a>.</div>
+            <div>Backend help from <a href="https://github.com/mgwirtzr">Megan Gwirz</a></div>
+            <div>Security help from <a href="https://github.com/mrod440">Mario Rodriguez</a></div>
+          </footer>
         </section>
 
         <section id="characters-tab-panel" class="tab-panel" role="tabpanel" hidden>
@@ -365,6 +368,34 @@
         <button id="treasure-attack-close" type="button">Close</button>
       </section>
     </div>
+    <dialog id="character-import-modal" class="modal-card" aria-labelledby="character-import-title">
+      <form>
+        <h2 id="character-import-title">Import from ShadowDarklings</h2>
+        <fieldset><legend>Ancestries</legend>
+          <label><input type="checkbox" name="ancestries" value="Dwarf" checked /> Dwarf</label>
+          <label><input type="checkbox" name="ancestries" value="Elf" checked /> Elf</label>
+          <label><input type="checkbox" name="ancestries" value="Goblin" checked /> Goblin</label>
+          <label><input type="checkbox" name="ancestries" value="Halfling" checked /> Halfling</label>
+          <label><input type="checkbox" name="ancestries" value="Half-Orc" checked /> Half-Orc</label>
+          <label><input type="checkbox" name="ancestries" value="Human" checked /> Human</label>
+        </fieldset>
+        <fieldset><legend>Classes</legend>
+          <label><input type="checkbox" name="classes" value="Fighter" checked /> Fighter</label>
+          <label><input type="checkbox" name="classes" value="Priest" checked /> Priest</label>
+          <label><input type="checkbox" name="classes" value="Thief" checked /> Thief</label>
+          <label><input type="checkbox" name="classes" value="Wizard" checked /> Wizard</label>
+        </fieldset>
+        <p role="alert"></p>
+        <button type="submit" value="random-1">Random 1</button>
+        <button type="submit" value="best-fit">Best Fit</button>
+        <button type="button" data-show-zero>Random 0</button>
+        <div class="import-zero-actions" hidden>
+          <button type="submit" value="random-0">Random 0</button>
+          <button type="submit" value="random-4x0">Random 4x0</button>
+        </div>
+        <button type="button" data-close-import>Cancel</button>
+      </form>
+    </dialog>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

@@ -1,4 +1,5 @@
-import { DOOR_STATES, TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
+import { TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
+import { isDoorPassable } from './door-geometry.js';
 import { collectLightSources, computeLightPolygon, getClosedDoorSegment, isPointInPolygon, isPortcullisDoor, isTileTouchedByLightPolygon, organicTileBlocksLine, withLightPolygonCache } from "./light-geometry.js";
 import { tileKey } from "./state-schema.js";
 import { reviewedBlocksLine } from "./reviewed-layouts.js";
@@ -123,7 +124,7 @@ function getDoorBetween(state, fromX, fromY, toX, toY) {
 
 function isClosedDoorHallTarget(state, x, y) {
   return state.entities.some((entity) => {
-    if (entity.subtype !== "door" || entity.doorState === DOOR_STATES.OPEN || isPortcullisDoor(entity)) {
+    if (entity.subtype !== "door" || isDoorPassable(entity) || isPortcullisDoor(entity)) {
       return false;
     }
     const { hall } = getDoorTiles(entity);
@@ -135,7 +136,7 @@ function isClosedSecretDoorTile(state, tile) {
   return (state.entities || []).some((door) => (
     door.subtype === "door" &&
     door.secret === true &&
-    door.doorState !== DOOR_STATES.OPEN &&
+    !isDoorPassable(door) &&
     !isPortcullisDoor(door) &&
     door.x === tile?.x &&
     door.y === tile?.y
@@ -175,7 +176,7 @@ export function isDoorThresholdTile(state, tile) {
   }
   return (state.entities || []).some((door) => {
     return door.subtype === "door" &&
-      door.doorState !== DOOR_STATES.OPEN &&
+      !isDoorPassable(door) &&
       !isPortcullisDoor(door) &&
       tile.x === door.x &&
       tile.y === door.y;
@@ -231,7 +232,7 @@ function getDoorSideSamplePoint(door, side) {
 
 function revealLitClosedDoorSides(state, lightPolygons) {
   for (const door of state.entities || []) {
-    if (door.subtype !== "door" || door.doorState === DOOR_STATES.OPEN || isPortcullisDoor(door)) {
+    if (door.subtype !== "door" || isDoorPassable(door) || isPortcullisDoor(door)) {
       continue;
     }
     if (door.secret === true) {
@@ -283,7 +284,7 @@ function isAcrossClosedDoor(state, px, py, tx, ty, source = { x: px, y: py }) {
   const origin = getTileCenterPoint(px, py);
   const target = getTileCenterPoint(tx, ty);
   for (const door of state.entities) {
-    if (door.subtype !== "door" || !sameRoute(state, source, door) || door.doorState === DOOR_STATES.OPEN || isPortcullisDoor(door)) {
+    if (door.subtype !== "door" || !sameRoute(state, source, door) || isDoorPassable(door) || isPortcullisDoor(door)) {
       continue;
     }
     const [start, end] = getClosedDoorSegment(door).map(([x, y]) => [x / TILE_SIZE_PX, y / TILE_SIZE_PX]);
@@ -343,7 +344,7 @@ export function hasLineOfSightFrom(state, originX, originY, x, y, options = {}) 
       return false;
     }
     const door = getDoorBetween(state, prev.x, prev.y, curr.x, curr.y);
-    if (door && sameRoute(state, routeSource, door) && door.doorState !== DOOR_STATES.OPEN && !isPortcullisDoor(door)) {
+    if (door && sameRoute(state, routeSource, door) && !isDoorPassable(door) && !isPortcullisDoor(door)) {
       return i === points.length - 1 && isClosedDoorHallTarget(state, x, y);
     }
   }

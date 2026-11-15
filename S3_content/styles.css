@@ -959,7 +959,7 @@ body {
   border-radius: 0;
   background: #000;
   padding: 0;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   user-select: none;
 }
@@ -1589,7 +1589,7 @@ body {
   border-color: #111;
   background: #f6f3eb;
   color: #111;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   user-select: text;
 }
@@ -1619,8 +1619,7 @@ body {
 #character-sheet-modal .character-sheet-modal textarea,
 #character-sheet-modal .character-sheet-modal select,
 #character-sheet-modal .character-sheet-modal a {
-  cursor: auto;
-  user-select: auto;
+  cursor: default;
 }
 
 .spell-detail-modal {
@@ -1988,40 +1987,6 @@ body {
   letter-spacing: 0;
   text-transform: uppercase;
   white-space: nowrap;
-}
-
-.sd-coin-field input {
-  box-sizing: content-box;
-  width: 3.2ch !important;
-  min-width: 0 !important;
-  height: 1em;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #111;
-  text-align: left;
-  font: 700 0.82rem/1 "Times New Roman", Georgia, serif;
-  appearance: textfield;
-}
-
-.character-sheet--popout .sd-coin-field input {
-  border: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  color: #111 !important;
-}
-
-.sd-coin-field input::-webkit-outer-spin-button,
-.sd-coin-field input::-webkit-inner-spin-button {
-  opacity: 0;
-}
-
-.sd-coin-field:hover input::-webkit-outer-spin-button,
-.sd-coin-field:hover input::-webkit-inner-spin-button,
-.sd-coin-field input:focus::-webkit-outer-spin-button,
-.sd-coin-field input:focus::-webkit-inner-spin-button {
-  opacity: 1;
 }
 
 .sd-sheet-field,
@@ -2932,8 +2897,20 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .sd-character-options .sd-sheet-action-row { display: grid; grid-template-columns: 1fr; gap: 6px; }
 .sd-character-options button { width: 100%; min-width: 0; margin: 0; padding: 6px 8px; border: 2px solid #111; border-radius: 0; background: #fff; color: #111; font: 700 0.9rem/1.2 "Times New Roman", Georgia, serif; text-align: left; }
 .sd-character-options button:disabled { color: #777; background: #eee; }
-.sd-gear-drag-label { cursor: grab; touch-action: none; }
-.sd-gear-drag-label:active { cursor: grabbing; }
+body { cursor: default; }
+:where(button, [role="button"], .sd-gear-row-actions, .light-source-marker) {
+  user-select: none;
+  -webkit-user-select: none;
+}
+:is(input, textarea, [contenteditable], .sd-sheet-field, .sd-gear-panel, .sd-lined-block,
+  .sd-talents-content, .spell-detail-modal p, .character-mini-identity, .character-mini-stats,
+  .monster-mini-stats, .monster-card > h3, .character-death-banner) { cursor: default; }
+.character-sheet--popout :is(.sd-sheet-field, .sd-gear-panel, .sd-lined-block, .sd-talents-content) {
+  user-select: text;
+}
+.character-sheet--popout :is(button, .sd-gear-row-actions, .light-source-marker) {
+  user-select: none;
+}
 .character-mini-attack-entry .attack-roll-button { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .sd-gear-lines > div { height: 18px; min-height: 0; box-sizing: border-box; }
 .character-card .character-death-banner:not(.is-dead),
@@ -3368,3 +3345,9 @@ body :is(.controls-panel, .turn-card-layer) .character-card button.mini-command:
 .roll-card .die-maximum { color: #188133; }
 .roll-card .die-minimum { color: #c11919; }
 .roll-card .roll-card-heading { color: #fff; }
+
+#character-import-modal { width: min(460px, 94vw); }
+#character-import-modal::backdrop { background: rgb(0 0 0 / 55%); }
+#character-import-modal fieldset { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 10px; }
+#character-import-modal button { margin: 4px 4px 4px 0; }
+.import-zero-actions:not([hidden]) { display: inline-block; }

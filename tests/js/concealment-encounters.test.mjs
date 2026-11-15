@@ -23,16 +23,18 @@ test('impostors cannot activate copied ancestry powers',()=>{
   assert.throws(()=>activateHalflingInvisibility(hero('fake',{companion:{kind:'doppelganger'}})),/unavailable/);
 });
 test('monster stealth rolls once, remains hidden and is revealed by later higher Wisdom',()=>{
-  const foe=monster(),state={entities:[foe],characters:[hero()]};let calls=0;
+  const foe=monster('foe', { D: 1 }),state={entities:[foe],characters:[hero()]};let calls=0;
   const options={random:()=>{calls++;return .55;}};
-  updateMonsterStealth(state,options);assert.equal(foe.stealthState.total,14);assert.equal(isHiddenMonster(foe),true);
+  updateMonsterStealth(state,options);assert.equal(foe.stealthState.total,13);assert.equal(isHiddenMonster(foe),true);
   updateMonsterStealth(state,options);assert.equal(calls,1);
-  state.characters.push(hero('sage',{stats:{WIS:18}}));updateMonsterStealth(state,options);
+  state.characters.push(hero('sage',{stats:{WIS:20}}));updateMonsterStealth(state,options);
   assert.equal(isHiddenMonster(foe),false);assert.equal(calls,1);
 });
-test('only hidden participants, initiator and goblins act during surprise',()=>{
+test('only the initiator and goblins act during surprise',()=>{
   const a=hero(),b=hero('b',{ancestry:'Human'}),g=hero('g',{ancestry:'Goblin'}),foe=monster();makeInvisible(a);
-  assert.deepEqual(surpriseParticipants({characters:[a,b,g],entities:[foe]},foe,{forcedSurprisedIds:[a.id,b.id,g.id]}),['g','foe']);
+  const hobgoblin = monster('hob', { name: 'Hobgoblin' });
+  const goblin = monster('boss', { name: 'Goblin Boss' });
+  assert.deepEqual(surpriseParticipants({characters:[a,b,g],entities:[foe,hobgoblin,goblin]},foe),['g','foe','boss']);
 });
 test('reaction table covers all boundaries and talking uses only the chosen CHA modifier',()=>{
   assert.deepEqual([0,6,7,8,9,10,11,12,20].map(reactionAttitude),['hostile','hostile','suspicious','suspicious','neutral','curious','curious','friendly','friendly']);

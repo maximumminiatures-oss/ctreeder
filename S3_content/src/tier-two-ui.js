@@ -36,7 +36,7 @@ export function createTierTwoUi({ getPresentation, resolve, preview, mapHost, st
         dialog.append(button);
       }
       dialog.addEventListener('keydown', event => event.stopPropagation());
-      dialog.addEventListener('cancel', event => { event.preventDefault(); void submit({ dismiss: true }); });
+      dialog.addEventListener('cancel', event => { event.preventDefault(); });
       document.body.append(dialog); dialog.showModal(); return;
     }
     panel = node('section', null, 'tier-two-target-panel');
@@ -59,7 +59,7 @@ export function createTierTwoUi({ getPresentation, resolve, preview, mapHost, st
       confirm.onclick = () => { if (selected) void submit({ ...selected, confirmed: true }); };
       panel.append(confirm);
     }
-    const cancel = node('button', 'Cancel'); cancel.type = 'button'; cancel.disabled = Boolean(view.busy); cancel.onclick = () => void submit({ dismiss: true });
+    const cancel = node('button', 'Discard Spell'); cancel.type = 'button'; cancel.disabled = Boolean(view.busy); cancel.onclick = () => void submit({ dismiss: true });
     panel.append(cancel); mapHost.parentElement.append(panel);
   }
   function click(x, y, targetId = null) {

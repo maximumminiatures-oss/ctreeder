@@ -10,7 +10,7 @@ import { isSlowWaterTile } from './terrain-movement.js';
 import { getTile } from './state-schema.js';
 import { routeOf, sameRoute, routeExistsAt } from './underpasses.js';
 import { pitAtBottom, safePitRim } from './pits.js';
-import { isGaseousForm, hasMobilityFlight } from './conditions.js';
+import { isGaseousForm, hasMobilityFlight, wakeCreature } from './conditions.js';
 import { mobilityMovementSquares, resolveMobilityExpiry } from './tier-three-mobility.js';
 
 export const TRANSFORMATION_SPELLS = new Set(['alter self', 'levitate', 'mirror image', 'misty step']);
@@ -331,7 +331,7 @@ function resolveMistyStep(state, caster, selection, { random = Math.random, onLu
   const monsterDamage = monsterRolls.reduce((sum, roll) => sum + roll, 0);
   if (damage) {
     setCharacterHp(caster, Number(caster.hp) - damage);
-    if (destination.occupant) { destination.occupant.hp = Math.max(0, destination.occupant.hp - monsterDamage); if (destination.occupant.conditions) delete destination.occupant.conditions.sleeping; }
+    if (destination.occupant) { destination.occupant.hp = Math.max(0, destination.occupant.hp - monsterDamage); if (monsterDamage > 0) wakeCreature(destination.occupant); }
   }
   // Failed solid landings and a surviving occupied landing return to the origin rather than creating an illegal token overlap.
   const moved = !destination.risk || destination.risk === 'monster' && destination.occupant.hp <= 0;

@@ -19,7 +19,8 @@ export const ENTITY_TYPES = Object.freeze({
 export const DOOR_STATES = Object.freeze({
   OPEN: "open",
   CLOSED: "closed",
-  LOCKED: "locked"
+  LOCKED: "locked",
+  GONE: "gone"
 });
 
 export const DEFAULT_LIGHT_RADIUS = 6;

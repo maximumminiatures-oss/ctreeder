@@ -268,7 +268,8 @@ test('a queued mundane pick cannot bypass a magical lock that has reactivated', 
   assert.equal(attemptLockedDoor(state, 'pick', 99).opened, false);
   assert.equal(portal.doorState, 'locked');
   assert.equal(attemptLockedDoor(state, 'break', 99, { doorId: portal.id }).destroyed, true);
-  assert.equal(state.entities.includes(portal), false);
+  assert.ok(state.entities.includes(portal));
+  assert.equal(portal.doorState, 'gone');
 });
 
 test('an independent active trap cannot open a mundane lock while door magic is suppressed', () => {

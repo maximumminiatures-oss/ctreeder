@@ -4,7 +4,7 @@ import { castingBonus } from './spell-effects.js';
 import { rollWizardMishaps, wizardCastingMode } from './wizard-mishaps.js';
 import { ATTACK_RANGES, canAimAtSquare } from './targeting.js';
 import { routeOf, sameRoute } from './underpasses.js';
-import { isGaseousForm } from './conditions.js';
+import { isGaseousForm, wakeCreature } from './conditions.js';
 import { circleBlocksHostileAction } from './magic-circle.js';
 
 export function castMagicMissile(state, caster, options = {}) {
@@ -59,7 +59,7 @@ export function fireMagicMissile(caster, target, { canTarget, random = Math.rand
     if (!Number.isFinite(value) || value < 0 || value >= 1) throw new Error('Invalid missile damage roll.');
     damage = Math.floor(value * pending.diceSides) + 1;
     target.hp = Math.max(0, Number(target.hp) - damage);
-    if (damage > 0 && target.conditions?.sleeping) { delete target.conditions.sleeping; target.conditions.prone = true; }
+    if (damage > 0) wakeCreature(target);
   }
   pending.remaining -= 1;
   pending.spent.push({ targetId: target?.id || null, damage, ...(blind ? { blind: true, ...square } : {}) });

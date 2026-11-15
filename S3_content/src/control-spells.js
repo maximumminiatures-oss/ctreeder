@@ -48,7 +48,7 @@ export function releaseSleep(state, caster, point = null) {
     Number(creature.level ?? creature['**LV**'] ?? 1) <= pending.maxLevel && isLivingCreature(creature) &&
     creature.x >= area.x && creature.x < area.x + area.size && creature.y >= area.y && creature.y < area.y + area.size &&
     canTargetAtRange(state, caster, creature, Infinity, { requireLight: false }) && !circleBlocksHostileAction(state, caster, creature));
-  for (const target of targets) putToSleep(target, caster.id);
+  for (const target of targets) putToSleep(target, caster.id, pending.rounds);
   caster.pendingSpell = null;
   return { targets, area, message: targets.length ? `${targets.map(target => target.name).join(', ')} fall asleep.` : 'Sleep finds no eligible living creatures.' };
 }

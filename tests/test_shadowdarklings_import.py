@@ -221,3 +221,21 @@ def test_another_account_on_same_network_can_import_after_player_limit(real_impo
             sess["_fresh"] = True
         for _ in range(16):
             assert second.post("/api/shadowdarklings/import", json={}).status_code == 200
+
+def test_import_forwards_filters_and_four_character_mode(client, monkeypatch):
+    import json
+
+    seen = {}
+    def generate(**options):
+        seen.update(options)
+        return json.dumps([{"name": str(index), "ancestry": "Elf", "level": 0} for index in range(4)])
+
+    monkeypatch.setattr("app.fetch_shadowdarklings_character_json", generate)
+    response = client.post("/api/shadowdarklings/import", json={
+        "mode": "random-4x0", "ancestries": ["Elf"], "classes": ["Wizard"],
+    })
+    assert response.status_code == 200
+    assert len(json.loads(response.get_json()["character_json"])) == 4
+    assert seen == {"base_classes_only": True, "mode": "random-4x0", "ancestries": ["Elf"], "classes": ["Wizard"]}
+    invalid = client.post("/api/shadowdarklings/import", json={"ancestries": []})
+    assert invalid.status_code == 400

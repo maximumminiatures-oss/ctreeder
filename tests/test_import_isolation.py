@@ -1,4 +1,5 @@
 import io
+import json
 import subprocess
 import pytest
 import shadowdarklings_import as importer
@@ -28,6 +29,28 @@ def test_import_worker_does_not_inherit_application_secrets(monkeypatch):
     assert observed["env"]["SD_IMPORT_SANDBOX"] == "1"
     assert observed["env"]["SD_IMPORT_ISOLATED_PROCESS"] == "1"
     assert "--base-only" in observed["command"]
+
+
+def test_worker_accepts_four_character_export_in_batch_mode(monkeypatch):
+    characters = [{"name": f"Elf {index}", "level": 0} for index in range(4)]
+    options = {"mode": "random-4x0", "ancestries": ["Elf"]}
+
+    class Process:
+        returncode = 0
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+
+        def __init__(self, command, **_):
+            assert json.loads(command[command.index("--options") + 1]) == options
+
+        def communicate(self, timeout):
+            return json.dumps(characters).encode("utf-8"), b""
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(importer.subprocess, "Popen", Process)
+    assert json.loads(importer.run_shadowdarklings_import_worker(True, **options)) == characters
 
 
 def test_import_timeout_stops_its_worker(monkeypatch):

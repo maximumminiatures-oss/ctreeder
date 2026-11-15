@@ -48,7 +48,7 @@ for (const className of ['Wizard', 'Priest']) test(`${className} level-two spell
       stats: { CON: 10, INT: 12, WIS: 12 }, bonuses: [], levels: [], gear: [],
       spellsKnown: className === 'Wizard' ? 'Sleep, Alarm' : 'Turn Undead, Light, Cure Wounds' };
     const event = beginLevelUp(character, { random: () => .5 });
-    assert.equal(event.tasks.filter(task => task.type === 'spell').length, 1);
+    assert.equal(event.tasks.filter(task => task.type === 'spell').length, className === 'Wizard' ? 2 : 1);
     resolveAdvancement(character, event.id, event.tasks[0].id, picked, { spells });
     const state = { characters: [character] }; normalizeCharacterState(state);
     const caster = state.characters[0];

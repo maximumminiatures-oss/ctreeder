@@ -36,7 +36,7 @@ from validation import validate_json, validate_state
 from storage_limits import storage_available, STORAGE_FULL
 from party_persistence import SavedParty, register_party_routes, with_lineage, character_lineage
 from import_capacity import ImportBusyError, import_slot
-from shadowdarklings_import import fetch_shadowdarklings_character_json
+from shadowdarklings_import import fetch_shadowdarklings_character_json, import_options, validate_export
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -811,6 +811,10 @@ def import_shadowdarklings_character():
     request_data = request.get_json(silent=True)
     if not isinstance(request_data, dict):
         request_data = {}
+    try:
+        options = import_options(request_data)
+    except ValueError as exc:
+        return {"error": "invalid_request", "message": str(exc)}, 400
     room_id = request_data.get("room_id")
     if room_id is not None and not isinstance(room_id, str):
         return {"error": "invalid_request", "message": "Invalid dungeon ID."}, 400
@@ -825,17 +829,18 @@ def import_shadowdarklings_character():
             if not room.players_can_import:
                 return {"error": "player_import_disabled", "message": "The host is assigning characters for this dungeon."}, 403
             owned = {character_id for character_id, owner_id in (room.ownership_json or {}).items() if owner_id == member.id}
-            if owned and not room.extra_characters_without_host:
+            if (owned or options.get("mode") == "random-4x0") and not room.extra_characters_without_host:
                 return {"error": "import_limit", "message": "You already control a character in this dungeon."}, 403
     # Authorization is complete; do not hold a database connection during browser I/O.
     db.close()
     import_started_at = time.monotonic()
     try:
-        data = request_data
         base_classes_only = True
         with import_slot():
-            character_json = fetch_shadowdarklings_character_json(base_classes_only=base_classes_only)
-        validate_json(json.loads(character_json), max_bytes=128 * 1024)
+            character_json = fetch_shadowdarklings_character_json(base_classes_only=base_classes_only, **options)
+        exported = validate_export(character_json, options.get("mode"))
+        for character in exported if isinstance(exported, list) else [exported]:
+            validate_json(character, max_bytes=128 * 1024)
     except ImportBusyError:
         return {
             "error": "shadowdarklings_import_busy",

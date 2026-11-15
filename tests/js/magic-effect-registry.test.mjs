@@ -73,7 +73,9 @@ test('Sleep removes only the selected explicit spell sleep, retaining prone and 
   state.rest = { phase: 'sleeping', participantIds: ['foe'] };
   assert.equal(listMagicEffects(state).filter(effect => effect.spell === 'sleep').length, 2);
   end(state, 'sleep', caster.id);
-  assert.deepEqual(caster.conditions, { prone: true, poisoned: true });
+  const { wokeAt, ...conditions } = caster.conditions;
+  assert.ok(Number.isFinite(wokeAt));
+  assert.deepEqual(conditions, { prone: true, poisoned: true });
   assert.deepEqual(caster.raw.conditions, caster.conditions);
   assert.ok(ally.conditions.sleeping);
   assert.ok(foe.conditions.sleeping);

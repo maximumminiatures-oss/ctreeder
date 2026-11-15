@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEmptyDungeonState } from '../../S3_content/src/state-schema.js';
-import { clickEntity, getDoorClickContext, getPendingLockedDoorAction, movePlayer } from '../../S3_content/src/interactions.js';
+import { clickEntity, getDoorClickContext, getPendingLockedDoorAction, movePlayer, attemptLockedDoor, getDoorAt, canMoveBetweenTiles } from '../../S3_content/src/interactions.js';
+
+import { doorLightSegments } from '../../S3_content/src/door-geometry.js';
+import { hasLineOfSightFrom } from '../../S3_content/src/visibility.js';
 
 function scene() {
   const state = createEmptyDungeonState(7);
@@ -136,4 +139,23 @@ test('a neighboring lock needs illumination or a bump by the selected character'
   assert.equal(getPendingLockedDoorAction(state, near)?.doorId, 'door');
   door.secret = true;
   assert.equal(getPendingLockedDoorAction(state, near), null);
+});
+
+test('Smash keeps the oriented doorway visible and passable without leaving an interactive door or light blocker', () => {
+  const state = scene(), door = state.entities[0];
+  Object.assign(door, { doorState: 'locked', secret: true, secretFound: true, wallSide: 'north',
+    doorRotationAngle: Math.PI, breakDc: 8, holdPortal: { rounds: 3, dc: 12 } });
+  assert.equal(canMoveBetweenTiles(state, 5, 6, 5, 5).ok, false);
+  assert.equal(hasLineOfSightFrom(state, 5, 6, 5, 4), false);
+  assert.ok(doorLightSegments(door).length);
+  assert.equal(attemptLockedDoor(state, 'break', 99, { doorId: door.id }).destroyed, true);
+  assert.equal(door.doorState, 'gone');
+  assert.equal(door.wallSide, 'north');
+  assert.equal(door.doorRotationAngle, Math.PI);
+  assert.equal(door.holdPortal, undefined);
+  assert.equal(getDoorAt(state, 5, 5), null);
+  assert.equal(getDoorClickContext(state, 5, 5), null);
+  assert.equal(canMoveBetweenTiles(state, 5, 6, 5, 5).ok, true);
+  assert.equal(hasLineOfSightFrom(state, 5, 6, 5, 4), true);
+  assert.deepEqual(doorLightSegments(door), []);
 });

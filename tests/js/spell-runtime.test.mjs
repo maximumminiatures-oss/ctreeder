@@ -48,11 +48,16 @@ async function resolveTier(result, selection) {
   return withRandom(.5, () => executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', ...selection }));
 }
 test('tier-two runtime Acid Arrow resolves initial and Focus damage and preserves ready targeting after movement', async () => {
-  let result = await castTier(tierTwoScene(), 'Acid Arrow');
+  const state = tierTwoScene();
+  state.characters.push({ ...scene().characters[1], ancestry: 'Goblin', hp: 20, dyingRounds: 0 });
+  state.entities[1].attack = '';
+  let result = await castTier(state, 'Acid Arrow');
   assert.equal(result.state_json.characters[0].pendingSpell.spell, 'acid arrow');
   result = await resolveTier(result, { target_id: 'foe' });
   assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').hp, 96);
-  result = await withRandom(.5, () => executeGameCommand(result.state_json, { type: 'tick', elapsed_ms: 10000 }));
+  assert.equal(result.state_json.combat.surpriseRound, true);
+  result = await withRandom(.5, () => executeGameCommand(result.state_json, { type: 'end_turn', character_id: 'friend' }));
+  assert.equal(result.state_json.combat.round, 1);
   assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').hp, 92);
 });
 test('tier-two runtime transformations, teleport and centered area placement survive authoritative commands', async () => {
@@ -202,12 +207,12 @@ test('hidden melee monsters start surprise at movement plus attack reach, with t
     assert.equal(result.state_json.combat.surpriseRound, true);
     assert.equal(result.state_json.combat.round, 0);
     assert.deepEqual(new Set(result.state_json.combat.surpriseParticipantIds), new Set(['priest', 'foe']));
-    assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').x, movement + 2);
-    assert.ok(result.state_json.combat.turnOrder.every(entry => entry.type === 'monster' || entry.id === 'priest'));
-    result = await withRandom(.6, () => executeGameCommand(result.state_json, { type: 'end_turn', character_id: 'priest' }));
     assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').x, 2);
+    assert.deepEqual(result.state_json.combat.turnOrder.map(entry => entry.id), ['foe', 'priest']);
+    assert.equal(result.state_json.combat.turnOrder[result.state_json.combat.turnIndex].id, 'priest');
     assert.ok(result.state_json.characters[0].hp < 50);
     assert.ok(result.state_json.rollHistory.some(entry => /Bandit attacks Priest at advantage/.test(entry.detail)));
+    result = await withRandom(.6, () => executeGameCommand(result.state_json, { type: 'end_turn', character_id: 'priest' }));
     assert.equal(result.state_json.combat.surpriseRound, false);
   }
 });
@@ -1250,10 +1255,12 @@ test('reselecting a ready spell neither rerolls casting nor spends another actio
   await assert.rejects(executeGameCommand(result.state_json, { type: 'light', character_id: 'priest', source: 'torch' }), /Spell ready/);
 });
 
-test('unreleased spells expire at the end of the caster turn', async () => {
+test('a rolled spell must resolve or be explicitly discarded before the caster ends the turn', async () => {
   const state = wizardScene();
   Object.assign(state.characters[1], { hp: 10, dyingRounds: 0 });
   let result = await withRandom(.6, () => executeGameCommand(state, { type: 'spell', character_id: 'priest', spell_name: 'Magic Missile' }));
+  await assert.rejects(() => executeGameCommand(result.state_json, { type: 'end_turn', character_id: 'priest' }), /Spell ready/);
+  result = await executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', dismiss: true });
   result = await executeGameCommand(result.state_json, { type: 'end_turn', character_id: 'priest' });
   assert.equal(result.state_json.characters[0].pendingSpell, null);
   assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').hp, 100);
@@ -1496,8 +1503,9 @@ test('Magic Missile reveals and surprises a lone disguised mimic even without ot
   let result=await withRandom(.6,()=>executeGameCommand(state,{type:'spell',character_id:'priest',spell_name:'Magic Missile'}));
   result=await withRandom(.6,()=>executeGameCommand(result.state_json,{type:'resolve_spell',character_id:'priest',target_id:'foe'}));
   assert.equal(result.state_json.entities[1].disguiseRevealed,true);
-  assert.equal(result.state_json.combat.active,true);assert.equal(result.state_json.combat.surpriseRound,true);
-  assert.ok(!result.state_json.combat.surpriseParticipantIds.includes('foe'));
+  assert.equal(result.state_json.combat.active,true);
+  assert.equal(result.state_json.combat.round,1);
+  assert.deepEqual(result.state_json.combat.surpriseParticipantIds, ['priest']);
 });
 
 test('equipping a later identical sword activates one unique attack and keeps distinct rusty weapons separate',async()=>{
@@ -1547,4 +1555,40 @@ test('parenthesized weapon variants keep separate named attacks',async()=>{
   const result=await executeGameCommand(state,{type:'normalize'});
   assert.equal(result.state_json.characters[0].attacks.length,2);
   assert.match(result.state_json.characters[0].attacks[1],/^Shortsword \(\+1\):/);
+});
+test('Darkmantle spends its action reaching and extinguishing as many torches as possible', async () => {
+  const state = scene();
+  state.map.width = state.rooms[0].width = 17;
+  state.tiles = Array.from({ length: 119 }, (_, i) => ({ x: i % 17, y: Math.floor(i / 17), type: 'floor', roomId: 'room' }));
+  Object.assign(state.characters[0], { x: 14, y: 2, hp: 20, maxHitPoints: 20 });
+  Object.assign(state.characters[1], { x: 2, y: 2, hp: 20, dyingRounds: 0,
+    gear: [{ name: 'Lantern', equipped: true, lit: true }] });
+  Object.assign(state.entities[1], { x: 3, y: 2, name: 'Darkmantle', movement: 'near (fly)', attack: '1 bite +3 (1d4) or 1 darkness' });
+  state.entities.push({ id: 'burning-torch', name: 'Torch', type: 'treasure', subtype: 'dropped-equipment',
+    x: 9, y: 2, roomId: 'room', lightSource: 'torch', lightRadius: 6,
+    gearItem: { name: 'Torch', lit: true }, visible: true });
+  state.combat.turnOrder.splice(1, 1);
+  state.combat.playerOrderIds = ['priest'];
+  const result = await withRandom(.5, () => executeGameCommand(state, { type: 'end_turn', character_id: 'priest' }));
+  assert.match(result.state_json.combat.log.join(' '), /Darkness and extinguishes 2 torches/);
+  assert.equal(result.state_json.characters[0].hp, 20);
+  assert.equal(result.state_json.characters[0].gear.find(item => item.name === 'Torch').lit, false);
+  assert.equal(result.state_json.characters[1].gear.find(item => item.name === 'Lantern').lit, true);
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'burning-torch').gearItem.lit, false);
+});
+
+test('a weapon attack from stealth rolls at advantage and opens combat before other goblins', async () => {
+  const state = scene();
+  state.combat.active = false;
+  Object.assign(state.characters[0], { className: 'Fighter', hp: 20, maxHitPoints: 20, stealthed: true,
+    gear: [{ name: 'Shortsword', type: 'weapon', equipped: true }, { name: 'Torch', equipped: true, lit: true }],
+    equipmentInitialized: true });
+  Object.assign(state.characters[1], { ancestry: 'Goblin', hp: 20, dyingRounds: 0 });
+  Object.assign(state.entities[1], { x: 3, y: 2, ac: 12 });
+  const result = await withRandom(.6, () => executeGameCommand(state, { type: 'attack', character_id: 'priest',
+    monster_id: 'foe', attack_index: 0 }));
+  assert.deepEqual(result.state_json.combat.turnOrder.map(entry => entry.id), ['priest', 'friend']);
+  assert.equal(result.state_json.combat.turnOrder[result.state_json.combat.turnIndex].id, 'friend');
+  assert.ok(result.state_json.rollHistory.some(entry => /advantage/i.test(entry.detail)));
+  assert.equal(result.state_json.characters[0].stealthed, false);
 });
