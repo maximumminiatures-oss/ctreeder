@@ -221,6 +221,10 @@ export function buildNextLevelState(current, { seed = Number(current.seed) + 1, 
   for (const key of TRAVELLING_FIELDS) {
     if (Object.hasOwn(current, key)) next[key] = structuredClone(current[key]);
   }
+  // Encounter frequency is a run setting; each floor retains its own spawn counter.
+  for (const key of ['numerator', 'denominator']) {
+    if (current.wanderingMonsters?.[key] != null) next.wanderingMonsters[key] = current.wanderingMonsters[key];
+  }
   next.dungeonFloors = { ...structuredClone(current.dungeonFloors || {}), [current.level]: snapshotDungeonFloor(current) };
   // The live floor is represented once, at the root, and captured on departure.
   delete next.dungeonFloors[next.level];

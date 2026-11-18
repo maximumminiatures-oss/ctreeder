@@ -138,3 +138,15 @@ test('floor restore rejects invalid axes even if their product resembles a valid
     assert.throws(() => restoreDungeonFloor({ map: { width, height }, tileRuns: [[25, { type: 'floor' }]] }), /invalid/);
   }
 });
+
+test('encounter settings follow the party while spawn counters stay on their own floors', () => {
+  const first = party(floor(42));
+  first.wanderingMonsters = { numerator: 0, denominator: 12, spawnedCount: 7 };
+  const second = buildNextLevelState(first, { seed: 99, generate: floor });
+  assert.deepEqual(second.wanderingMonsters, { numerator: 0, denominator: 12, spawnedCount: 0 });
+  assert.deepEqual(checkFloorArrivalEncounters(second, [{ name: 'Wolf', hp: 5 }]), []);
+  second.wanderingMonsters = { numerator: 2, denominator: 8, spawnedCount: 3 };
+  const restored = buildPreviousLevelState(gather(second, 'up'));
+  assert.deepEqual(restored.wanderingMonsters, { numerator: 2, denominator: 8, spawnedCount: 7 });
+  assert.deepEqual(first.wanderingMonsters, { numerator: 0, denominator: 12, spawnedCount: 7 });
+});
