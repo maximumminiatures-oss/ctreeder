@@ -1,3 +1,4 @@
+import { recoverVampireAtRest, vampireInTorpor } from './supernatural-traits.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { rollCheck } from './interactions.js';
 import { recoverWizardSpells } from './wizard-mishaps.js';
@@ -218,13 +219,20 @@ export function advancePartyRest(state, { now = Date.now(), encounter = () => fa
   const recovered = [], failed = [];
   rest.studyResults = [];
   for (const character of state.characters.filter(character => character.illusion?.kind !== 'creature' && rest.participantIds.includes(character.id))) {
-    if (!character.dead && !character.slain && Number(character.hp) > 0 && !character.restFailed) {
+    const vampiricRest = !character.restFailed && recoverVampireAtRest(state, character, rest.roomId);
+    if (!character.dead && !character.slain && !vampireInTorpor(character) &&
+        (Number(character.hp) > 0 || vampiricRest === 'coffin') && !character.restFailed) {
       setCharacterHp(character, character.maxHitPoints);
       character.halflingInvisibilityUsed = false;
       recoverWizardSpells(character);
       character.spellPenance = Object.fromEntries(Object.entries(character.spellPenance || {}).filter(([, entry]) => !entry.paid));
       recovered.push(character.name);
     } else failed.push(character.name);
+    if (vampiricRest && character.raw) {
+      character.raw.conditions = structuredClone(character.conditions);
+      character.raw.hp = character.hp;
+      character.raw.dyingRounds = character.dyingRounds || 0;
+    }
     rest.studyResults.push(...learnQueuedScrolls(character));
     character.restHours = 0;
     character.restRationPaid = false;

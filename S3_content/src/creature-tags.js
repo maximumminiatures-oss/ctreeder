@@ -1,3 +1,5 @@
+import { isVampire } from './supernatural-traits.js';
+
 export const CREATURE_TAGS = Object.freeze([
   ['fiend', 'Fiends (Demons and Devils)'], ['fey', 'Fey'], ['undead', 'Undead'],
   ['primordial', 'Primordials (Elementals)'], ['celestial', 'Celestials (Angels)'],
@@ -32,6 +34,7 @@ export function canonicalCreatureTags(tags) {
 export function creatureTags(creature) {
   const source = creature?.companion?.source || creature?.raw?.companion?.source;
   return canonicalCreatureTags([
+    ...(isVampire(creature) ? ['undead'] : []),
     ...canonicalCreatureTags(creature?.tags), ...canonicalCreatureTags(creature?.raw?.tags),
     ...canonicalCreatureTags(source?.tags), ...canonicalCreatureTags(source?.raw?.tags)
   ]);

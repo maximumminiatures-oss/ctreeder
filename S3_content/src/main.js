@@ -3,7 +3,7 @@ import { loadLocalJson } from './data-loader.js';
 import { formatRulesMessage } from './rules-message.js';
 import { formatFieldName } from './ui-text.js';
 import { canReadFeedback } from './private-feedback.js';
-import { SHOP_CATEGORIES, STARTING_ROOM_SHOP_ITEMS, createShopGearItem } from './shop-catalog.js';
+import { SHOP_CATEGORIES, STARTING_ROOM_SHOP_ITEMS, VAMPIRE_COFFIN, createShopGearItem } from './shop-catalog.js';
 import { createBackgroundCatalog, initializeCharacterBackground } from './backgrounds.js';
 import { ancestryTalents, isRepresentedAncestryBonus, ancestryAttackModifiers, hasAncestryTrait } from './ancestry.js';
 import { generateDungeon } from "./generator.js";
@@ -107,6 +107,18 @@ import { castIllusion, resolveIllusion, maintainIllusion, illusionPresentation, 
 import { isIllusionCreature, illusionCells, illusionsAt } from './illusion-geometry.js';
 import { listMagicEffects, endMagicEffect } from './magic-effect-registry.js';
 import { isMagicSuppressed, hasMagicSuppression, advanceMagicSuppression } from './magic-suppression.js';
+import { PRIEST_TIER_THREE_SPELLS, castPriestTierThree, resolvePriestTierThree, maintainCommand,
+  activeCommand, priestTierThreePresentation } from './priest-tier-three.js';
+import { lycanthropeKind, lycanthropeAttack, recordLycanthropeDamage, progressLycanthropyAfterRest,
+  silverItem, stakeTarget, stakeGear, shortenedStakePole, isReachPole, supernaturalAttackCanDamage, vampireKind,
+  isVampire, hostileVampire, hostileSupernatural, vampireInTorpor, vampireBite, applyBloodDrain, canDrainBlood, coffinGear,
+  isCoffin, suppressesVampireSpellcasting } from './supernatural-traits.js';
+import { commandMovementPath, resistsHarmfulCommand } from './command-movement.js';
+import { hasHolySymbol } from './holy-symbols.js';
+import { monsterAbilityDefinitions, availableMonsterAbility, castMonsterAbility, applyMonsterStrikeEffect,
+  advanceMonsterAfflictions, inflictMonsterCondition, triggerCarrionMist } from './monster-abilities.js';
+import { isLeprechaun, seedLeprechaunGold, expireLeprechaunGold } from './leprechaun.js';
+import { removeAffliction, blockedByAffliction, monsterControl, markAfflictedTurn } from './creature-afflictions.js';
 import { PRIEST_TIER_TWO_SPELLS, castPriestTierTwoSpell, resolvePriestTierTwoSpell,
   isPriestTierTwoFocus, maintainPriestTierTwoFocus, cleanupPriestTierTwoFocus, advancePriestTierTwoRounds,
   cleansingWeaponDice, priestTierTwoPresentation } from './priest-tier-two.js';
@@ -191,6 +203,7 @@ let tierThreeUtilityUi = null;
 let dispelUi = null;
 let illusionUi = null;
 let priestTierTwoUi = null;
+let priestTierThreeUi = null;
 let areaPreview = null;
 let tierThreePreview = null;
 let spellLuckContext = null;
@@ -1553,7 +1566,7 @@ function isCharacterDying(character) {
 }
 
 function isCharacterAbleToAct(character) {
-  return character && !isCharacterDead(character) && !isCharacterDying(character) && !character.conditions?.paralyzed && !isSleeping(character, state) && !isRaving(character) && Number(character.hp) > 0;
+  return character && !isCharacterDead(character) && !isCharacterDying(character) && !character.conditions?.paralyzed && !isSleeping(character, state) && !isRaving(character) && !blockedByAffliction(character) && Number(character.hp) > 0;
 }
 
 function performRevive(character) {
@@ -1642,11 +1655,11 @@ function canUseCharacterInventory(character) {
 }
 
 function isCharacterTargetableByMonster(character) {
-  return character && !isFloatingDisc(character) && !isGaseousForm(character) && !isCharacterDead(character) && !isStealthed(character) && hasCharacterMapPosition(character);
+  return character && !isFloatingDisc(character) && !isGaseousForm(character) && !isCharacterDead(character) && !vampireInTorpor(character) && !isStealthed(character) && hasCharacterMapPosition(character);
 }
 
 function getCombatCharacters() {
-  return (state?.characters || []).filter((character) => !isFloatingDisc(character) && !isCharacterDead(character));
+  return (state?.characters || []).filter((character) => !isFloatingDisc(character) && !isCharacterDead(character) && !vampireInTorpor(character));
 }
 
 function getMonsterDistanceToCharacter(monster, character) {
@@ -1997,7 +2010,7 @@ function beginCombat(reason = "Combat begins.", { initiator = null, extraMonster
   if (state.characters.some(character => OFFENSIVE_SPELLS.has(character.pendingSpell?.spell) && character.pendingSpell.phase === 'critical')) return false;
   ensureCombatState();
   const initiative = rollInitiative(extraMonsterIds);
-  if (!initiative.monsterIds.length || !initiative.playerRolls.length) {
+  if ((!initiative.monsterIds.length && !state.characters.some(hostileSupernatural)) || !initiative.playerRolls.length) {
     return false;
   }
   if (state.rest?.phase === 'sleeping') {
@@ -2101,7 +2114,10 @@ function checkCombatEnd() {
   combat.monsterIds = combat.monsterIds.filter((id) => Boolean(getMonsterById(id)));
   const liveCombatMonsters = combat.monsterIds.map(getMonsterById).filter(Boolean);
   const livingCharacters = getCombatCharacters();
-  if (!liveCombatMonsters.length) {
+  const possession = state.entities.some(entity => entity.possessingId && entity.hp > 0);
+  const supernaturalHostile = livingCharacters.some(character => hostileSupernatural(character) && character.hp > 0) &&
+    livingCharacters.some(character => !hostileSupernatural(character) && character.hp > 0);
+  if (!possession && !liveCombatMonsters.length && !supernaturalHostile) {
     endCombat("Combat ends. All monsters are defeated.");
     return true;
   }
@@ -2109,7 +2125,7 @@ function checkCombatEnd() {
     endCombat("Combat ends. All characters are dead.");
     return true;
   }
-  const anyMonsterCanSee = liveCombatMonsters.some(monster => livingCharacters.some(character =>
+  const anyMonsterCanSee = possession || supernaturalHostile || liveCombatMonsters.some(monster => livingCharacters.some(character =>
     sameRoute(state, monster, character) && (isIncorporeal(monster) || creatureSight(monster, character))));
   const pursuit = !anyMonsterCanSee && liveCombatMonsters.some(monster => !isSleeping(monster, state) && livingCharacters.some(character =>
     getMonsterDistanceToCharacter(monster, character) <= 12 && findPursuitStep(state, monster, character, {
@@ -2121,7 +2137,7 @@ function checkCombatEnd() {
     endCombat("Combat ends. The monsters have lost line of sight.");
     return true;
   }
-  combat.turnOrder = combat.turnOrder.filter((entry) => entry.type === "monster" || state.characters.some((character) => character.id === entry.id && !isCharacterDead(character)));
+  combat.turnOrder = combat.turnOrder.filter((entry) => entry.type === "monster" || state.characters.some((character) => character.id === entry.id && !isCharacterDead(character) && !vampireInTorpor(character)));
   // The turn-advance caller starts the next round after the final entry.
   return false;
 }
@@ -2194,6 +2210,9 @@ function startCurrentCombatTurn() {
   combat.movementBudget = characterMovementBudget(character);
   combat.movementRemaining = combat.movementBudget;
   combat.lastUnoccupiedPosition = { x: Number(character.x), y: Number(character.y), roomId: character.roomId, routeId: routeOf(state, character) };
+  markAfflictedTurn(character);
+  if (character.conditions?.lycanthropy) character.conditions.lycanthropy.turnStrikes = 0;
+  if (character.conditions?.vampirism) character.conditions.vampirism.turnStrikes = 0;
   combat.actionUsed = character.openingSpellActionSpent === true;
   if (combat.surpriseRound && combat.surpriseInitiatorId === character.id && combat.actionUsed) combat.movementRemaining = 0;
   character.openingSpellActionSpent = false;
@@ -2222,10 +2241,10 @@ function startCurrentCombatTurn() {
       startCurrentCombatTurn();
       return;
     }
-  } else if (isSleeping(character, state) || isRaving(character) || character.conditions?.paralyzed) {
+  } else if (isSleeping(character, state) || isRaving(character) || character.conditions?.paralyzed || blockedByAffliction(character)) {
     combat.movementRemaining = 0;
     combat.actionUsed = true;
-    setStatus(`${character.name} is ${isRaving(character) ? 'raving' : character.conditions?.paralyzed ? 'paralyzed' : 'sleeping'}.`);
+    setStatus(`${character.name} is ${isRaving(character) ? 'raving' : character.conditions?.paralyzed ? 'paralyzed' : blockedByAffliction(character) ? 'unable to act' : 'sleeping'}.`);
   } else {
     setStatus(`Round ${combat.round}: ${character.name || "Character"}'s turn.`);
     recordWizardTurn(character);
@@ -2235,6 +2254,10 @@ function startCurrentCombatTurn() {
       if (!isTierTwoFocus(character.focusSpell) && !isPriestTierTwoFocus(character.focusSpell) || character.focusSpell.spell === 'levitate') character.focusSpell.lastTurn = turnKey;
       recordFocusCheck(character, 'next round');
     }
+  }
+  if (isCharacterAbleToAct(character)) {
+    applyNearbyMonsterAfflictions(character);
+    runForcedPartyTurn(character);
   }
   announceCurrentTurn(entry);
   scheduleAutoEndTurnIfNeeded(650);
@@ -2538,8 +2561,12 @@ function getWeaponOutOfRangeMessage(weaponName) {
   return `Out of range with ${String(weaponName || "weapon").toLowerCase()}.`;
 }
 
-function consumeCharacterCombatAction(character, { teleport = false, clawAttack = false, stealCommit = false } = {}) {
+function consumeCharacterCombatAction(character, { teleport = false, clawAttack = false, stealCommit = false, natural = false } = {}) {
   character = inventoryController(character);
+  if (isCombatActive() && (character?.conditions?.lycanthropy?.turnStrikes > 0 || character?.conditions?.vampirism?.turnStrikes > 0) && !natural) {
+    setStatus('Finish the natural attack routine or end the turn.');
+    return false;
+  }
   if (isTied(character) && !teleport) { setStatus('Escape or break the rope before acting.'); return false; }
   if(state.encounterPrompt){setStatus('Resolve the monster reaction first.');return false;}
   if (restInProgress(state)) { setStatus('Cancel rest before taking an action.'); return false; }
@@ -2575,8 +2602,15 @@ function getVisibleMonsterAtTile(x, y) {
 
 function consumeWeaponCombatAction(character, attack) {
   const claws = attack?.name === 'Claws' && hasAlterSelfFeature(character, 'claws');
-  if (!consumeCharacterCombatAction(character, { clawAttack: claws })) return false;
+  const bite = isVampire(character) && attack?.name === 'Bite';
+  const natural = bite || usingLycanthropeAttack(character, attack);
+  if (!consumeCharacterCombatAction(character, { clawAttack: claws, natural })) return false;
   if (claws) { const spent = spendClawAttack(state, character); if (isCombatActive()) state.combat.actionUsed = spent.actionComplete; }
+  if (natural && isCombatActive()) {
+    const curse = bite ? (character.conditions.vampirism ||= { kind: vampireKind(character), lockedHp: 0 }) : character.conditions.lycanthropy;
+    curse.turnStrikes = (curse.turnStrikes || 0) + 1;
+    state.combat.actionUsed = curse.turnStrikes >= (bite && vampireKind(character) === 'vampire' ? 3 : 2);
+  }
   return true;
 }
 
@@ -2600,6 +2634,11 @@ function beginCombatAfterDamagingSpell(caster, monsterIds, message) {
 }
 
 function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, { blindSquare = false } = {}) {
+  if (stakeTarget(monster)) {
+    if (SERVER_RUNTIME) throw new Error('Choose a wooden stake to destroy the vampire.');
+    openVampireStakePrompt(character, monster);
+    return { message: 'Choose a wooden stake.' };
+  }
   if (isIllusionCreature(character)) {
     const result = illusionAttack(state, character);
     if (isCombatActive()) state.combat.actionUsed = true;
@@ -2612,6 +2651,8 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
   if (isGaseousForm(character) || isGaseousForm(monster)) throw new Error('Gaseous Form cannot make or be targeted by weapon attacks.');
   const partyTarget = state.characters.includes(monster);
   if (partyTarget && monster.id === character?.id) throw new Error('You cannot attack yourself.');
+  if (partyTarget && character?.conditions?.charm?.regardsAsFriend && character.conditions.charm.sourceId === monster.id)
+    throw new Error('This character regards the caster as a friend.');
   if (!isAttackEquipped(character, combatAttack?.attack)) return { message: "Equip that weapon before attacking." };
   if (isSharedRoom()) {
     const attackIndex = getRenderableAttacks(character).findIndex((text) => parseAttackText(text)?.name === combatAttack?.attack?.name);
@@ -2638,6 +2679,9 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
     setStatus(message);
     return { message };
   }
+  if (isVampire(character) && combatAttack.attack.name === 'Bite' && !canDrainBlood(monster)) {
+    throw new Error('Blood Drain requires a living humanoid target.');
+  }
   const distance = getMonsterDistanceToCharacter(monster, character);
   if (combatAttack.attack.name === "Unarmed") {
     const lineage = ancestryAttackModifiers(character);
@@ -2648,6 +2692,7 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
   const heldWeapon = character.gear[getAttackGearIndex(character, combatAttack.attack)];
   const profile = getWeaponProfile(heldWeapon);
   const thrown = profile?.thrown && distance > 1;
+  if ((profile?.ammo || thrown) && character.conditions?.bugBrain) throw new Error('Bug Brain prevents ranged attacks.');
   if (thrown && heldWeapon.bound) {
     const message = 'This weapon cannot be thrown.';
     if (SERVER_RUNTIME) throw new Error(message);
@@ -2673,7 +2718,8 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
   const backstab = advantageReason ? getBackstabMultiplier(character) : 0;
   const surprisedMimic=concealedMimic(monster);
   if(surprisedMimic)monster.disguiseRevealed=true;
-  const wardDisadvantage = character.conditions?.blind || protectionDisadvantage(state, character) || (isInvisible(monster) && !character.magicDetectedIds?.includes(monster.id)) ||
+  const wardDisadvantage = character.conditions?.blind || character.conditions?.screech || character.conditions?.terrify ||
+    character.conditions?.carrionStench || character.conditions?.stinkBomb || protectionDisadvantage(state, character) || (isInvisible(monster) && !character.magicDetectedIds?.includes(monster.id)) ||
     !isDarkvisionCharacter(character) && (blindSquare || !isTileIlluminated(state, monster.x, monster.y, monster));
   if (blindSquare) markMonsterCorrectlyGuessed(monster);
   const item = heldWeapon;
@@ -2684,13 +2730,15 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
   const modeAttackBonus = profile ? usedAncestry.attack - listedAncestry.attack + classAttackBonus(character, ranged) - classAttackBonus(character, baseRanged) : 0;
   const modeDamageBonus = profile ? usedAncestry.damage - listedAncestry.damage : 0;
   const ammoType = /crossbow/i.test(weaponName) ? 'bolts' : /(?:short|long)bow/i.test(weaponName) ? 'arrows' : '';
-  const ammo = ammoType ? character.gear.find(item => getGearAmmoType(item) === ammoType && getGearUnits(item) > 0) : null;
+  const ammunition = ammoType ? character.gear.filter(item => getGearAmmoType(item) === ammoType && getGearUnits(item) > 0) : [];
+  const ammo = ((lycanthropeKind(monster) || isVampire(monster)) && ammunition.find(silverItem)) || ammunition[0];
   const knownMagic = revealedMagicBonus(item) + revealedMagicBonus(ammo);
   const hiddenMagic = magicBonus(item) - revealedMagicBonus(item) + magicBonus(ammo) - revealedMagicBonus(ammo);
   const thoughts = detectThoughtsModifiers(state, character, monster);
   const extraBonus = magicBonus(item) - revealedMagicBonus(item) + magicBonus(ammo) + thoughts.attack;
   const roll = rollCheck((combatAttack.attack.bonus || 0) + extraBonus + modeAttackBonus, conditionAttackMode(monster, {
-    advantage: Boolean(advantageReason), disadvantage: wardDisadvantage, melee: combatAttack.range.maxRange <= 1 || !ammoType && distance <= 1, close: distance <= 1, state }));
+    attacker: character, advantage: Boolean(advantageReason), disadvantage: wardDisadvantage, melee: combatAttack.range.maxRange <= 1 || !ammoType && distance <= 1, close: distance <= 1, state }));
+  if (character.conditions?.stinkBomb) delete character.conditions.stinkBomb;
   if (ammo) {
     const remaining = getGearUnits(ammo) - 1;
     setGearItemUnits(ammo, remaining);
@@ -2744,10 +2792,28 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
       const resistance = elementalDamage(monster, damage.total - radiantTotal, !isMagicSuppressed(item) && item?.magic?.element || '');
       if (resistance.immunity) { damage.unresistedTotal = damage.total; damage.total -= elementalTotal; }
       else if (resistance.resistance) { damage.unresistedTotal = damage.total; damage.resistance = resistance.resistance; damage.total = resistance.total + radiantTotal; }
+      if (!supernaturalAttackCanDamage(monster, character, {
+        silver: silverItem(item) || silverItem(ammo),
+        magical: Boolean(item?.magic && !isMagicSuppressed(item) || ammo?.magic && !isMagicSuppressed(ammo) || elementalTotal || radiantTotal || item?.holyWeapon)
+      })) {
+        damage.total = 0;
+        parts.push('cannot harm the creature with that weapon');
+      }
       rolledDamage = damage.total;
       damageRoll = damage;
-      if (partyTarget) setCharacterHp(monster, Number(monster.hp) - damage.total, { sourceId: character.id });
+      if (partyTarget) {
+        setCharacterHp(monster, Number(monster.hp) - damage.total, { sourceId: character.id });
+        if (usingLycanthropeAttack(character, combatAttack.attack)) recordLycanthropeDamage(monster, character, damage.total);
+      }
       else { monster.hp = Math.max(0, (Number.parseInt(monster.hp, 10) || 0) - damage.total); if (damage.total > 0) wakeCreature(monster, state); }
+      if (damage.total > 0 && isVampire(character) && combatAttack.attack.name === 'Bite') {
+        const drain = applyBloodDrain(character, monster, { heal: (actor, amount) => setCharacterHp(actor, actor.hp + amount) });
+        if (drain) pushDiceHistory('Blood Drain', drain.message, character.id);
+      }
+      if (!partyTarget && damage.total > 0 && triggerCarrionMist(state, monster, target =>
+        Math.max(Math.abs(target.x - monster.x), Math.abs(target.y - monster.y)) <= 3 && sameRoute(state, monster, target))) {
+        pushDiceHistory('Carrion Mist', monster.name + ' releases Carrion Mist.');
+      }
       if (!isMagicSuppressed(item) && /fire|flame|burn/i.test(item?.magic?.element || '')) {
         igniteWebsAt(state, monster);
         for (const target of state.entities.filter(entity => entity.type === 'monster' && entity.id !== monster.id && !entity.defeated && entity.hp <= 0)) defeatMonster(state, target);
@@ -2761,7 +2827,7 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
     if (thrown) releaseThrownWeapon(character, item, monster, true);
     if (!partyTarget && (Number.parseInt(monster.hp, 10) || 0) <= 0) {
       const result = defeatMonster(state, monster);
-      defeated = true;
+      defeated = result.defeated;
       parts.push(result.message);
     }
   } else {
@@ -2804,6 +2870,52 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
   finishLuckEvent(state, luck, { succeeded: hit });
   scheduleAutoEndTurnIfNeeded();
   return { message };
+}
+
+function stakeVampire(character, monster, index) {
+  const item = character?.gear?.[index];
+  if (!stakeTarget(monster) || !canTouchCharacter(state, character, monster)) throw new Error('You must be adjacent to the downed vampire.');
+  if (!Number.isInteger(index) || !item || !stakeGear(item)) throw new Error('You need something wooden to destroy the vampire.');
+  if (sendSharedCommand('stake_vampire', { monster_id: monster.id, gear_index: index }, character)) return;
+  if (!consumeCharacterCombatAction(character)) throw new Error('This character cannot stake the vampire now.');
+  const pole = shortenedStakePole(item), units = getGearUnits(item);
+  if (units > 1) {
+    setGearItemUnits(item, units - 1);
+    if (pole) character.gear.push({ ...pole, quantity: 1, totalUnits: 1 });
+  } else if (pole) character.gear[index] = pole;
+  else character.gear.splice(index, 1);
+  updateCharacterAmmoFromGearItem(character, item);
+  character.raw.gear = structuredClone(character.gear);
+  syncCharacterEquipmentDerivedStats(character);
+  const outcome = defeatMonster(state, monster, { stake: true });
+  checkCombatEnd();
+  setStatus(outcome.message);
+  markRunDirty(); render(); updatePanels(); scheduleAutoEndTurnIfNeeded();
+}
+
+function openVampireStakePrompt(character, monster) {
+  if (!character || !canControlCharacter(character)) return;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'tier-two-dialog';
+  dialog.setAttribute('aria-label', 'Destroy ' + monster.name);
+  const eligible = character.gear.map((item, index) => ({ item, index })).filter(({ item }) => stakeGear(item));
+  const message = document.createElement('p');
+  message.textContent = eligible.length ? 'Use something wooden to make a stake?' : 'You need something wooden to destroy the vampire.';
+  dialog.append(message);
+  for (const { item, index } of eligible) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.textContent = item.name;
+    button.onclick = () => {
+      try { stakeVampire(character, monster, index); dialog.close(); }
+      catch (error) { message.textContent = error.message; }
+    };
+    dialog.append(button);
+  }
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.textContent = 'Close'; cancel.onclick = () => dialog.close();
+  dialog.append(cancel);
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  document.body.append(dialog); dialog.showModal();
 }
 
 function attackClickedMonster(monster) {
@@ -2855,7 +2967,7 @@ function attackEmptyTile(character, x, y, index = null) {
   const ammo = ammoType ? character.gear.find(item => getGearAmmoType(item) === ammoType && getGearUnits(item) > 0) : null;
   const hiddenMagic = magicBonus(item) - revealedMagicBonus(item) + magicBonus(ammo) - revealedMagicBonus(ammo);
   const roll = rollCheck((attack.attack.bonus || 0) + magicBonus(item) - revealedMagicBonus(item) + magicBonus(ammo) + modeAttackBonus,
-    conditionAttackMode(null, { advantage: isStealthed(character), disadvantage: protectionDisadvantage(state, character) }));
+    conditionAttackMode(null, { attacker: character, advantage: isStealthed(character), disadvantage: protectionDisadvantage(state, character) }));
   if (ammo) {
     setGearItemUnits(ammo, getGearUnits(ammo) - 1);
     if (getGearUnits(ammo) <= 0) character.gear.splice(character.gear.indexOf(ammo), 1);
@@ -2948,7 +3060,7 @@ function attackDoor(character, doorId, index = null) {
   if (sendSharedCommand('attack_door', { entity_id: doorId, attack_index: attackIndex }, character)) return;
   if (!consumeWeaponCombatAction(character, attack.attack)) { if (SERVER_RUNTIME) throw new Error('Action unavailable.'); return; }
   const roll = rollCheck(attack.attack.bonus || 0, conditionAttackMode(null, {
-    advantage: isStealthed(character), disadvantage: /dagger/i.test(attack.attack.name) || protectionDisadvantage(state, character)
+    attacker: character, advantage: isStealthed(character), disadvantage: /dagger/i.test(attack.attack.name) || protectionDisadvantage(state, character)
   }));
   const hit = roll.roll === 20 || roll.roll !== 1 && roll.total >= 10;
   const expression = getAttackDamageExpression(attack.attack);
@@ -3015,6 +3127,25 @@ function prepareEncounterState() {
   for (const character of [...state.characters]) if (character.companion?.charm?.brokenByParty) endCharacterCharm(character, true);
   restoreMonsterSpellStats(state,shadowdarkContent?.monsters);
   initializeMorale(state); initializeDisguises(state);
+  for (const monster of getLiveMonsters()) {
+    if (isVampire(monster) && !monster.coffinPlaced) {
+      const tile = state.tiles.find(tile => tile.roomId === monster.roomId && tile.type === 'floor' &&
+        Math.hypot(tile.x - monster.x, tile.y - monster.y) >= 1 && sameRoute(state, tile, monster) &&
+        !isMonsterMoveOccupied(monster, tile.x, tile.y, routeOf(state, monster))) || monster;
+      addDroppedGearPile(coffinGear(), { x: tile.x, y: tile.y, roomId: tile.roomId, routeId: routeOf(state, tile) });
+      monster.coffinPlaced = true;
+      markRunDirty();
+    }
+    if (isLeprechaun(monster)) {
+      seedLeprechaunGold(state, monster, (item, point) => addDroppedGearPile(item, point));
+      const gear = ensureMonsterGear(monster);
+      if (!monster.shoesCreated) {
+        gear.push({ name: 'Little Shoes', quantity: 1, slots: 1, type: 'sundry' });
+        monster.shoesCreated = true;
+      }
+    }
+  }
+  if (expireLeprechaunGold(state)) markRunDirty();
   updateEncounterStealth();
   refreshMagicDetection(state);
   for (const character of [...state.characters]) if (character.detectedDoppelganger && character.companion?.kind === 'doppelganger') {
@@ -3297,6 +3428,11 @@ function progressEncounterCreatures(milliseconds) {
 }
 
 function processMonsterSightings() {
+  if (state && !isCombatActive() && state.characters.some(hostileVampire) &&
+      state.characters.some(character => !hostileSupernatural(character) && isCharacterAbleToAct(character)) &&
+      beginCombat('A hungry vampire goes after the party.')) {
+    return { combatStarted: true, combatEnded: false, messages: [] };
+  }
   if (!state || isCombatActive()) {
     return { combatStarted: false, combatEnded: false, messages: [] };
   }
@@ -3901,7 +4037,7 @@ function applyMonsterAttack(monster, target, attack) {
   const advantage = hasWizardEffect(target, 'purple-glow') || isStealthed(monster) || !canCharacterSeeMonster(target, monster);
   const hiddenAttack=isStealthed(monster),traits=JSON.stringify([monster.abilities,monster.talents]);
   const disadvantage = protectionDisadvantage(state, monster) || monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0 || isInvisible(target) || monster.conditions?.blind || transformationAttackDisadvantage(monster, target);
-  const roll = rollCheck(attack.bonus || 0, conditionAttackMode(target, { advantage, disadvantage,
+  const roll = rollCheck(attack.bonus || 0, conditionAttackMode(target, { attacker: monster, advantage, disadvantage,
     melee: attack.rangeInfo.maxRange <= 1, close: getMonsterDistanceToCharacter(monster, target) <= 1, state }));
   revealAfterOffense(monster);monster.ambushAttack=null;
   const ac = Number(target?.armorClass || 10) + detectThoughtsModifiers(state, target, monster).armorClass;
@@ -3933,13 +4069,29 @@ function applyMonsterAttack(monster, target, attack) {
   if(hiddenAttack&&/backstab/i.test(traits))expression=multiplyDamageDice(expression,2);
   if(state.combat.surpriseRound&&!state.combat.surpriseParticipantIds.includes(target.id)&&/execute.*x3 damage/i.test(traits))expression=multiplyDamageDice(expression,3);
   if (!expression) {
+    if (!lycanthropeKind(target) && /life drain/i.test(attack.name)) applyMonsterStrikeEffect(state, monster, target, attack, {
+      harm: (victim, amount, fields) => harmFromMonster(victim, amount, monster, fields)
+    });
     return logAttack(null);
   }
   const damage = rollDamageExpression(expression);
   damage.total *= attackDamageMultiplier(target); damage.multiplier *= attackDamageMultiplier(target);
   const resistance = elementalDamage(target, damage.total, `${monster.name} ${attack.name} ${attack.text || ''} ${attack.damageExpression || ''}`);
   if (resistance.resistance || resistance.immunity) { damage.unresistedTotal = damage.total; damage.resistance = resistance.resistance; damage.total = resistance.total; }
+  if (!supernaturalAttackCanDamage(target, monster, {
+    silver: silverItem({ name: attack.name }), magical: attack.magic,
+    special: /psychic|fire|frost|cold|acid|lightning|mind blast|necrotic|radiant|thunder|force/i.test(attack.segment || attack.name)
+  })) damage.total = 0;
   setCharacterHp(target, Number(target.hp || 0) - damage.total, { sourceId: monster.id });
+  if (recordLycanthropeDamage(target, monster, damage.total)) pushDiceHistory('Lycanthropy', target.name + ' contracts lycanthropy.', target.id);
+  const carriesToxin = /\b(?:toxin|poison)\b/i.test(attack.segment || attack.name);
+  if (damage.total > 0 && (target.hp > 0 || /blood drain/i.test(attack.segment || '')) ||
+      carriesToxin && lycanthropeKind(target) && target.hp > 0) {
+    const effect = applyMonsterStrikeEffect(state, monster, target, attack, {
+      harm: (victim, amount, fields) => harmFromMonster(victim, amount, monster, fields)
+    });
+    if (effect?.message) pushDiceHistory('Blood Drain', effect.message, target.id);
+  }
   clearMagicLightIfIncapacitated(target);
   syncCharacterDyingRaw(target);
   applyDamageResultToPanel(damage, `${name} ${attack.name}`, { recordHistory: false });
@@ -3971,10 +4123,254 @@ async function useDarkmantleDarkness(monster, turn) {
   return `${monster.name} uses Darkness and extinguishes ${count} ${count === 1 ? 'torch' : 'torches'}.`;
 }
 
+function dropCommandGear(creature, weaponsOnly = false) {
+  const monster = creature.type === 'monster';
+  const gear = monster ? ensureMonsterGear(creature) : creature.gear;
+  const eligible = item => !item.bound && !(item.equipped && isArmorItem(item));
+  const held = gear.filter(item => eligible(item) && item.equipped && (item.type === 'weapon' || getWeaponProfile(item)));
+  const selected = weaponsOnly ? held : gear.filter(eligible);
+  const tile = [[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]]
+    .map(([dx, dy]) => ({ x: creature.x + dx, y: creature.y + dy }))
+    .find(point => canMoveBetweenTiles(state, creature.x, creature.y, point.x, point.y, { routeId: routeOf(state, creature) }).ok);
+  const dropAt = tile || { x: creature.x, y: creature.y };
+  dropAt.routeId = routeOf(state, creature);
+  dropAt.roomId = getTileAt(dropAt.x, dropAt.y)?.roomId ?? null;
+  for (const item of selected) {
+    gear.splice(gear.indexOf(item), 1);
+    if (monster && item.type === 'weapon') creature.stolenGearNames = [...new Set([...(creature.stolenGearNames || []), item.name.toLowerCase()])];
+    const dropped = monster ? transferredMonsterGear(item) : item;
+    addDroppedGearPile({ ...dropped, equipped: false }, dropAt, item.lit ? getGearLightSource(item) : '');
+    if (!monster) updateCharacterAmmoFromGearItem(creature, item);
+  }
+  if (!monster && selected.length) {
+    creature.raw.gear = structuredClone(gear);
+    syncCharacterEquipmentDerivedStats(creature);
+  }
+}
+
+function commandStepAllowed(creature, from, to, ignorePits = false) {
+  return canMoveBetweenTiles(state, from.x, from.y, to.x, to.y, { routeId: from.routeId, creature, ignorePits }).ok &&
+    !isMonsterMoveOccupied(creature, to.x, to.y, to.routeId);
+}
+
+function resistedCommandStep(creature, point, order) {
+  const trap = state.entities.some(trap => trap.type === 'trap' && !trap.disarmed && !trap.triggered && trap.x === point.x && trap.y === point.y && sameRoute(state, trap, point));
+  const pit = state.entities.some(entity => entity.subtype === 'pit' && !entity.closed && entity.x === point.x && entity.y === point.y && sameRoute(state, entity, point));
+  if (!trap && !pit) return false;
+  const mod = creature.stats ? abilityScoreModifier(creature.stats.CHA) : Number(creature.Ch || 0);
+  return resistsHarmfulCommand(order, creature, rollCheck(mod));
+}
+
+function runForcedPartyTurn(character) {
+  const order = activeCommand(state, character);
+  const song = character.conditions?.harpySong;
+  if (song) {
+    const harpy = getMonsterById(song.sourceId);
+    if (harpy) {
+      const lure = { orders: ['approach'], caster: harpy };
+      for (const step of commandMovementPath(state, character, lure, (from, to) => commandStepAllowed(character, from, to, true))) {
+        if (state.combat.movementRemaining <= 0 || !isCharacterAbleToAct(character)) break;
+        const previousX = character.x, previousY = character.y;
+        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false });
+        if (character.x === previousX && character.y === previousY) break;
+      }
+      state.combat.actionUsed = true; state.combat.movementRemaining = 0;
+      return;
+    }
+  }
+  let fleeFrom = null;
+  if (character.conditions?.gibbering) {
+    const result = Math.floor(Math.random() * 8) + 1;
+    if (result <= 3) { state.combat.actionUsed = true; state.combat.movementRemaining = 0; return; }
+    if (result <= 5) {
+      const directions = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+      handleCombatMovement(directions[Math.floor(Math.random() * directions.length)], { render: false });
+      state.combat.actionUsed = true; state.combat.movementRemaining = 0;
+      return;
+    }
+    if (result === 8) fleeFrom = getMonsterById(character.conditions.gibbering.sourceId);
+  }
+  if (fleeFrom || character.turnedUndead?.rounds > 0) {
+    const source = fleeFrom || state.characters.find(member => member.id === character.turnedUndead.casterId);
+    if (source) {
+      const flee = { orders: ['flee'], caster: source, direction: { x: character.x - source.x, y: character.y - source.y } };
+      for (const step of commandMovementPath(state, character, flee, (from, to) => commandStepAllowed(character, from, to))) {
+        if (state.combat.movementRemaining <= 0 || !isCharacterAbleToAct(character)) break;
+        const previousX = character.x, previousY = character.y;
+        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false });
+        if (character.x === previousX && character.y === previousY) break;
+      }
+    }
+    state.combat.actionUsed = true; state.combat.movementRemaining = 0;
+    return;
+  }
+  const rogue = hostileSupernatural(character);
+  let control = monsterControl(character) || rogue || character.conditions?.gibbering;
+  if (character.conditions?.soulbind?.saveEachTurn &&
+      rollCheck(abilityScoreModifier(character.stats.CHA)).total >= character.conditions.soulbind.saveEachTurn) {
+    removeAffliction(state, character, 'soulbind', { observed: false });
+    control = monsterControl(character) || rogue;
+  }
+  if (!order && !control) return;
+  const combat = state.combat;
+  if (order) {
+    if (order.orders.includes('drop') && order.focus.maintained) dropCommandGear(character);
+    const path = commandMovementPath(state, character, order, (from, to) => commandStepAllowed(character, from, to));
+    for (const step of path) {
+      if (combat.movementRemaining <= 0 || !isCharacterAbleToAct(character)) break;
+      if (resistedCommandStep(character, step, order)) return;
+      const previous = { x: character.x, y: character.y };
+      handleCombatMovement([step.x - character.x, step.y - character.y], { render: false });
+      if (previous.x === character.x && previous.y === character.y) break;
+    }
+  } else {
+    const weapon = rogue ? getCombatAttackFromParsedAttack(parseAttackText(vampireBite(character) || lycanthropeAttack(character))) : getFirstCombatAttack(character);
+    const targets = [
+      ...state.characters.filter(target => target.id !== character.id && isCharacterAbleToAct(target)),
+      ...(character.conditions?.gibbering || hostileVampire(character) ? getLiveMonsters().filter(target => target.hp > 0 && target.visible !== false) : [])
+    ].filter(target => sameRoute(state, character, target) && (!hostileVampire(character) || canDrainBlood(target)))
+      .sort((a, b) => getMonsterDistanceToCharacter(character, a) - getMonsterDistanceToCharacter(character, b));
+    const target = targets[0];
+    if (target && weapon) {
+      const pursuit = { orders: ['approach'], caster: target };
+      for (const step of commandMovementPath(state, character, pursuit, (from, to) => commandStepAllowed(character, from, to))) {
+        if (combat.movementRemaining <= 0 || canTargetAtRange(state, character, target, weapon.range.maxRange, { requireLight: false })) break;
+        const previous = { x: character.x, y: character.y };
+        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false });
+        if (previous.x === character.x && previous.y === character.y) break;
+      }
+      if (canTargetAtRange(state, character, target, weapon.range.maxRange, { requireLight: false })) {
+        const maxStrikes = vampireKind(character) === 'vampire' ? 3 : rogue ? 2 : 1;
+        for (let strike = 0; strike < maxStrikes; strike++) {
+          if (strike && (!isCombatActive() || !hostileSupernatural(character) || target.hp <= 0)) break;
+          resolveCharacterAttackAgainstMonster(character, weapon, target);
+        }
+      }
+    }
+  }
+  combat.actionUsed = true;
+  combat.movementRemaining = 0;
+  markRunDirty();
+}
+
+function harmFromMonster(target, amount, monster, options = {}) {
+  if (!supernaturalAttackCanDamage(target, monster, { magical: options.spell, special: true })) return 0;
+  const before = Number(target.hp);
+  if (target.type === 'monster') {
+    target.hp = Math.max(0, before - elementalDamage(target, amount, options).total);
+    if (before > target.hp) wakeCreature(target, state);
+    if (!target.hp) defeatMonster(state, target);
+  } else setCharacterHp(target, before - amount, { sourceId: monster?.id, damageSource: options.damageSource });
+  return before - Number(target.hp);
+}
+
+function applyNearbyMonsterAfflictions(target) {
+  for (const monster of getLiveMonsters()) {
+    if (!sameRoute(state, monster, target) || !withinTargetRange(monster, target, RANGE_LIMITS.near) || !creatureSight(monster, target)) continue;
+    if (/^ghast$/i.test(monster.name) && !target.conditions?.stenchExposure?.includes(monster.id)) {
+      target.conditions ||= {};
+      (target.conditions.stenchExposure ||= []).push(monster.id);
+      if (rollCheck(abilityScoreModifier(target.stats.CON)).total < 12) inflictMonsterCondition(target, 'carrionStench', monster, { rounds: 5 });
+    }
+    if (/gibbering mouther/i.test(monster.name) && rollCheck(abilityScoreModifier(target.stats.WIS)).total < 12)
+      inflictMonsterCondition(target, 'gibbering', monster, { rounds: 1 });
+    if (/^sea hag$/i.test(monster.name) && !target.conditions?.terrifyExposure?.includes(monster.id)) {
+      target.conditions ||= {};
+      (target.conditions.terrifyExposure ||= []).push(monster.id);
+      if (rollCheck(abilityScoreModifier(target.stats.CHA)).total < 15)
+        inflictMonsterCondition(target, 'terrify', monster, { rounds: 1 + Math.floor(Math.random() * 4) });
+    }
+  }
+}
+
+async function runMonsterSpecialAbility(monster, turn) {
+  const entries = monsterAbilityDefinitions(monster);
+  if (!entries.length) return '';
+  const eligible = (point, entry, target) => availableMonsterAbility(monster, entry, target) &&
+    (entry[0] !== 'harpySong' || (target.conditions?.harpySongImmunity?.[monster.id] || 0) <= (state.arcaneTime?.elapsedMs || 0)) &&
+    sameRoute(state, point, target) && withinTargetRange(point, target, entry[2]) && creatureSight(point, target);
+  const targets = consciousMonsterTargets(monster);
+  for (const entry of entries) {
+    const [id, , range] = entry;
+    if (id === 'harpySong') {
+      const hazards = state.entities.filter(entity => (entity.type === 'trap' && !entity.disarmed && !entity.triggered ||
+        entity.subtype === 'pit' && !entity.closed) && sameRoute(state, monster, entity));
+      const plan = planFiringPosition(state, monster, null, { movement: turn.remaining,
+        canStep: (fx, fy, x, y, from) => monsterCanPlanStep(monster, fx, fy, x, y, { forceDoors: false, routeId: from.routeId }),
+        stepCost: (x, y) => movementStepCost(state, x, y),
+        positionScore: point => targets.some(target => eligible(point, entry, target) && hazards.some(hazard =>
+          withinTargetRange(point, hazard, 3) && Math.hypot(hazard.x - target.x, hazard.y - target.y) <
+          Math.hypot(point.x - target.x, point.y - target.y))) ? 1 : 0 });
+      if (plan?.steps.length) await moveMonsterAlongPlan(monster, plan.steps, turn);
+      monster = getMonsterById(monster.id);
+      if (!monster) return '';
+    }
+    let selected = targets.filter(target => eligible(monster, entry, target));
+    if (!selected.length && id === 'possess' && targets.length) {
+      await moveMonsterForPlan(monster, targets[0], false, turn.remaining, { turn, stopAt: range });
+      monster = getMonsterById(monster.id);
+      if (!monster) return '';
+      selected = state.characters.filter(target => isCharacterTargetableByMonster(target) && eligible(monster, entry, target));
+    }
+    if (!selected.length) continue;
+    if (!entry[6]?.area) selected = selected.slice(0, 1);
+    const message = castMonsterAbility(state, monster, entry, selected, {
+      harm: (target, amount, fields) => harmFromMonster(target, amount, monster, fields)
+    });
+    recomputeVisibility(state); markRunDirty();
+    return message;
+  }
+  return '';
+}
+
+async function runLeprechaunTurn(monster, turn) {
+  const step = monster.leprechaunTurn = (monster.leprechaunTurn || 0) + 1;
+  const target = pickMonsterTarget(monster);
+  if (step === 1 && target) {
+    const check = rollCheck(Number(monster.Ch || 4));
+    if (check.roll === 1 || check.total < 11) {
+      monster.failedMonsterSpells = ['illusion'];
+      return monster.name + ' fails to cast Illusion.';
+    }
+    const pool = shadowdarkContent.monsters.filter(creature => /^(?:skeleton|vampire|bugbear)$/i.test(creature.name) && creature.source?.includes('core'));
+    const source = pool[Math.floor(Math.random() * pool.length)];
+    const tile = state.tiles.find(point => point.type === 'floor' && withinTargetRange(monster, point, 6) &&
+      withinTargetRange(target, point, 3) && !isMonsterMoveOccupied(monster, point.x, point.y, routeOf(state, monster)) && creatureSight(monster, point));
+    if (source && tile) {
+      const id = monster.id + ':illusion';
+      const illusion = { ...structuredClone(source), id, type: 'monster', x: tile.x, y: tile.y, routeId: routeOf(state, monster),
+        roomId: tile.roomId, hostile: true, visible: true, illusion: { id, casterId: monster.id, kind: 'creature', monsterCaster: true } };
+      state.entities.push(illusion);
+      addMonstersToCombat([illusion], monster.name + ' creates an illusion.');
+      return '';
+    }
+  }
+  if (step === 2) {
+    const check = rollCheck(Number(monster.Ch || 4));
+    if (check.roll !== 1 && check.total >= 12) makeInvisible(monster, { rounds: 2 + Math.floor(Math.random() * 4) + Math.floor(Math.random() * 4), source: 'monster' });
+    else monster.failedMonsterSpells = [...(monster.failedMonsterSpells || []), 'invisibility'];
+  }
+  const others = getLiveMonsters().filter(other => other.id !== monster.id && !other.illusion && sameRoute(state, monster, other));
+  const ally = others.sort((a,b) => getMonsterDistanceToCharacter(monster, a) - getMonsterDistanceToCharacter(monster, b))[0];
+  if (ally) {
+    await moveMonsterForPlan(monster, ally, false, turn.remaining, { turn, stopAt: 3 });
+    if (getMonsterDistanceToCharacter(monster, ally) <= 3) {
+      ally.hostile = true; ally.attitude = 'combat'; ally.attitudeChecked = true;
+      addMonstersToCombat([ally], monster.name + ' leads another monster toward the party.');
+    }
+  } else if (target) {
+    const path = commandMovementPath(state, monster, { orders: ['flee'], caster: target,
+      direction: { x: monster.x - target.x, y: monster.y - target.y } }, (from, to) => commandStepAllowed(monster, from, to));
+    await moveMonsterAlongPlan(monster, path, turn);
+  }
+  return monster.name + ' flees.';
+}
+
 async function runMonsterTurn(monster) {
-  if (!monster || !isLiveMonster(monster)) {
+  if (!monster || !isLiveMonster(monster) || stakeTarget(monster) || monster.possessingId) {
     return "";
   }
+  markAfflictedTurn(monster);
   monster.doorActionUsed = false;
   for (const resistance of resolveDetectThoughtsResistance(state, monster, { turnKey: `${state.combat.round}:${monster.id}`, ...tierTwoOptions() }))
     pushDiceHistory('Detect Thoughts', resistance.message);
@@ -3995,6 +4391,19 @@ async function runMonsterTurn(monster) {
     }
   }
   if (isSleeping(monster, state)) return `${monster.name} sleeps.`;
+  if (blockedByAffliction(monster)) return `${monster.name} cannot act.`;
+  const order = activeCommand(state, monster);
+  if (order) {
+    if (order.orders.includes('drop') && order.focus.maintained) dropCommandGear(monster);
+    const turn = { remaining: getMonsterMoveSquares(monster) };
+    const steps = commandMovementPath(state, monster, order, (from, to) => commandStepAllowed(monster, from, to));
+    for (const step of steps) {
+      if (turn.remaining <= 0) break;
+      if (resistedCommandStep(monster, step, order)) return `${monster.name} resists Command.`;
+      if (!await moveMonsterAlongPlan(monster, [step], turn)) break;
+    }
+    return `${monster.name} obeys Command.`;
+  }
   if (!(monster.moraleFlight?.rounds > 0) && monster.suspectedIllusionIds?.length) {
     const inspection = inspectIllusion(state, monster, { ids: monster.suspectedIllusionIds });
     if (inspection) {
@@ -4023,6 +4432,12 @@ async function runMonsterTurn(monster) {
   }
   const movement = Math.max(0, getMonsterMoveSquares(monster) - monster.standingMovementCost);
   const turn = { remaining: movement };
+  if (!isIncorporeal(monster) && !(monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0)) {
+    if (isLeprechaun(monster)) return runLeprechaunTurn(monster, turn);
+    const ability = await runMonsterSpecialAbility(monster, turn);
+    if (ability && !/^(?:naga|night hag)$/i.test(monster.name)) return ability;
+    if (ability) pushCombatLog(ability);
+  }
   if (!(monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0)) {
     if (state.combat?.round === 1 && isDuergar(monster) && !isInvisible(monster)) {
       makeInvisible(monster, { rounds: 3, source: 'monster', breakOnOffense: true });
@@ -4557,6 +4972,7 @@ function getGearUnits(item) {
 }
 
 function inferGearItemSlots(name, item = {}) {
+  if (isCoffin(item) || /^coffin$/i.test(name)) return 5;
   const normalizedName = String(name || "").toLowerCase();
   if (/\bmithral\b/.test(normalizedName)) {
     if (/\bplate\b/.test(normalizedName)) return 2;
@@ -4614,8 +5030,20 @@ function attackRequiresMissingAmmo(character, attackText) {
   return Boolean(ammoType && getDisplayCharacterAmmo(character, ammoType) <= 0);
 }
 
+function usingLycanthropeAttack(character, attack) {
+  return Boolean(lycanthropeAttack(character) && lycanthropeAttack(character).split(':')[0] === attack?.name);
+}
+
 function getRenderableAttacks(character) {
+  const natural = vampireBite(character) || lycanthropeAttack(character);
+  if (natural && hostileSupernatural(character)) return [natural];
   const attacks = (character?.attacks || []).filter(attackText => !isAmmoOnlyAttackText(attackText));
+  if (natural) {
+    const name = natural.split(':')[0].toLowerCase();
+    const duplicate = attacks.findIndex(text => text.split(':')[0].toLowerCase() === name);
+    if (duplicate >= 0) attacks[duplicate] = natural;
+    else attacks.push(natural);
+  }
   for (const attack of transformationAttackOptions(state, character, { attackBonus: (actor, attack) => abilityScoreModifier(actor.stats?.[attack.rangeInfo?.maxRange > 1 ? 'DEX' : 'STR']) + classAttackBonus(actor) })) {
     const range = attack.range ?? attack.rangeInfo?.maxRange ?? 1;
     const lineage = ancestryAttackModifiers(character, { ranged: range > 1 });
@@ -4647,6 +5075,7 @@ function getAttackGearIndex(character, attack) {
 
 function isAttackEquipped(character, attack) {
   if (isIllusionCreature(character)) return true;
+  if (usingLycanthropeAttack(character, attack) || isVampire(character) && attack?.name === 'Bite') return true;
   if (transformationAttackOptions(state, character).some(option => option.name.toLowerCase() === String(attack?.name).toLowerCase())) return true;
   if(character.companion&&getAttackGearIndex(character,attack)<0&&!getWeaponProfileFromText(attack?.name))return true;
   const index = getAttackGearIndex(character, attack);
@@ -4772,7 +5201,7 @@ function getGearItemName(item) {
 }
 
 function getWeaponProfileFromText(value) {
-  const normalized = normalizeEquipmentName(value);
+  const normalized = normalizeEquipmentName(value).replace(/^silver /, '');
   return WEAPON_PROFILES.find((profile) => profile.pattern.test(normalized)) || null;
 }
 
@@ -4916,6 +5345,7 @@ function canUseWeapon(character, itemOrName) {
   if (animatedDeadForm(character) === 'zombie') return false;
   if (!availableHands(character) || availableHands(character) < 2 && isTwoHandedWeapon(typeof itemOrName === 'string' ? { name: itemOrName } : itemOrName)) return false;
   if (character.companion?.kind==='doppelganger') return /dagger/i.test(typeof itemOrName==='string'?itemOrName:itemOrName?.name||'');
+  if (isReachPole(typeof itemOrName === 'string' ? { name: itemOrName } : itemOrName)) return true;
   const profile = typeof itemOrName === "string" ? getWeaponProfileFromText(itemOrName) : getWeaponProfile(itemOrName);
   if (!profile) {
     return false;
@@ -6150,7 +6580,7 @@ function isSpellCheckText(text) {
 }
 
 function getCharacterKnownSpellNames(character) {
-  if(character?.companion?.kind==='doppelganger')return [];
+  if (suppressesVampireSpellcasting(character) || character?.companion?.kind === 'doppelganger') return [];
   return String(character?.spellsKnown || "")
     .split(/\s*,\s*/)
     .map((name) => name.trim())
@@ -6829,11 +7259,9 @@ function getCharacterGearSlots(character, options = {}) {
       : Number.isFinite(Number(item?.quantity)) && Number(item.quantity) > 0
         ? Math.max(0, Math.floor(Number(item.quantity)))
         : 1;
-    const units = /arrows?/i.test(itemName)
-      ? getCharacterAmmo(character, "arrows")
-      : /bolts?/i.test(itemName)
-        ? getCharacterAmmo(character, "bolts")
-        : rawUnits;
+    const ammoType = getGearAmmoType(item);
+    const splitAmmo = ammoType && character.gear.filter(candidate => getGearAmmoType(candidate) === ammoType).length > 1;
+    const units = !ammoType || splitAmmo ? rawUnits : getCharacterAmmo(character, ammoType);
     if (units <= 0) {
       continue;
     }
@@ -6850,7 +7278,7 @@ function getCharacterGearSlots(character, options = {}) {
       remainingUnits = Math.max(0, units - 1);
     }
 
-    if (item?.treasureItem === true && inferGearItemSlots(itemName, item) === 0) {
+    if (item?.freeCarry === true || item?.treasureItem === true && inferGearItemSlots(itemName, item) === 0) {
       freeCarry.push(formatFreeCarryName(item));
       freeCarryIndices.push(itemIndex);
       continue;
@@ -7351,7 +7779,7 @@ function activateCharacter(character) {
   const pendingCaster = state?.characters.find(candidate => candidate.pendingSpell && ownsCharacter(candidate));
   if (pendingCaster && pendingCaster.id !== character?.id) return null;
   if (isCombatActive() && !isCurrentCharacterTurn(character)) return null;
-  if (!ownsCharacter(character)) return null;
+  if (!ownsCharacter(character) || hostileSupernatural(character) || vampireInTorpor(character) || monsterControl(character) || activeCommand(state, character)) return null;
   if (!state || !character) {
     return null;
   }
@@ -7482,12 +7910,12 @@ function refreshCharacterViews(character) {
 }
 
 function createDyingBanner(character) {
-  if (!character?.dead && !character?.dyingRounds) {
+  if (!character?.dead && !character?.dyingRounds && !vampireInTorpor(character)) {
     return null;
   }
   const banner = document.createElement("div");
-  banner.className = character.dead ? "character-death-banner is-dead" : "character-death-banner";
-  banner.textContent = character.dead
+  banner.className = character.dead || vampireInTorpor(character) ? "character-death-banner is-dead" : "character-death-banner";
+  banner.textContent = vampireInTorpor(character) ? 'In Torpor' : character.dead
     ? "DEAD"
     : `${character.name} will perish in ${character.dyingRounds} rounds!`;
   return banner;
@@ -8106,7 +8534,7 @@ function addPurchasedGearToCharacterOrFloor(character, item) {
 function buyStartingRoomShopItem(character, config) {
   if (sendSharedCommand("buy_gear", { item_id: config.id }, character)) return;
   const currentCharacter = getCurrentCharacter(character);
-  if (!currentCharacter || !isCharacterInTradeRoom(currentCharacter)) {
+  if (!currentCharacter || !isCharacterInTradeRoom(currentCharacter) || config?.id === 'coffin' && !isVampire(currentCharacter)) {
     return false;
   }
   if (!Number.isInteger(config?.costCopper) || config.costCopper <= 0) return false;
@@ -8219,7 +8647,11 @@ function openStartingRoomShop(character, anchor) {
     const items = document.createElement('div');
     items.id = 'sd-shop-items'; items.setAttribute('role', 'tabpanel');
     items.setAttribute('aria-labelledby', `sd-shop-tab-${activeCategory}`);
-    for (const config of STARTING_ROOM_SHOP_ITEMS.filter(item => item.category === activeCategory)) {
+    const stock = STARTING_ROOM_SHOP_ITEMS.filter(item => item.category === activeCategory);
+    if (activeCategory === 'basic' && isVampire(character)) {
+      stock.splice(stock.findIndex(item => item.id === 'torch') + 1, 0, VAMPIRE_COFFIN);
+    }
+    for (const config of stock) {
       const row = document.createElement("div");
       row.className = "sd-shop-row";
       const label = document.createElement("span");
@@ -8787,6 +9219,10 @@ function getGearItemValueCopper(item) {
 }
 
 function performMagicGearAction(type, character, index, targetId = null) {
+  if ((character?.conditions?.bugBrain || suppressesVampireSpellcasting(character)) && ['read_scroll', 'read_wand'].includes(type)) {
+    if (SERVER_RUNTIME) throw new Error('Bug Brain prevents spellcasting.');
+    setStatus('Bug Brain prevents spellcasting.'); return;
+  }
   if (isGaseousForm(character)) { setStatus('You cannot use gear in Gaseous Form.'); return; }
   if (sendSharedCommand(type, { gear_index: index, target_id: targetId }, character)) {
     if (type === 'read_scroll' || type === 'read_wand') ui.spellDetailModal.hidden = true;
@@ -9638,8 +10074,9 @@ function pendingSpellMessage(character) {
 }
 
 function canTargetMagicMissile(caster, monster) {
-  return isCharacterAbleToAct(caster) && hasCharacterMapPosition(caster) && isLiveMonster(monster) &&
-    monster.visible !== false &&
+  const party = state.characters.includes(monster);
+  return isCharacterAbleToAct(caster) && hasCharacterMapPosition(caster) &&
+    (party ? monster.id !== caster.id && !isCharacterDead(monster) : isLiveMonster(monster)) && monster.visible !== false &&
     canTargetAtRange(state, caster, monster, RANGE_LIMITS.far, {directAttack:true, requireLight:false});
 }
 
@@ -9848,8 +10285,9 @@ function resolveMagicMissile(character, { choice, targetId, x, y, blind = false,
     }
     else if (choice) outcome = chooseMagicMissile(caster, choice);
     else {
+      const member = blind ? null : state.characters.find(target => target.id === targetId);
       let monster = blind ? null : getMonsterById(targetId);
-      outcome = fireMagicMissile(caster, blind ? { x, y, blind: true } : monster, { state, canTarget: target => canTargetMagicMissile(caster, target) });
+      outcome = fireMagicMissile(caster, blind ? { x, y, blind: true } : member || monster, { state, canTarget: target => canTargetMagicMissile(caster, target) });
       monster = monster || outcome.guessedMonster;
       if (blind && monster) markMonsterCorrectlyGuessed(monster);
       const surprisedMimic=concealedMimic(monster);
@@ -10308,6 +10746,69 @@ function finishPriestTierTwoSpell(character, selection = {}) {
   } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
 }
 
+function priestTierThreeOptions(world = state) {
+  return {
+    destroy(target) {
+      if (target.type === 'monster') defeatMonster(world, target, { destroy: true });
+      else {
+        setCharacterHp(target, 0);
+        target.dead = target.slain = true;
+        target.dyingRounds = 0;
+        syncCharacterDyingRaw(target);
+      }
+    }
+  };
+}
+
+function completePriestTierThreeAction(caster, outcome) {
+  syncAllCharacterEquipmentDerivedStats();
+  recomputeVisibility(state);
+  markRunDirty(); markUserActivity(); setStatus(outcome.message);
+  if (!SERVER_RUNTIME) {
+    ui.spellDetailModal.hidden = true;
+    ui.spellcastingModal.hidden = true;
+    ui.characterSheetModal.hidden = true;
+  }
+  render(); updatePanels(); scheduleAutoEndTurnIfNeeded();
+}
+
+function finishPriestTierThreeSpell(caster, selection) {
+  if (sendSharedCommand('resolve_spell', { choice: selection.choice, option: selection.option,
+    target_id: selection.targetId, dismiss: selection.dismiss }, caster)) return;
+  const outcome = resolvePriestTierThree(state, caster, selection, priestTierThreeOptions());
+  startTurnedUndeadCombat(caster, outcome);
+  if (outcome.struckIds && !caster.pendingSpell) beginCombatAfterDamagingSpell(caster, outcome.struckIds, 'Combat begins after Lay to Rest.');
+  if (outcome.removedEffect === 'charm') {
+    const target = state.characters.find(member => member.id === outcome.restoredId);
+    if (target?.companion?.charm) endCharacterCharm(target);
+  }
+  if (outcome.commandedId) {
+    const target = state.characters.find(member => member.id === outcome.commandedId) || getMonsterById(outcome.commandedId);
+    const orders = activeCommand(state, target);
+    if (orders?.orders.includes('drop')) dropCommandGear(target, true);
+    if (!caster.pendingSpell && !isCombatActive() && target?.type === 'monster') {
+      target.hostile = true; target.attitude = 'combat'; target.attitudeChecked = true;
+      beginCombat('Combat begins after Command.', { extraMonsterIds: [target.id] });
+    }
+  }
+  if (isCombatActive()) checkCombatEnd();
+  pushDiceHistory('Spell', outcome.message, caster.id);
+  completePriestTierThreeAction(caster, outcome);
+}
+
+function getPriestTierThreeUi() {
+  const getCaster = () => state.characters.find(member => PRIEST_TIER_THREE_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member));
+  return priestTierThreeUi ||= createTierTwoUi({
+    getPresentation: () => {
+      const view = priestTierThreePresentation(state, getCaster());
+      if (view) view.busy = sharedCommandPending > 0;
+      return view;
+    },
+    resolve: selection => finishPriestTierThreeSpell(getCaster(), selection),
+    preview: () => {}, mapHost: ui.mapHost, status: setStatus
+  });
+}
+
 function getPriestTierTwoUi() {
   if (SERVER_RUNTIME) return null;
   const getCaster = () => {
@@ -10585,10 +11086,10 @@ function recordFocusCheck(character, reason) {
     }
     return check;
   };
-  const focusCheck = isTierThreeUtilityFocus(character.focusSpell) ? maintainTierThreeUtility : spell === 'illusion' ? maintainIllusion : isPriestTierTwoFocus(character.focusSpell) ? maintainPriestTierTwoFocus : character.focusSpell?.spell === 'levitate' ? maintainLevitationFocus : isTierTwoFocus(character.focusSpell) ? maintainTierTwoFocus : character.focusSpell?.spell === 'detect magic' ? maintainDetectMagic : maintainFocus;
+  const focusCheck = spell === 'command' ? maintainCommand : isTierThreeUtilityFocus(character.focusSpell) ? maintainTierThreeUtility : spell === 'illusion' ? maintainIllusion : isPriestTierTwoFocus(character.focusSpell) ? maintainPriestTierTwoFocus : character.focusSpell?.spell === 'levitate' ? maintainLevitationFocus : isTierTwoFocus(character.focusSpell) ? maintainTierTwoFocus : character.focusSpell?.spell === 'detect magic' ? maintainDetectMagic : maintainFocus;
   const outcome = focusCheck(state, character, { reason,
     ...tierTwoOptions(), ...(isPriestTierTwoFocus(character.focusSpell) ? priestTierTwoOptions() : {}), checkRoll, rollCheck: checkRoll,
-    disadvantage: protectionDisadvantage(state, character),
+    disadvantage: protectionDisadvantage(state, character) || Boolean(character.conditions?.screech || character.conditions?.carrionStench || character.conditions?.stinkBomb),
     advantage: characterHasSpellCastingAdvantage(character, findSpellRecord(character.focusSpell?.spell)) });
   if (outcome) {
     rememberSpellDialogs(outcome);
@@ -10606,6 +11107,9 @@ function recordFocusCheck(character, reason) {
 
 setCharacterDamageListener((character,damage,sourceId) => {
   if (isIllusionCreature(character) && damage > 0) { dismissIllusion(state, character); return; }
+  if (character.conditions?.charm?.regardsAsFriend && character.conditions.charm.sourceId === sourceId) {
+    removeAffliction(state, character, 'charm', { observed: false });
+  }
   if (state?.characters.includes(character)) recordCompanionDamage(character,damage);
   if (character.companion?.charm && sourceId !== character.id && state?.characters.some(member => member.id === sourceId)) {
     character.companion.charm.brokenByParty = true;
@@ -10625,15 +11129,17 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
   const discsChanged = progressFloatingDiscTime(milliseconds);
   const undeadChanged = advanceAnimatedDeadTime(state, milliseconds).length > 0;
   const hasSleep = [...state.characters, ...state.entities].some(creature => creature.conditions?.sleeping?.rounds > 0);
+  const monsterAfflictions = [...state.characters, ...state.entities].some(actor =>
+    Object.values(actor.conditions || {}).some(effect => effect?.sourceId));
   const hasItems = state.characters.some(character => character.potionEffects?.length || character.companion?.charm || character.transformationEffects?.length) || state.entities.some(entity => entity.charm || entity.fixedObject) || state.areaSpells?.length;
   if (hasItems) advanceCharmTime(milliseconds);
   const hasCleansing = [...state.characters, ...state.entities].some(holder => holder.gearItem?.cleansingWeapon ||
     holder.gear?.some(item => item.cleansingWeapon) || holder.characterCorpse?.gear?.some(item => item.cleansingWeapon));
-  const hasFaith = hasCleansing || state.entities.some(portalHeld) || state.characters.some(character => character.invisibility || character.faithEffects?.length || character.focusSpell || character.gear?.some(item => item.holyWeapon || item.cleansingWeapon)) ||
+  const hasFaith = hasCleansing || state.entities.some(portalHeld) || state.characters.some(character => character.invisibility || character.turnedUndead || character.faithEffects?.length || character.focusSpell || character.gear?.some(item => item.holyWeapon || item.cleansingWeapon)) ||
     state.entities.some(entity => entity.invisibility || entity.moraleFlight || entity.turnedUndead || entity.gearItem?.holyWeapon || entity.gearItem?.cleansingWeapon);
   const phenomena = state.entities.some(entity => entity.subtype === 'arcane-shred' || entity.subtype === 'arcane-gate' && !entity.closed || entity.arcaneSummonRounds > 0);
   const suppressionActive = hasMagicSuppression(state);
-  if (!hasSleep && !hasItems && !hasFaith && !phenomena && !suppressionActive && !state.characters.some(character => character.wizardEffects?.length || Object.keys(character.spellLocks || {}).length)) return discsChanged || illusionsChanged || undeadChanged;
+  if (!monsterAfflictions && !hasSleep && !hasItems && !hasFaith && !phenomena && !suppressionActive && !state.characters.some(character => character.wizardEffects?.length || Object.keys(character.spellLocks || {}).length)) return discsChanged || illusionsChanged || undeadChanged;
   const lightingMayChange = phenomena || state.characters.some(character => hasWizardEffect(character, 'light-suppression'));
   const armoredIds = new Set(state.characters.filter(mageArmorEffect).map(character => character.id));
   if (rounds == null) {
@@ -10641,6 +11147,10 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
     rounds = Math.floor(state.arcaneTime.crawlRemainderMs / SPELL_ROUND_MS);
     state.arcaneTime.crawlRemainderMs %= SPELL_ROUND_MS;
   }
+  const afflictionsChanged = monsterAfflictions && advanceMonsterAfflictions(state, {
+    rounds, milliseconds, harm: (target, amount, fields) => harmFromMonster(target, amount, null, fields)
+  });
+  if (afflictionsChanged || expireLeprechaunGold(state)) markRunDirty();
   const woke = rounds > 0 && hasSleep && advanceSleepRounds(state, rounds);
   if (rounds > 0 && hasSleep) markRunDirty();
   const suppressionChanged = rounds > 0 && advanceMagicSuppression(state, rounds);
@@ -10682,7 +11192,7 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
     }
   });
   if (changed) { syncAllCharacterEquipmentDerivedStats(); if (lightingMayChange) recomputeVisibility(state); markRunDirty(); }
-  return discsChanged || illusionsChanged || undeadChanged || changed || woke || suppressionChanged || ((hasFaith || hasItems) && rounds > 0);
+  return discsChanged || illusionsChanged || undeadChanged || changed || woke || afflictionsChanged || suppressionChanged || ((hasFaith || hasItems) && rounds > 0);
 }
 
 function syncFloatingDiscFollowers() {
@@ -10796,7 +11306,7 @@ function finishFaithSpell(character, {choice,targetId,x,y,dismiss=false}={}) {
     let outcome;
     if(WIZARD_TIER_ONE.has(caster.pendingSpell?.spell)) {
       outcome = resolveWizardTierOne(state, caster, { choice, targetId, x, y, dismiss });
-      if (outcome.target) {
+      if (outcome.target?.type === 'monster') {
         removeCharmedMonsterFromCombat(outcome.target.id);
         joinFriendlyMonster(outcome.target, caster, 'charmed');
       }
@@ -11033,7 +11543,14 @@ function progressPartyRest() {
     recordRestInterruptionChecks();
     beginCombat('Wandering monsters interrupt the party\'s rest!', { extraMonsterIds: encounterId ? [encounterId] : [] });
   }
-  if(state.rest.phase==='completed')triggerPartyDoppelgangers();
+  if (state.rest.phase === 'completed') {
+    const departed = progressLycanthropyAfterRest(state, state.rest.participantIds);
+    const hungry = state.characters.filter(hostileVampire);
+    if (departed.length || hungry.length) {
+      beginCombat([...departed, ...hungry].map(actor => actor.name).join(', ') + ' turns on the party.');
+    }
+    else triggerPartyDoppelgangers();
+  }
   if (state.rest.phase === 'completed') for (const result of state.rest.studyResults || []) {
     const text = `${result.message}. INT ${result.check.total} vs DC 15.`;
     pushDiceHistory('Intelligence', text, result.characterId, rollTextSegments(text, result.check));
@@ -11112,6 +11629,7 @@ function performLuck(character) {
             if (zone && choice === 'area') { zone.x -= 3; zone.y -= 3; zone.width = zone.height = 12; }
           } });
       } else if (TIER_THREE_UTILITY_SPELLS.has(key)) result = castTierThreeUtility(draft, actor, key, { ...tierThreeUtilityOptions(), ...options });
+      else if (PRIEST_TIER_THREE_SPELLS.has(key)) result = castPriestTierThree(draft, actor, key, { ...priestTierThreeOptions(draft), ...options });
       else if (PRIEST_TIER_TWO_SPELLS.has(key)) result = castPriestTierTwoSpell(draft, actor, key, { ...priestTierTwoOptions(), ...options });
       else if (key === 'illusion') result = castIllusion(draft, actor, options);
       else if (key === 'dispel magic') result = castDispelMagic(draft, actor, options);
@@ -11141,7 +11659,9 @@ function performLuck(character) {
 
 function spellLuckOptions(caster, spell) {
   const check = (modifier, options) => {
-    const result = rollCheck(modifier, options);
+    const disadvantage = Boolean(caster.conditions?.screech || caster.conditions?.carrionStench || caster.conditions?.stinkBomb);
+    if (caster.conditions?.stinkBomb) delete caster.conditions.stinkBomb;
+    const result = rollCheck(modifier, disadvantage ? { doubleRoll: false, disadvantage: !options?.doubleRoll } : options);
     if (spellLuckContext && !spellLuckContext.event && !isLuckResolution(state) && !caster.castingScroll) {
       const context = spellLuckContext;
       context.event = beginLuckEvent(state, { kind: 'cast', actor: luckActorRef(caster), roll: result, dc: 10 + Number(spell.tier || 1),
@@ -11166,7 +11686,7 @@ function performSpellCast(character, spell, targetId = null) {
 function performSpellCastInternal(character, spell, targetId = null) {
   if (getSpellKey(spell) === 'alarm') { performRestAlarm(character); return; }
   if (sendSharedCommand("spell", { spell_name: spell?.name, target_id: targetId }, character)) {
-    if (FAITH_SPELLS.has(getSpellKey(spell)) || PRIEST_TIER_TWO_SPELLS.has(getSpellKey(spell)) || getSpellKey(spell) === 'light') { ui.spellDetailModal.hidden=true; ui.characterSheetModal.hidden=true; ui.spellcastingModal.hidden=true; }
+    if (FAITH_SPELLS.has(getSpellKey(spell)) || PRIEST_TIER_THREE_SPELLS.has(getSpellKey(spell)) || PRIEST_TIER_TWO_SPELLS.has(getSpellKey(spell)) || getSpellKey(spell) === 'light') { ui.spellDetailModal.hidden=true; ui.characterSheetModal.hidden=true; ui.spellcastingModal.hidden=true; }
     return;
   }
   const currentCharacter = getCurrentCharacter(character) || getActiveCharacter(state);
@@ -11195,6 +11715,10 @@ function performSpellCastInternal(character, spell, targetId = null) {
     if (!SERVER_RUNTIME && OFFENSIVE_SPELLS.has(getSpellKey(spell))) openOffensiveSpellTargeting(currentCharacter, getSpellKey(spell));
     return;
   }
+  if (suppressesVampireSpellcasting(currentCharacter) || currentCharacter.conditions?.bugBrain || currentCharacter.conditions?.hypnotize || currentCharacter.conditions?.beguile) {
+    if (SERVER_RUNTIME) throw new Error('This character cannot cast under that affliction.');
+    setStatus('This character cannot cast under that affliction.'); return;
+  }
   const blockedBySilence = silenceBlocksAction(state, currentCharacter, { spellcasting: true });
   if (blockedBySilence) { if (SERVER_RUNTIME) throw new Error(blockedBySilence); setStatus(blockedBySilence); return; }
   if (/focus/i.test(spell.duration || '') && getSpellKey(spell) !== 'protection from evil') {
@@ -11213,6 +11737,19 @@ function performSpellCastInternal(character, spell, targetId = null) {
       showCheckResult(outcome.check, spell.name + ' cast', { message: outcome.message, spell });
       if (!SERVER_RUNTIME) { ui.spellDetailModal.hidden = true; ui.characterSheetModal.hidden = true; ui.spellcastingModal.hidden = true; }
       updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
+    } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
+    return;
+  }
+  if (PRIEST_TIER_THREE_SPELLS.has(getSpellKey(spell))) {
+    try {
+      if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
+      const outcome = castPriestTierThree(state, currentCharacter, getSpellKey(spell), {
+        ...priestTierThreeOptions(), ...spellLuckOptions(currentCharacter, spell),
+        advantage: characterHasSpellCastingAdvantage(currentCharacter, spell)
+      });
+      startTurnedUndeadCombat(currentCharacter, outcome);
+      showCheckResult(outcome.check, spell.name + ' cast', { message: outcome.message, spell });
+      completePriestTierThreeAction(currentCharacter, outcome);
     } catch (error) { if (SERVER_RUNTIME) throw error; setStatus(error.message); }
     return;
   }
@@ -11323,7 +11860,7 @@ function performSpellCastInternal(character, spell, targetId = null) {
   }
   if (FAITH_SPELLS.has(getSpellKey(spell))) {
     try {
-      if (getSpellKey(spell) === 'turn undead' && !(currentCharacter.gear || []).some(item => /holy symbol/i.test(item.name))) throw new Error('Turn Undead requires a holy symbol.');
+      if (getSpellKey(spell) === 'turn undead' && !hasHolySymbol(currentCharacter)) throw new Error('Turn Undead requires a holy symbol.');
       if (!SERVER_RUNTIME && !consumeCharacterCombatAction(currentCharacter)) return;
       const outcome = castFaithSpell(state, currentCharacter, getSpellKey(spell), { ...spellLuckOptions(currentCharacter, spell), advantage: characterHasSpellCastingAdvantage(currentCharacter, spell) });
       startTurnedUndeadCombat(currentCharacter, outcome);
@@ -13198,6 +13735,7 @@ function updatePanels(options = {}) {
   getDispelUi().sync();
   getIllusionUi().sync();
   getPriestTierTwoUi().sync();
+  getPriestTierThreeUi().sync();
   const dialogs = (state.spellDialogMessages || []).filter(message => !seenSpellDialogs.has(message.id));
   if (dialogs.length) { for (const message of dialogs) seenSpellDialogs.add(message.id); showNotice(dialogs.map(message => message.text).join('\n')); }
   document.getElementById('party-heading').textContent = state.partyName || 'The Party';
@@ -13820,7 +14358,8 @@ function ownsCharacter(character) {
 }
 
 function canControlCharacter(character) {
-  return Boolean(character) && ownsCharacter(character) && (!isSharedRoom() || multiplayerSession.can_explore) &&
+  return Boolean(character) && ownsCharacter(character) && !hostileSupernatural(character) && !vampireInTorpor(character) &&
+    !monsterControl(character) && !activeCommand(state, character) && (!isSharedRoom() || multiplayerSession.can_explore) &&
     !restInProgress(state) &&
     (!isCombatActive() || isCurrentCharacterTurn(character));
 }
@@ -15410,6 +15949,10 @@ function hookMapViewportInteractions() {
       try { if (getTierThreeUi().click(x, y)) return; }
       catch (error) { setStatus(error.message); return; }
     }
+    if (state.characters.some(member => PRIEST_TIER_THREE_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member))) {
+      const target = getCharacterAtTile(x, y) || getVisibleMonsterAtTile(x, y);
+      if (getPriestTierThreeUi().click(x, y, target?.id)) return;
+    }
     if (state.characters.some(member => PRIEST_TIER_TWO_SPELLS.has(member.pendingSpell?.spell) && canControlCharacter(member))) {
       const target = getCharacterAtTile(x, y) || getVisibleMonsterAtTile(x, y);
       try { if (getPriestTierTwoUi().click(x, y, target?.id)) return; }
@@ -15432,7 +15975,7 @@ function hookMapViewportInteractions() {
       if (door) finishFaithSpell(blessingCaster, { targetId: door.id });
       return;
     }
-    const blessingTarget = blessingCaster?.pendingSpell.spell === 'charm person' ? getVisibleMonsterAtTile(x,y) :
+    const blessingTarget = blessingCaster?.pendingSpell.spell === 'charm person' ? getVisibleMonsterAtTile(x,y) || getCharacterAtTile(x,y) :
       getCharacterAtTile(x,y)||(blessingCaster?.pendingSpell.spell==='invisibility'?getVisibleMonsterAtTile(x,y):null);
     if (blessingCaster && blessingTarget) { finishFaithSpell(blessingCaster, { targetId: blessingTarget.id }); return; }
     const stealingOverlay = currentTargetingOverlay();
@@ -15442,6 +15985,11 @@ function hookMapViewportInteractions() {
       if (validStealTarget(state, thief, target)) resolveSteal(thief, { targetId: target.id });
       else setStatus('Choose an adjacent creature to steal from.');
       return;
+    }
+    if (targetingMode?.spellKey === 'magic missile') {
+      const member = getCharacterAtTile(x, y);
+      const caster = state.characters.find(character => character.id === targetingMode.characterId);
+      if (member && hasReadyOffensiveSpell(caster)) { resolveMagicMissile(caster, { targetId: member.id }); return; }
     }
     const targetMonster = getVisibleMonsterAtTile(x, y);
     const active = getActiveCharacter(state);
@@ -15962,6 +16510,8 @@ export async function executeGameCommand(rawState, command) {
   if (isIllusionCreature(character) && !['move', 'move_batch', 'follow_step', 'attack', 'attack_empty', 'attack_door', 'end_turn', 'normalize', 'tick', 'dismiss'].includes(command.type))
     throw new Error('Illusions can move and make harmless attacks, but cannot manipulate real objects or use abilities.');
   const controller = inventoryController(character);
+  if (character && (hostileSupernatural(character) || monsterControl(character) || activeCommand(state, character)) &&
+      !['normalize', 'tick', 'end_turn', 'fall_response'].includes(command.type)) throw new Error('This creature is temporarily outside your control.');
   if (isAnimatedDead(character) && ['wake', 'stealth', 'pick_lock', 'search'].includes(command.type)) throw new Error('Animated undead cannot wake anyone, attempt stealth, pick locks, or search.');
   if (isAnimatedDead(character) && ['color', 'set_color', 'change_color'].includes(command.type)) throw new Error('Animated undead color always follows its caster.');
   if (animatedDeadForm(character) === 'zombie' && ['equip', 'light'].includes(command.type)) throw new Error('Zombies can carry gear but cannot equip anything.');
@@ -15979,7 +16529,7 @@ export async function executeGameCommand(rawState, command) {
   if (isTied(character) && !teleportCommand && !['end_turn','tick','normalize','luck'].includes(command.type) && !(command.type === 'pit_action' && ['escape','break'].includes(command.action))) throw new Error('Escape or break the rope before acting.');
   if (['edit_character', 'rename_character'].includes(command.type) && isCombatActive()) throw new Error('Character sheet edits are unavailable during combat; use the turn actions.');
   if (!utilityCommands.has(command.type)) {
-    const dyingEnd = command.type === 'end_turn' && (isCharacterDying(character) || isRaving(character) || isSleeping(character, state) || character.conditions?.paralyzed) && isCurrentCharacterTurn(character);
+    const dyingEnd = command.type === 'end_turn' && (isCharacterDying(character) || isRaving(character) || isSleeping(character, state) || blockedByAffliction(character) || character.conditions?.paralyzed) && isCurrentCharacterTurn(character);
     if (!character || !dyingEnd && !(isFloatingDisc(character) ? canUseCharacterInventory(character) : isCharacterAbleToAct(character))) throw new Error("This character cannot act.");
     if (isCombatActive() && !isCurrentCharacterTurn(character)) throw new Error("It is not this character's turn.");
   }
@@ -16144,7 +16694,9 @@ export async function executeGameCommand(rawState, command) {
     }
     case 'resolve_spell':
       if (!character.pendingSpell && character.focusSpell?.spell !== 'zone of truth') throw new Error('There is no critical or pending spell awaiting resolution.');
-      if (PRIEST_TIER_TWO_SPELLS.has(character.pendingSpell?.spell) || !character.pendingSpell && character.focusSpell?.spell === 'zone of truth') finishPriestTierTwoSpell(character, { choice: command.choice, option: command.option, question: command.question, targetId: command.target_id, dismiss: command.dismiss === true });
+      if (PRIEST_TIER_THREE_SPELLS.has(character.pendingSpell?.spell)) finishPriestTierThreeSpell(character, {
+        choice: command.choice, option: command.option, targetId: command.target_id, dismiss: command.dismiss === true });
+      else if (PRIEST_TIER_TWO_SPELLS.has(character.pendingSpell?.spell) || !character.pendingSpell && character.focusSpell?.spell === 'zone of truth') finishPriestTierTwoSpell(character, { choice: command.choice, option: command.option, question: command.question, targetId: command.target_id, dismiss: command.dismiss === true });
       else if (character.pendingSpell?.spell === 'illusion') finishIllusion(character, { option: command.option, x: command.x, y: command.y, confirmed: command.confirmed === true, dismiss: command.dismiss === true });
       else if (character.pendingSpell?.spell === 'dispel magic') finishDispelMagic(character, { choice: command.choice,
         effectId: command.option, targetId: command.target_id, x: command.x, y: command.y,
@@ -16200,7 +16752,8 @@ export async function executeGameCommand(rawState, command) {
     case 'level_up':
       startCharacterLevelUp(character); break;
     case "buy_gear": {
-      const item = STARTING_ROOM_SHOP_ITEMS.find(item => item.id === command.item_id);
+      const item = command.item_id === 'coffin' && isVampire(character) ? VAMPIRE_COFFIN :
+        STARTING_ROOM_SHOP_ITEMS.find(item => item.id === command.item_id);
       if (!item || !Number.isInteger(item.costCopper) || !isCharacterInTradeRoom(character)) throw new Error("Buy supplies only in the level-one starting room.");
       buyStartingRoomShopItem(character, item);
       break;
@@ -16225,6 +16778,7 @@ export async function executeGameCommand(rawState, command) {
       setStatus(item.subtype === "dropped-equipment" ? pickupDroppedEquipment(item) : collectLoot(state, item.id));
       break;
     }
+    case 'stake_vampire': stakeVampire(character, getMonsterById(command.monster_id), command.gear_index); break;
     case 'attack_treasure': {
       const item=state.entities.find(entity=>entity.id===command.entity_id&&entity.type==='treasure'&&!entity.collected);
       attackTreasure(character, item, command.attack_index);

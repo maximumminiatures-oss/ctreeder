@@ -1,3 +1,5 @@
+import { isLeprechaun, leprechaunTreasure } from './leprechaun.js';
+import { vampireNeedsStake, isReachPole } from './supernatural-traits.js';
 import { DOOR_STATES, ENTITY_TYPES, FEATURE_NAMES, TILE_TYPES } from "./constants.js";
 import { isBrokenDoor, isDoorPassable } from './door-geometry.js';
 import { getTile } from "./state-schema.js";
@@ -468,11 +470,11 @@ function findStumbleEntityAt(state, x, y) {
   });
 }
 
-function revealAndTriggerTrap(trap,state) {
+function revealAndTriggerTrap(trap, state, { remote = false } = {}) {
   if (isUnavailableTrap(trap) || trap.disarmed) {
     return { trap, trapSprung: false, message: isMagicSuppressed(trap) ? "The trap's magic is suppressed." : 'The trap is inactive.' };
   }
-  const target=state?.characters?.find(character=>character.id===state.activeCharacterId);
+  const target = remote ? null : state?.characters?.find(character => character.id === state.activeCharacterId);
   if (isIllusionCreature(target)) return { trap, trapSprung: false, message: 'The illusion does not trigger the trap.' };
   trap.targetCharacterId=target?.id||null;
   trap.attackDisadvantage=isInvisible(target);
@@ -721,6 +723,10 @@ export function addMonsterLootDrop(state, monster, options = {}) {
 }
 
 export function defeatMonster(state, monster, options = {}) {
+  if (vampireNeedsStake(monster) && !options.stake && !options.destroy) {
+    monster.hp = 0;
+    return { defeated: false, message: monster.name + ' is down. A wooden stake can destroy it.' };
+  }
   if (!monster || monster.type !== ENTITY_TYPES.MONSTER || monster.defeated === true) {
     return { defeated: false, message: "Monster not found." };
   }
@@ -755,7 +761,7 @@ export function defeatMonster(state, monster, options = {}) {
         .filter(key => monster[key] !== undefined).map(key => [key, structuredClone(monster[key])]))
     } : {})
   });
-  const loot = addMonsterLootDrop(state, monster);
+  const loot = isLeprechaun(monster) ? leprechaunTreasure(state, monster) : addMonsterLootDrop(state, monster);
   for(const [index,item]of(ensureMonsterGear(monster)).entries())state.entities.push({id:`slain-gear-${monster.id}-${index}`,type:ENTITY_TYPES.TREASURE,
     subtype:'dropped-equipment',kind:'gear',name:item.name,x:monster.x,y:monster.y,routeId:routeOf(state,monster),roomId:monster.roomId,
     visible:true,revealed:true,collected:false,value:Number(item.value)||0,
@@ -1086,6 +1092,12 @@ function getClickTarget(state, x, y) {
   return { entity };
 }
 
+export function canUseReachPole(state, character, target) {
+  const distance = Math.max(Math.abs(character.x - target.x), Math.abs(character.y - target.y));
+  return distance === 2 && (character.gear || []).some(item => item.equipped && isReachPole(item)) &&
+    sameRoute(state, character, target) && hasLineOfSightFrom(state, character.x, character.y, target.x, target.y, { source: character, target });
+}
+
 function resolveDoorClick(state, door, options) {
   if (door?.subtype !== "door" || (door.secret === true && !door.secretFound && !door.revealed)) return null;
   if (!state.characters?.length) return { door, character: null };
@@ -1095,7 +1107,8 @@ function resolveDoorClick(state, door, options) {
     if (character.dead || character.slain || Number(character.dyingRounds || 0) > 0 || !(Number(character.hp) > 0)) return false;
     if (isSleeping(character, state) || isIncorporeal(character)) return false;
     if (character.x == null || character.y == null ||
-      Math.max(Math.abs(Number(character.x) - door.x), Math.abs(Number(character.y) - door.y)) > 1 ||
+      (Math.max(Math.abs(Number(character.x) - door.x), Math.abs(Number(character.y) - door.y)) > 1 &&
+        (isDoorLocked(state, door) || door.holdPortal?.rounds > 0 || !canUseReachPole(state, character, door))) ||
       !Number.isFinite(Number(character.x)) || !Number.isFinite(Number(character.y))) return false;
     if (state.combat?.active && (turn?.type !== "character" || turn.id !== character.id)) return false;
     if (options.characterId != null && character.id !== options.characterId) return false;
@@ -1130,10 +1143,11 @@ export function clickEntity(state, x, y, options = {}) {
     if (isDoorLocked(state, entity)) return lockedDoorResult(state, entity);
     const trap = findActiveTrapForTarget(state, "door", entity.id);
     if (trap && entity.doorState !== DOOR_STATES.OPEN) {
-      const result = revealAndTriggerTrap(trap,state);
+      const remote = Boolean(context.character && canUseReachPole(state, context.character, entity));
+      const result = revealAndTriggerTrap(trap, state, { remote });
       setDoorState(entity, DOOR_STATES.OPEN);
       recomputeVisibility(state);
-      return { trapSprung: true, message: `You've run into a trapped door! ${result.message}` };
+      return { trapSprung: true, message: (remote ? 'The pole triggers a trapped door. ' : "You've run into a trapped door! ") + result.message };
     }
     setDoorState(entity, entity.doorState === DOOR_STATES.OPEN ? DOOR_STATES.CLOSED : DOOR_STATES.OPEN);
     clearLockedDoorAction(state);
@@ -1200,8 +1214,9 @@ export function partyInLootArea(state, entity) {
 export function partyCanReachLoot(state, entity) {
   return Boolean(entity && (state.characters || []).some(character => !character.dead && !character.slain && !isSleeping(character, state) &&
     !isIncorporeal(character) && transformationMovementRules(state, character).canPickUpGear && (Number(character.hp) > 0 || character.summon?.kind === 'floating-disc') &&
-    sameRoute(state, character, entity) && Math.max(Math.abs(character.x - entity.x), Math.abs(character.y - entity.y)) <= 1 &&
-    canMoveBetweenTiles(state, character.x, character.y, entity.x, entity.y, { creature: character, ignorePits: true }).ok));
+    sameRoute(state, character, entity) && (canUseReachPole(state, character, entity) ||
+      Math.max(Math.abs(character.x - entity.x), Math.abs(character.y - entity.y)) <= 1 &&
+      canMoveBetweenTiles(state, character.x, character.y, entity.x, entity.y, { creature: character, ignorePits: true }).ok)));
 }
 
 export function collectLoot(state, lootId) {
@@ -1230,7 +1245,8 @@ export function collectLoot(state, lootId) {
 
   const trap = findActiveTrapForTarget(state, "treasure", collectable.id);
   if (trap) {
-    const result = revealAndTriggerTrap(trap,state);
+    const remote = Boolean(character && canUseReachPole(state, character, collectable));
+    const result = revealAndTriggerTrap(trap, state, { remote });
     return {
       collected: 0,
       interrupted: true,

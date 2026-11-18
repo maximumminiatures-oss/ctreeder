@@ -1,3 +1,5 @@
+import { isVampire } from './supernatural-traits.js';
+
 export const isIncorporeal = creature => creature?.conditions?.incorporeal === true;
 export const isGaseousForm = creature => Boolean(creature?.transformationEffects?.some(effect => effect.spell === 'gaseous form' && effect.rounds > 0));
 export const hasMobilityFlight = creature => Boolean(creature?.transformationEffects?.some(effect =>
@@ -61,9 +63,9 @@ export function advanceSleepRounds(state, rounds) {
   return woke;
 }
 
-export function conditionAttackMode(target, { melee = true, close = true, advantage = false, disadvantage = false, state = null } = {}) {
+export function conditionAttackMode(target, { attacker = null, melee = true, close = true, advantage = false, disadvantage = false, state = null } = {}) {
   advantage ||= isBlind(target) || isParalyzed(target) || isProne(target, state) && melee;
-  disadvantage ||= isProne(target, state) && !melee && !close;
+  disadvantage ||= isProne(attacker, state) || isProne(target, state) && !melee && !close;
   return { doubleRoll: advantage && !disadvantage, disadvantage: disadvantage && !advantage };
 }
 
@@ -73,5 +75,5 @@ export function phaseStepAllowed(state, x, y, nextX, nextY) {
     Math.max(Math.abs(nextX - x), Math.abs(nextY - y)) === 1;
 }
 
-export const isLivingCreature = creature => creature?.summon?.kind !== 'floating-disc' && !/(?:^|\b)(?:undead|construct|golem)(?:\b|$)/i.test(
+export const isLivingCreature = creature => creature?.summon?.kind !== 'floating-disc' && !isVampire(creature) && !/(?:^|\b)(?:undead|construct|golem)(?:\b|$)/i.test(
   [...(creature?.tags || []), ...(creature?.companion?.source?.tags || []), creature?.ancestry || '', creature?.name || ''].join(' '));

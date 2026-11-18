@@ -1,3 +1,4 @@
+import { hasHolySymbol } from './holy-symbols.js';
 import { abilityScoreModifier } from './characters.js';
 import { rollCheck, defeatMonster } from './interactions.js';
 import { castingBonus, canTouchCharacter } from './spell-effects.js';
@@ -87,7 +88,7 @@ export function castFaithSpell(state,caster,spell,{advantage=false,checkRoll=rol
   if(!FAITH_SPELLS.has(spell)) throw new Error('Unknown implemented faith spell.');
   if(caster.pendingSpell) throw new Error('Resolve the pending spell first.');
   if((caster.failedSpellKeys||[]).includes(spell)) throw new Error('This spell is unavailable until recovery.');
-  if(spell==='turn undead' && !(caster.gear||[]).some(item=>/holy symbol/i.test(item.name))) throw new Error('Turn Undead requires a holy symbol.');
+  if(spell==='turn undead' && !hasHolySymbol(caster)) throw new Error('Turn Undead requires a holy symbol.');
   if(spell==='protection from evil') caster.focusSpell=null;
   const check=checkRoll(faithCastingModifier(caster),faithCastingMode(state,caster,advantage));
   const succeeded=check.roll!==1&&(check.roll===20||check.total>=11);
@@ -176,7 +177,7 @@ export function advanceFaithRounds(state,rounds=1) {
   }
   const gear=[...(state.characters||[]).flatMap(character=>character.gear||[]),...(state.entities||[]).map(entity=>entity.gearItem).filter(Boolean)];
   for(const item of gear) if(item.holyWeapon) {item.holyWeapon.rounds-=rounds;if(item.holyWeapon.rounds<=0)delete item.holyWeapon;}
-  for(const monster of state.entities||[]) if(monster.turnedUndead) {
+  for(const monster of [...(state.entities||[]), ...(state.characters||[])]) if(monster.turnedUndead) {
     monster.turnedUndead.rounds-=rounds;if(monster.turnedUndead.rounds<=0)delete monster.turnedUndead;
   }
 }

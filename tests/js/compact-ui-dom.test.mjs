@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { vampireInTorpor } from '../../S3_content/src/supernatural-traits.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
@@ -71,6 +72,7 @@ test('panel and turn minis share name-only headers and read-only HP/max, AC and 
 
 test('dying labels remain ordinary text rather than full-sheet buttons or overlays', t => {
   const { context, document } = sandbox(t);
+  context.vampireInTorpor = vampireInTorpor;
   load(context, 'createDyingBanner');
   assert.equal(context.createDyingBanner({}), null);
   const label = context.createDyingBanner({ name: 'Ad', dyingRounds: 2 });

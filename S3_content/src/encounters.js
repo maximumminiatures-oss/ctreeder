@@ -22,7 +22,7 @@ export function creatureLanguages(creature, monster = false) {
 export function reactionSpeaker(state, monster) {
   const languages = new Set(creatureLanguages(monster, true));
   return (state.characters || []).filter(character => !character.dead && !character.slain && Number(character.hp) > 0 &&
-    !isFloatingDisc(character) && !isSleeping(character, state) &&
+    !isFloatingDisc(character) && !isSleeping(character, state) && !character.conditions?.bugBrain &&
     sameRoute(state, character, monster) && Math.hypot(character.x - monster.x, character.y - monster.y) <= 16 && creatureLanguages(character).some(language => languages.has(language)))
     .sort((a,b) => Number(b.stats?.CHA||10) - Number(a.stats?.CHA||10))[0] || null;
 }

@@ -1,4 +1,6 @@
 import { isFloatingDisc, FLOATING_DISC_COLOR } from './floating-disc.js';
+import { hostileLycanthrope, isCoffin, syncVampireHealth, vampireInTorpor } from './supernatural-traits.js';
+import { grantPriestTalisman } from './holy-symbols.js';
 import { wakeCreature } from './conditions.js';
 import { elementalDamage } from './elemental-effects.js';
 import { monsterAlignmentName, normalizeMonsterGearItem } from './monster-terms.js';
@@ -28,6 +30,7 @@ function clampInRange(value, min, max, fallback = min) {
 }
 
 function inferGearItemSlots(name, item = {}) {
+  if (isCoffin(item) || /^coffin$/i.test(name)) return 5;
   const normalizedName = String(name || "").toLowerCase();
   if (/\bmithral\b/.test(normalizedName)) {
     if (/\bplate\b/.test(normalizedName)) return 2;
@@ -124,6 +127,7 @@ function getSlotsFromGear(gear, excludeFreeBackpack = true, useStoredSlots = fal
       backpackUsedForFreeCarry = true;
       freeCarry.push(name);
     }
+    if (item.freeCarry === true) { freeCarry.push(name); continue; }
     if (stackSize > 1) {
       slotsUsed += Math.max(1, Math.ceil(chargeForSlots / stackSize));
       continue;
@@ -423,6 +427,7 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     backgroundDetails: raw.backgroundDetails && typeof raw.backgroundDetails === 'object' ? clonePlain(raw.backgroundDetails)
       : raw.raw?.backgroundDetails && typeof raw.raw.backgroundDetails === 'object' ? clonePlain(raw.raw.backgroundDetails) : null,
     deity: raw.deity || "",
+    talismanGranted: raw.talismanGranted === true || raw.raw?.talismanGranted === true,
     gearSlotsTotal,
     gearSlotsUsed,
     spellsKnown: raw.spellsKnown || "",
@@ -442,6 +447,7 @@ function normalizeCharacterSource(raw = {}, index = 0) {
     magicDetectedIds: Array.isArray(raw.magicDetectedIds) ? clonePlain(raw.magicDetectedIds) : [],
     magicDetectedEffects: Array.isArray(raw.magicDetectedEffects) ? clonePlain(raw.magicDetectedEffects) : [],
     pendingFall: raw.pendingFall ? clonePlain(raw.pendingFall) : null,
+    turnedUndead: raw.turnedUndead ? clonePlain(raw.turnedUndead) : null,
     potionEffects: Array.isArray(raw.potionEffects) ? clonePlain(raw.potionEffects) : [],
     transformationEffects: Array.isArray(raw.transformationEffects) ? clonePlain(raw.transformationEffects) : [],
     luckToken: normalizedLuckToken(raw),
@@ -680,6 +686,7 @@ export function normalizeCharacterState(state) {
     : [];
   for (const character of characters) {
     if (character.dead || character.slain || Number(character.hp) <= 0) character.focusSpell = null;
+    grantPriestTalisman(character);
     const gearCapacity = getGearSlotCapacity(character?.stats || {}, character?.className || "", character);
     const computedSlots = getSlotsFromGear(character.gear || [], true);
     if (character.gearSlotsTotal !== gearCapacity) {
@@ -729,12 +736,17 @@ export function setCharacterHp(character, nextHp, { sourceId = null, damageSourc
     areaEffect ? { damageSource, areaEffect: true } : damageSource).total;
   const maxHitPoints = clampInt(character.maxHitPoints, 0, MAX_HIT_POINTS, character.hp || 0);
   character.maxHitPoints = maxHitPoints;
-  character.hp = clampInt(nextHp, 0, maxHitPoints, character.hp || 0);
+  const lockedHp = Number(character.conditions?.vampirism?.lockedHp) || 0;
+  const cap = Math.max(0, maxHitPoints - lockedHp);
+  if (vampireInTorpor(character) && nextHp > before) return character;
+  character.hp = clampInt(nextHp, 0, nextHp > before ? cap : maxHitPoints, character.hp || 0);
+  syncVampireHealth(character);
   if (character.hp <= 0) character.focusSpell = null;
   if (!character.raw || typeof character.raw !== "object") {
     character.raw = {};
   }
-  if (character.hp <= 0 && character.dead !== true && !character.dyingRounds) {
+  if (hostileLycanthrope(character) && before <= 0 && character.hp > 0) character.conditions.lycanthropy.hostile = false;
+  if (character.hp <= 0 && !hostileLycanthrope(character) && !vampireInTorpor(character) && character.dead !== true && !character.dyingRounds) {
     const conModifier = abilityModifier(character.stats?.CON);
     character.dyingRounds = Math.max(1, Math.floor(Math.random() * 4) + 1 + conModifier);
   } else if (character.hp > 0) {

@@ -336,6 +336,7 @@ export async function preloadRendererAssets() {
     blockPillars: Promise.all(PILLAR_BLOCK_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),
     floorTraps: Promise.all(FLOOR_TRAP_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`, { quiet: true }))),
     pits: loadAssetImageMap(PIT_ASSET_KEYS),
+    coffin: loadOptionalImage('./assets/coffin.png', { quiet: true }),
     ropeBridge: loadOptionalImage('./assets/rope-horizontal.png', { quiet: true }),
     underpasses: loadAssetImageMap(UNDERPASS_ASSETS),
     stairsDown: Promise.all(STAIR_DOWN_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),
@@ -1886,6 +1887,13 @@ function drawEntity(entity, ctx, state) {
     return;
   }
 
+  if ((entity.coffin || entity.gearItem?.coffin || /^coffin$/i.test(entity.name || '')) && rendererAssets.decor.coffin) {
+    const image = rendererAssets.decor.coffin;
+    const scale = TILE_SIZE_PX * .85 / Math.max(image.width, image.height);
+    const width = image.width * scale, height = image.height * scale;
+    ctx.drawImage(image, cx - width / 2, cy - height / 2, width, height);
+    return;
+  }
   const isCorpseLoot = entity.corpseLoot === true || entity.gearItem?.corpseLoot === true || entity.subtype === "corpse-loot";
   const isWorthlessLoot = entity.worthlessLoot === true || entity.gearItem?.worthlessLoot === true || entity.subtype === "worthless-loot";
 

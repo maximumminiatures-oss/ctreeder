@@ -1,3 +1,4 @@
+import { suppressesVampireSpellcasting } from './supernatural-traits.js';
 import { abilityScoreModifier } from './characters.js';
 import { normalizeSpellLookupKey } from './spells.js';
 import { STARTING_ROOM_SHOP_ITEMS, createShopGearItem } from './shop-catalog.js';
@@ -176,9 +177,10 @@ export function beginLevelUp(character, { random = Math.random } = {}) {
       }
       const type = key === 'thief' && rolled.total === 2 && /initiative/i.test(bonusText(character)) ? 'backstab' : classTalentForRoll(key, rolled.total);
       event.talentRoll = rolled;
-      event.tasks.push({ id: 'talent', type });
+      const unavailable = suppressesVampireSpellcasting(character) && ['spell-advantage', 'extra-spell', 'casting'].includes(type);
+      event.tasks.push({ id: 'talent', type: unavailable ? 'stat' : type });
     }
-    if (key === 'wizard' || key === 'priest') {
+    if ((key === 'wizard' || key === 'priest') && !suppressesVampireSpellcasting(character)) {
       const count = key === 'wizard' && character.level === 2 ? 2 : 1;
       for (let index = 0; index < count; index++) event.tasks.push({ id: index ? `spell-${index + 1}` : 'spell', type: 'spell', tier: Math.min(5, Math.floor((character.level + 1) / 2)) });
     }

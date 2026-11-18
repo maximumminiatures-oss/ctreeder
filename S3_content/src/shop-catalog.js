@@ -11,11 +11,9 @@ function item(category, id, name, cost, currency, slots = 1, extra = {}) {
     costLabel: `${cost} ${currency}`, ...extra });
 }
 
-export const STARTING_ROOM_SHOP_ITEMS = Object.freeze([
-  item('basic', 'arrows', 'Arrows', 1, 'gp', 1, { quantity: 20, gear: { ammoType: 'arrows' } }),
+const supplies = [
   item('basic', 'backpack', 'Backpack', 2, 'gp'),
   item('basic', 'caltrops', 'Caltrops (one bag)', 5, 'sp'),
-  item('basic', 'crossbow-bolts', 'Crossbow bolts', 1, 'gp', 1, { quantity: 20, gear: { ammoType: 'bolts' } }),
   item('basic', 'crowbar', 'Crowbar', 5, 'sp'),
   item('basic', 'flask-or-bottle', 'Flask or bottle', 3, 'sp'),
   item('basic', 'flint-and-steel', 'Flint and steel', 5, 'sp'),
@@ -24,7 +22,7 @@ export const STARTING_ROOM_SHOP_ITEMS = Object.freeze([
   item('basic', 'lantern', 'Lantern', 5, 'gp'),
   item('basic', 'mirror', 'Mirror', 10, 'gp'),
   item('basic', 'oil-flask', 'Oil, flask', 5, 'sp'),
-  item('basic', 'pole', 'Pole', 5, 'sp'),
+  item('basic', 'pole', "10' Pole", 5, 'sp', 1, { gear: { reachPole: true } }),
   item('basic', 'rations', 'Rations', 5, 'sp', 1, { quantity: 3 }),
   item('basic', 'rope', "Rope, 60'", 1, 'gp'),
   item('basic', 'torch', 'Torch', 5, 'sp'),
@@ -49,7 +47,18 @@ export const STARTING_ROOM_SHOP_ITEMS = Object.freeze([
   item('weapons', 'spear', 'Spear', 5, 'sp', 1, { type: 'weapon', gear: { damage: '1d6', properties: 'Th' } }),
   item('weapons', 'staff', 'Staff', 5, 'sp', 1, { type: 'weapon', gear: { damage: '1d4', properties: '2H' } }),
   item('weapons', 'warhammer', 'Warhammer', 10, 'gp', 1, { type: 'weapon', gear: { damage: '1d10', properties: '2H' } })
-]);
+];
+export const VAMPIRE_COFFIN = item('basic', 'coffin', 'Coffin', 1000, 'gp', 5, { gear: { coffin: true } });
+const ammunition = [
+  item('weapons', 'arrows', 'Arrows', 1, 'gp', 1, { quantity: 20, gear: { ammoType: 'arrows' } }),
+  item('weapons', 'crossbow-bolts', 'Crossbow Bolts', 1, 'gp', 1, { quantity: 20, gear: { ammoType: 'bolts' } })
+];
+const silverExclusions = new Set(['club', 'crossbow', 'longbow', 'shortbow', 'staff', 'warhammer']);
+const silverEquipment = [...supplies.filter(entry => entry.category === 'weapons' && !silverExclusions.has(entry.id)), ...ammunition]
+  .map(entry => item('weapons', 'silver-' + entry.id, 'Silver ' + entry.name.replace(/\b\w/g, letter => letter.toUpperCase()),
+    entry.cost * 10, entry.currency, entry.slots, { type: entry.type, quantity: entry.quantity, gear: { ...entry.gear, silver: true } }));
+
+export const STARTING_ROOM_SHOP_ITEMS = Object.freeze([...supplies, ...ammunition, ...silverEquipment]);
 
 export function createShopGearItem(config) {
   if (!Number.isInteger(config?.costCopper) || config.costCopper <= 0) throw new Error('This item has no fixed purchase price.');

@@ -149,9 +149,11 @@ test('Detect Thoughts critical doubles AC/hit, not damage; WIS resistance uses t
   assert.equal((ctx.caster.failedSpellKeys||[]).includes('detect thoughts'),false);
 });
 
-test('Detect Thoughts requires one visible monster within six squares and unhandled Luck emits only once',()=>{
+test('Detect Thoughts requires a visible target within six squares and unhandled Luck emits only once',()=>{
   const ctx=scene();ready(ctx,'detect thoughts');
-  assert.throws(()=>resolveFocusedSpell(ctx.state,ctx.caster,{targetId:ctx.ally.id}),/monster/);
+  const party = scene(); ready(party, 'detect thoughts');
+  resolveFocusedSpell(party.state, party.caster, { targetId: party.ally.id });
+  assert.deepEqual(party.caster.focusSpell.targetIds, [party.ally.id]);
   ctx.monster.x=10;assert.throws(()=>resolveFocusedSpell(ctx.state,ctx.caster,{targetId:'foe'}),/range/);
   ctx.monster.x=6;resolveFocusedSpell(ctx.state,ctx.caster,{targetId:'foe'});
   const results=advanceTierTwoFocus(ctx.state,3,{checkRoll:check(12)});

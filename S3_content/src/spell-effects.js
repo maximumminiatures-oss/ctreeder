@@ -1,3 +1,4 @@
+import { hostileLycanthrope, vampireInTorpor, suppressesVampireSpellcasting } from './supernatural-traits.js';
 import { canMoveBetweenTiles, rollCheck } from './interactions.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { sameRoute, routeOf } from './underpasses.js';
@@ -5,6 +6,8 @@ import { ancestryKey, ancestryCastingBonus, isRepresentedAncestryBonus } from '.
 import { isGaseousForm } from './conditions.js';
 
 export function canReceiveHealing(character) {
+  if (vampireInTorpor(character)) return false;
+  if (hostileLycanthrope(character) && Number(character.hp) <= 0) return true;
   return Boolean(character && !character.dead && !character.slain &&
     (Number(character.hp) > 0 || Number(character.dyingRounds) > 0));
 }
@@ -37,6 +40,7 @@ export function cureWoundsDiceCount(character) {
 }
 
 export function castingBonusSources(character, casterClass = 'priest') {
+  if (suppressesVampireSpellcasting(character)) return [];
   const bonuses = character.bonuses || [];
   const sources = [];
   const ancestry = ancestryCastingBonus(character);
@@ -92,8 +96,9 @@ export function castCureWounds(state, caster, targetId, options = {}) {
   const modifier = abilityScoreModifier(caster.stats?.WIS) + priestCastingBonus(caster);
   const check = (options.rollCheck || rollCheck)(modifier, { doubleRoll: options.advantage === true && !options.disadvantage,
     disadvantage: options.disadvantage === true && !options.advantage });
-  const succeeded = check.roll !== 1 && (check.roll === 20 || check.total >= 11);
-  const message = `${caster.name} ${succeeded ? 'casts' : 'fails to cast'} Cure Wounds: 1d20 = (${check.roll}) ${modifier >= 0 ? '+' : '-'}${Math.abs(modifier)} = ${check.total} vs DC 11.`;
+  const dc = target.conditions?.necrosis ? 15 : 11;
+  const succeeded = check.roll !== 1 && (check.roll === 20 || check.total >= dc);
+  const message = `${caster.name} ${succeeded ? 'casts' : 'fails to cast'} Cure Wounds: 1d20 = (${check.roll}) ${modifier >= 0 ? '+' : '-'}${Math.abs(modifier)} = ${check.total} vs DC ${dc}.`;
   if (!succeeded) {
     caster.failedSpellKeys = [...new Set([...(caster.failedSpellKeys || []), 'cure wounds'])];
     if (check.roll === 1) {

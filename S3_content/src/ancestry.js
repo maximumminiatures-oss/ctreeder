@@ -1,3 +1,5 @@
+import { originalAncestry } from './supernatural-traits.js';
+
 const normalize = value => String(value || '').trim().toLowerCase().replace(/[-_\u2010-\u2015]/g, ' ').replace(/\s+/g, ' ');
 const TRAITS = { dwarf: 'Stout', elf: 'Farsight', goblin: 'Keen Senses', halfling: 'Stealthy', 'half orc': 'Mighty', human: 'Ambitious' };
 const bonusesOf = character => Array.isArray(character?.bonuses) ? character.bonuses : character?.raw?.bonuses || [];
@@ -24,7 +26,7 @@ export function ancestryKey(character) {
   // A copied monster appearance never grants its ancestry or removes the adventurer's inherited traits.
   if (!character || character.companion || character.summon || character.impersonation) return '';
   const form = character.transformationEffects?.find(effect => effect.spell === 'alter self' && effect.rounds > 0 && effect.originalAncestry);
-  const key = normalize(form?.originalAncestry || character.ancestry || character.raw?.ancestry);
+  const key = normalize(form?.originalAncestry || originalAncestry(character) || character.raw?.ancestry);
   return key === 'halforc' ? 'half orc' : Object.hasOwn(TRAITS, key) ? key : '';
 }
 

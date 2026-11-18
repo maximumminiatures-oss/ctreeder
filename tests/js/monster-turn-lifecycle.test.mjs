@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage } from '../../S3_content/src/supernatural-traits.js';
+import { applyMonsterStrikeEffect } from '../../S3_content/src/monster-abilities.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -20,7 +22,7 @@ for (const name of ['Pirate', 'Beastman']) for (const hit of [false, true]) {
       turnIndex: 0, turnOrder: [{ id: 'foe', type: 'monster' }, { id: 'hero', type: 'character' }] } };
     let logged = 0, nextTurnStarted = false;
     const attack = { name: 'Dagger', rangeInfo: { maxRange: 1 }, damageExpression: '1d4' };
-    const context = vm.createContext({ state, isLiveMonster: actor => actor.hp > 0,
+    const context = vm.createContext({ state, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, applyMonsterStrikeEffect, isLiveMonster: actor => actor.hp > 0,
       circleBlocksHostileAction, circleBlocksMentalControl, isGaseousForm,
       isIllusionCreature: actor => actor?.illusion?.kind === 'creature',
       isCharacterTargetableByMonster: actor => actor.hp > 0, sameRoute: () => true,

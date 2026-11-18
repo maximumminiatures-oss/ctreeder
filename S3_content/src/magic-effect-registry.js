@@ -5,6 +5,7 @@ import { syncEquipmentLight } from './equipment.js';
 import { isMagicItem } from './magic-items.js';
 import { isMagicSuppressed, suppressMagic } from './magic-suppression.js';
 import { routeOf } from './underpasses.js';
+import { removeAffliction, restorableConditions } from './creature-afflictions.js';
 import { wakeCreature } from './conditions.js';
 import { TORCH_DURATION_MS } from './timers.js';
 import { resolveMobilityExpiry } from './tier-three-mobility.js';
@@ -221,6 +222,11 @@ function catalog(state) {
           ? `${item.name || 'Item'} #${index + 1}` : item.name || 'Item' });
     }
 
+    for (const effect of restorableConditions(holder)) {
+      const condition = holder.conditions?.[effect.key];
+      if (condition?.magical) add(key(holder.id, 'conditions', effect.key), effect.label, holder, effectData(condition),
+        () => removeAffliction(state, holder, effect.key));
+    }
     const sleeping = holder.conditions?.sleeping;
     if (sleeping?.source === 'sleep') add(key(holder.id, 'conditions', 'sleeping'), 'sleep', holder, effectData(sleeping), () => {
       wakeCreature(holder); syncRaw(holder, 'conditions');

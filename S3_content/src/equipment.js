@@ -1,3 +1,4 @@
+import { isReachPole } from './supernatural-traits.js';
 import { DEFAULT_LIGHT_RADIUS } from "./constants.js";
 import { isFloatingDisc } from './floating-disc.js';
 import { availableHands } from './arcane-effects.js';
@@ -13,6 +14,7 @@ export function normalizeWeaponSpacing(value) {
 export function handItemKind(item) {
   const name = normalizeWeaponSpacing(item?.name);
   if(String(item?.type||'').toLowerCase()!=='weapon'&&/\b(?:arrows?|bolts?)\b/.test(name))return '';
+  if (isReachPole(item)) return 'weapon';
   if (/\bshield\b/.test(name)) return "shield";
   if (/^torch\b/.test(name)) return "torch";
   if (/\blantern\b/.test(name)) return "lantern";
@@ -25,7 +27,7 @@ export function isTwoHandedWeapon(item) {
   if (handItemKind(item) !== "weapon") return false;
   const text = normalizeWeaponSpacing([item.name, item.properties, item.traits, item.hands, item.description].map(value =>
     typeof value === "object" ? JSON.stringify(value) : String(value || "")).join(" "));
-  return item.twoHanded === true || Number(item.hands) === 2 || /\b2h\b|two[ -]handed|\b(greatsword|greatclub|polearm|halberd|warhammer|staff|longbow|shortbow|crossbow)\b/i.test(text);
+  return isReachPole(item) || item.twoHanded === true || Number(item.hands) === 2 || /\b2h\b|two[ -]handed|\b(greatsword|greatclub|polearm|halberd|warhammer|staff|longbow|shortbow|crossbow)\b/i.test(text);
 }
 
 export function equipItem(character, index, equipped) {

@@ -232,12 +232,11 @@ export function resolveFocusedSpell(state, caster, { choice, targetId, dismiss =
   if (target && circleBlocksHostileAction(state, caster, target)) throw new Error('Magic Circle prevents that hostile spell.');
   if (!alive(target) || isFloatingDisc(target) || focus.usedTargetIds.includes(targetId)) throw new Error('Choose a different living target.');
   const partyHumanoid = (state.characters || []).includes(target) && !target.companion;
-  if (focus.spell !== 'hold person' && target.type !== 'monster') throw new Error('Choose a monster.');
   if (focus.spell === 'hold person' && (!(partyHumanoid || isHumanoid(target) || isHumanoid(target.companion?.source || {})) ||
     Number(target.level ?? target['**LV**'] ?? 1) > focus.maxLevel)) throw new Error(`Choose a humanoid of level ${focus.maxLevel} or less.`);
   const legal = options.canTarget ? options.canTarget(target, focus.radius) :
     canTargetAtRange(state, caster, target, focus.radius, { requireLight: false, directAttack: true }) &&
-      (target.type === 'monster' || isFeatureCurrentlyVisible(state, target, { viewer: caster }));
+      (target.type === 'monster' || (state.characters || []).includes(target) || isFeatureCurrentlyVisible(state, target, { viewer: caster }));
   if (!legal) throw new Error('Pick a visible target within range and line of sight on the same route.');
   focus.targetIds.push(target.id); focus.usedTargetIds.push(target.id); pending.remaining--;
   const first = !focus.targeted;

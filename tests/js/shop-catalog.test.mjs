@@ -1,24 +1,31 @@
 import test from 'node:test';
+import { isVampire } from '../../S3_content/src/supernatural-traits.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
-import { SHOP_CATEGORIES, STARTING_ROOM_SHOP_ITEMS, createShopGearItem } from '../../S3_content/src/shop-catalog.js';
+import { SHOP_CATEGORIES, STARTING_ROOM_SHOP_ITEMS, VAMPIRE_COFFIN, createShopGearItem } from '../../S3_content/src/shop-catalog.js';
 
 const catalog = STARTING_ROOM_SHOP_ITEMS;
 const find = id => catalog.find(item => item.id === id);
 
 test('shop catalog covers the core gear tables once, omitting coins/gems and including both mithral armors', () => {
   assert.deepEqual(SHOP_CATEGORIES.map(tab => tab.label), ['BASIC GEAR', 'ARMOR', 'WEAPONS']);
-  assert.deepEqual(SHOP_CATEGORIES.map(tab => catalog.filter(item => item.category === tab.id).length), [16, 6, 15]);
+  assert.deepEqual(SHOP_CATEGORIES.map(tab => catalog.filter(item => item.category === tab.id).length), [14, 6, 28]);
   assert.equal(new Set(catalog.map(item => item.id)).size, catalog.length);
   assert.equal(new Set(catalog.map(item => item.name.toLowerCase())).size, catalog.length);
   assert.ok(!catalog.some(item => /^(?:coin|gold|gem)s?$/i.test(item.name)));
-  assert.deepEqual(catalog.filter(item => item.category === 'weapons').map(item => [item.id, item.costCopper]), [
+  assert.deepEqual(catalog.filter(item => item.category === 'weapons' && !item.gear?.silver).map(item => [item.id, item.costCopper]), [
     ['bastard-sword', 1000], ['club', 5], ['crossbow', 800], ['dagger', 100], ['greataxe', 1000],
     ['greatsword', 1200], ['javelin', 50], ['longbow', 800], ['longsword', 900], ['mace', 500],
-    ['shortbow', 600], ['shortsword', 700], ['spear', 50], ['staff', 50], ['warhammer', 1000]
+    ['shortbow', 600], ['shortsword', 700], ['spear', 50], ['staff', 50], ['warhammer', 1000], ['arrows', 100], ['crossbow-bolts', 100]
   ]);
+  for (const item of catalog.filter(item => item.gear?.silver)) {
+    const ordinary = find(item.id.slice(7));
+    assert.equal(item.costCopper, ordinary.costCopper * 10);
+    assert.equal(item.quantity, ordinary.quantity);
+    assert.ok(!['club','crossbow','longbow','shortbow','staff','warhammer'].includes(ordinary.id));
+  }
   for (const [id, copper, slots] of [['leather-armor', 1000, 1], ['chainmail', 6000, 2], ['plate-mail', 13000, 3],
     ['shield', 1000, 1], ['mithral-chainmail', 24000, 1], ['mithral-plate-mail', 52000, 2]]) {
     assert.equal(find(id).costCopper, copper); assert.equal(find(id).slots, slots);
@@ -54,7 +61,7 @@ test('shop tabs replace the item list without closing, preserve the active tab o
   const dom = new JSDOM('<button id="anchor">Shop</button>');
   const character = { id: 'hero', name: 'Hero', gold: 1000, silver: 0, copper: 0 };
   let buys = 0;
-  const context = vm.createContext({ document: dom.window.document, window: dom.window, SHOP_CATEGORIES, STARTING_ROOM_SHOP_ITEMS,
+  const context = vm.createContext({ document: dom.window.document, window: dom.window, SHOP_CATEGORIES, STARTING_ROOM_SHOP_ITEMS, VAMPIRE_COFFIN, isVampire,
     getCurrentCharacter: () => character, canControlCharacter: () => true, isCharacterAbleToAct: () => true,
     isCharacterInTradeRoom: () => true, isCombatActive: () => false, state: { characters: [character] },
     getCharacterMoney: (character, coin) => character[coin], ensurePartyAssets: () => ({ gold: 0, silver: 0, copper: 0 }),
@@ -68,10 +75,10 @@ test('shop tabs replace the item list without closing, preserve the active tab o
     context.openStartingRoomShop(character, dom.window.document.getElementById('anchor'));
     const panel = dom.window.document.querySelector('.sd-buy-popover');
     assert.equal(panel.querySelector('[role=tab][aria-selected=true]').textContent, 'BASIC GEAR');
-    assert.equal(panel.querySelectorAll('.sd-shop-row').length, 16);
+    assert.equal(panel.querySelectorAll('.sd-shop-row').length, 14);
     panel.querySelector('#sd-shop-tab-weapons').click();
     assert.equal(dom.window.document.querySelector('.sd-buy-popover'), panel);
-    assert.equal(panel.querySelectorAll('.sd-shop-row').length, 15);
+    assert.equal(panel.querySelectorAll('.sd-shop-row').length, 28);
     assert.equal(panel.querySelectorAll('[data-shop-item=torch]').length, 0);
     panel.querySelector('[data-shop-item=club]').click();
     assert.equal(buys, 1); assert.equal(panel.querySelector('[aria-selected=true]').textContent, 'WEAPONS');
@@ -81,6 +88,13 @@ test('shop tabs replace the item list without closing, preserve the active tab o
     assert.equal(panel.querySelectorAll('.sd-shop-close').length, 1);
     panel.querySelector('.sd-shop-close').click();
     assert.equal(dom.window.document.querySelector('.sd-buy-popover'), null);
+    character.conditions = { vampirism: { kind: 'vampire spawn' } };
+    context.openStartingRoomShop(character, dom.window.document.getElementById('anchor'));
+    const torch = dom.window.document.querySelector('[data-shop-item=torch]');
+    const coffin = dom.window.document.querySelector('[data-shop-item=coffin]');
+    assert.equal(torch.closest('.sd-shop-row').nextElementSibling, coffin.closest('.sd-shop-row'));
+    assert.equal(VAMPIRE_COFFIN.cost, 1000);
+    assert.equal(VAMPIRE_COFFIN.slots, 5);
     assert.match(source, /if \(activeShopPanel \|\| activeSellPanel\)[\s\S]*?closeActiveShopPanel\(\); closeActiveSellPanel\(\)/);
   } finally { context.closeActiveShopPanel(); dom.window.close(); }
 });

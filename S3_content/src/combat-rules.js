@@ -1,3 +1,4 @@
+import { lycanthropeKind } from './supernatural-traits.js';
 import { movementStepCost } from './terrain-movement.js';
 import { isFloatingDisc } from './floating-disc.js';
 import { petrifiedLegs, isRaving } from './arcane-effects.js';
@@ -8,7 +9,7 @@ import { hasMobilityFlight } from './conditions.js';
 import { mobilityMovementSquares } from './tier-three-mobility.js';
 
 export function characterMovementBudget(character) {
-  const value = Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
+  const value = lycanthropeKind(character) === 'werewolf' ? 12 : Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
   const effects = character?.transformationEffects || [];
   const levitating = effects.some(effect => effect.spell === 'levitate') || hasMobilityFlight(character);
   const goatLegs = effects.some(effect => effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('goat-legs'));
@@ -28,7 +29,7 @@ export function characterOccupant(state, x, y, exceptId, options = {}) {
 export function combatStepBlock(state, character, x, y) {
   const route = routeStep(state, character, { x, y })?.routeId ?? routeOf(state, character);
   const monster = (state.entities || []).find(entity => entity.type === 'monster' && !entity.defeated && routeOf(state, entity) === route && Number(entity.x) === x && Number(entity.y) === y);
-  const passesCreatures = hasMobilityFlight(character) || character.transformationEffects?.some(effect => effect.spell === 'levitate' ||
+  const passesCreatures = lycanthropeKind(character) === 'wererat' || hasMobilityFlight(character) || character.transformationEffects?.some(effect => effect.spell === 'levitate' ||
     effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('spider-legs'));
   if (monster && !passesCreatures) return `${monster.name || 'Monster'} blocks the way.`;
   const occupant = characterOccupant(state, x, y, character.id);

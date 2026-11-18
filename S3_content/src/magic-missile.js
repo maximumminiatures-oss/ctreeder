@@ -1,4 +1,4 @@
-import { abilityScoreModifier } from './characters.js';
+import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { rollCheck } from './interactions.js';
 import { castingBonus } from './spell-effects.js';
 import { rollWizardMishaps, wizardCastingMode } from './wizard-mishaps.js';
@@ -49,7 +49,7 @@ export function fireMagicMissile(caster, target, { canTarget, random = Math.rand
     target = (state.entities || []).find(entity => entity.type === 'monster' && !entity.defeated && !entity.leftPeacefully &&
       Number(entity.hp) > 0 && sameRoute(state, caster, entity) && entity.x === square.x && entity.y === square.y) || null;
     if (isGaseousForm(target) || circleBlocksHostileAction(state, caster, target)) target = null;
-  } else if (!target || target.type !== 'monster' || target.defeated || target.leftPeacefully || Number(target.hp) <= 0 || !canTarget?.(target)) {
+  } else if (!target || target.type !== 'monster' && !state?.characters?.includes(target) || target.defeated || target.dead || target.slain || target.leftPeacefully || Number(target.hp) <= 0 || !canTarget?.(target)) {
     throw new Error('Pick a living enemy visible to the caster.');
   }
   if (target && (isGaseousForm(target) || state && circleBlocksHostileAction(state, caster, target))) throw new Error('Magic prevents directly targeting that creature.');
@@ -58,12 +58,15 @@ export function fireMagicMissile(caster, target, { canTarget, random = Math.rand
     const value = random();
     if (!Number.isFinite(value) || value < 0 || value >= 1) throw new Error('Invalid missile damage roll.');
     damage = Math.floor(value * pending.diceSides) + 1;
-    target.hp = Math.max(0, Number(target.hp) - damage);
-    if (damage > 0) wakeCreature(target);
+    if (state?.characters?.includes(target)) setCharacterHp(target, Number(target.hp) - damage, { sourceId: caster.id });
+    else {
+      target.hp = Math.max(0, Number(target.hp) - damage);
+      if (damage > 0) wakeCreature(target);
+    }
   }
   pending.remaining -= 1;
   pending.spent.push({ targetId: target?.id || null, damage, ...(blind ? { blind: true, ...square } : {}) });
-  const result = { damage, diceSides: pending.diceSides, defeated: Boolean(target && target.hp <= 0), hit: Boolean(target),
+  const result = { damage, diceSides: pending.diceSides, defeated: Boolean(target && target.type === 'monster' && target.hp <= 0), hit: Boolean(target),
     targetId: target?.id || null, ...(blind ? { blind: true, square, guessedMonster: target } : {}),
     message: target ? `${caster.name} hits ${target.name || 'the enemy'} with Magic Missile: 1d${pending.diceSides} = (${damage}); ${damage} damage.`
       : `${caster.name} fires Magic Missile at an empty square and misses.` };

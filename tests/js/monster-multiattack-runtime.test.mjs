@@ -1,4 +1,9 @@
 import test from 'node:test';
+import { activeCommand } from '../../S3_content/src/priest-tier-three.js';
+import { stakeTarget, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage } from '../../S3_content/src/supernatural-traits.js';
+import { blockedByAffliction, markAfflictedTurn } from '../../S3_content/src/creature-afflictions.js';
+import { isLeprechaun } from '../../S3_content/src/leprechaun.js';
+import { monsterAbilityDefinitions, applyMonsterStrikeEffect } from '../../S3_content/src/monster-abilities.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -14,7 +19,7 @@ import { conditionAttackMode, isSleeping, wakeCreature } from '../../S3_content/
 const source = readFileSync(new URL('../../S3_content/src/main.js', import.meta.url), 'utf8');
 const parser = source.slice(source.indexOf('function parseMonsterAttackSegment('), source.indexOf('function appendMonsterAttackSegment('));
 const helpers = source.slice(source.indexOf('function getMonsterAttackOptions('), source.indexOf('function applyMonsterAttack(monster,'));
-const turnSource = source.slice(source.indexOf('async function runMonsterTurn('), source.indexOf('async function runAutoMonsterTurns('));
+const turnSource = source.slice(source.indexOf('function harmFromMonster('), source.indexOf('async function runAutoMonsterTurns('));
 const hero = (id, x, hp = 10, extra = {}) => ({ id, name: id, x, y: 1, hp, className: 'Fighter', ...extra });
 
 function runtime(characters, extra = {}) {
@@ -24,7 +29,7 @@ function runtime(characters, extra = {}) {
   const moves = [], attacks = [];
   const distance = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   const math = Object.create(Math); math.random = extra.random || (() => 0);
-  const context = vm.createContext({ state, Math: math, RANGE_LIMITS: { close: 1, near: 6, far: 12 },
+  const context = vm.createContext({ activeCommand, stakeTarget, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, blockedByAffliction, markAfflictedTurn, isLeprechaun, monsterAbilityDefinitions, applyMonsterStrikeEffect, state, Math: math, RANGE_LIMITS: { close: 1, near: 6, far: 12 },
     parseMonsterAttack, monsterAttackSegments, monsterAttackSequence, monsterIntelligence, selectMonsterAiTarget, planMonsterCover,
     planFiringPosition, findPursuitStep, planDarkReposition, normalizeDamageExpression, routeStep, routeOf, sameRoute,
     prettifyAttackName: name => name,
@@ -79,6 +84,7 @@ function runtime(characters, extra = {}) {
       target.hp = Math.max(0, target.hp - (extra.damage ?? 2));
       return `${attack.name} hits ${target.id}.`;
     },
+    activeCommand, stakeTarget, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, blockedByAffliction, markAfflictedTurn, isLeprechaun, monsterAbilityDefinitions, applyMonsterStrikeEffect,
     ...extra.context
   });
   vm.runInContext(parser + helpers + turnSource, context);

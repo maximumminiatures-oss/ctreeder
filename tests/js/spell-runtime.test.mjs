@@ -1592,3 +1592,122 @@ test('a weapon attack from stealth rolls at advantage and opens combat before ot
   assert.ok(result.state_json.rollHistory.some(entry => /advantage/i.test(entry.detail)));
   assert.equal(result.state_json.characters[0].stealthed, false);
 });
+test('Tier 3 priest Mass Cure shares its heal across eligible allies and grants a deity talisman once', async () => {
+  const state = scene();
+  Object.assign(state.characters[0], { deity: 'Saint Terragnis', spellsKnown: 'Mass Cure', level: 5, hp: 5, maxHitPoints: 20 });
+  Object.assign(state.characters[1], { hp: 5, maxHitPoints: 20, dyingRounds: 0 });
+  let result = await withRandom(.7, () => executeGameCommand(state, { type: 'spell', character_id: 'priest', spell_name: 'Mass Cure' }));
+  assert.deepEqual(result.state_json.characters.map(character => character.hp), [15, 15]);
+  result = await executeGameCommand(result.state_json, { type: 'normalize' });
+  const talismans = result.state_json.characters[0].gear.filter(item => item.name === 'Talisman of Saint');
+  assert.equal(talismans.length, 1);
+  assert.equal(talismans[0].freeCarry, true);
+  assert.equal(talismans[0].costGp, 1);
+});
+
+test('Tier 3 priest Command targets a party member and drops held weapons without dropping equipped armor', async () => {
+  const state = scene();
+  Object.assign(state.characters[0], { languages: 'Common', spellsKnown: 'Command', level: 5 });
+  Object.assign(state.characters[1], { languages: 'Common', className: 'Fighter', hp: 10, dyingRounds: 0,
+    gear: [{ name: 'Longsword', type: 'weapon', equipped: true }, { name: 'Leather Armor', type: 'armor', equipped: true }],
+    equipmentInitialized: true, armorEquipmentInitialized: true });
+  let result = await withRandom(.7, () => executeGameCommand(state, { type: 'spell', character_id: 'priest', spell_name: 'Command' }));
+  result = await executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', target_id: 'friend' });
+  result = await executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', option: 'drop' });
+  assert.deepEqual(result.state_json.characters[1].gear.map(item => item.name), ['Leather Armor']);
+  assert.ok(result.state_json.entities.some(item => item.name === 'Longsword' && item.subtype === 'dropped-equipment'));
+  assert.deepEqual(result.state_json.characters[0].focusSpell.ordersByTarget.friend.orders, ['drop']);
+});
+
+test('Restoration removes one chosen affliction without healing unrelated damage', async () => {
+  const state = scene();
+  Object.assign(state.characters[0], { spellsKnown: 'Restoration', level: 5 });
+  Object.assign(state.characters[1], { hp: 5, dyingRounds: 0,
+    conditions: { poison: { sourceId: 'foe', rounds: 2 }, necrosis: { sourceId: 'foe', magical: true } } });
+  let result = await withRandom(.7, () => executeGameCommand(state, { type: 'spell', character_id: 'priest', spell_name: 'Restoration' }));
+  result = await executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', target_id: 'friend' });
+  result = await executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', option: 'necrosis' });
+  assert.equal(result.state_json.characters[1].hp, 5);
+  assert.equal(result.state_json.characters[1].conditions.necrosis, undefined);
+  assert.ok(result.state_json.characters[1].conditions.poison);
+});
+
+test('a downed vampire spawn can be destroyed with a pole, consuming two feet and an action', async () => {
+  const state = scene();
+  Object.assign(state.entities[1], { name: 'Vampire Spawn', hp: 0, x: 3, y: 2 });
+  state.characters[0].gear.push({ name: "10' Pole", slots: 1, reachPole: true });
+  const result = await executeGameCommand(state, { type: 'stake_vampire', character_id: 'priest', monster_id: 'foe', gear_index: 1 });
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').defeated, true);
+  const pole = result.state_json.characters[0].gear.find(item => /pole/i.test(item.name));
+  assert.equal(pole.name, "8' Pole");
+  assert.equal(pole.reachPole, false);
+});
+
+test('Lay to Rest on a natural 20 can destroy a level-18 undead within touch range', async () => {
+  const state = scene();
+  Object.assign(state.characters[0], { spellsKnown: 'Lay to Rest', level: 5 });
+  Object.assign(state.entities[1], { name: 'Ancient Undead', tags: ['undead'], level: 18, x: 3, y: 2 });
+  let result = await withRandom(.99, () => executeGameCommand(state, { type: 'spell', character_id: 'priest', spell_name: 'Lay to Rest' }));
+  result = await executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', choice: 'level' });
+  result = await executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', target_id: 'foe' });
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').defeated, true);
+});
+
+test('Rebuke Unholy uses the talisman and leaves Fey alone for a lawful priest', async () => {
+  const state = scene();
+  Object.assign(state.characters[0], { spellsKnown: 'Rebuke Unholy', deity: 'Saint Terragnis', alignment: 'Lawful', level: 5 });
+  Object.assign(state.entities[1], { name: 'Test Devil', tags: ['fiend'], Ch: -4, x: 4, y: 2, level: 6 });
+  state.entities.push({ ...state.entities[1], id: 'fey', name: 'Test Fey', tags: ['fey'], x: 3, y: 2 });
+  const result = await withRandom(.7, () => executeGameCommand(state, { type: 'spell', character_id: 'priest', spell_name: 'Rebuke Unholy' }));
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').turnedUndead.casterId, 'priest');
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'fey').turnedUndead, undefined);
+});
+
+test('authoritative Magic Missile can target a different player character', async () => {
+  const state = wizardScene();
+  Object.assign(state.characters[1], { hp: 10, dyingRounds: 0 });
+  let result = await withRandom(.7, () => executeGameCommand(state, { type: 'spell', character_id: 'priest', spell_name: 'Magic Missile' }));
+  result = await withRandom(.7, () => executeGameCommand(result.state_json, { type: 'resolve_spell', character_id: 'priest', target_id: 'friend' }));
+  assert.equal(result.state_json.characters[1].hp, 7);
+  assert.equal(result.state_json.characters.length, 2);
+});
+
+test('an equipped vampire Bite provides three strikes and performs Blood Drain on each humanoid hit', async () => {
+  const state = scene();
+  Object.assign(state.characters[0], { hp: 35, maxHitPoints: 52, ancestry: 'Vampire',
+    conditions: { vampirism: { kind: 'vampire', lockedHp: 0, hostile: false } } });
+  Object.assign(state.entities[1], { name: 'Test Human', tags: ['humanoid'], x: 3, y: 2, ac: 1, C: 4 });
+  let current = (await executeGameCommand(state, { type: 'normalize' })).state_json;
+  const biteIndex = current.characters[0].attacks.filter(attack => !/^(?:arrows?|bolts?):/i.test(attack)).length;
+  for (let strike = 1; strike <= 3; strike++) {
+    const result = await withRandom(.7, () => executeGameCommand(current, { type: 'attack',
+      character_id: 'priest', monster_id: 'foe', attack_index: biteIndex }));
+    current = result.state_json;
+    assert.equal(current.combat.actionUsed, strike === 3);
+    assert.equal(current.entities.find(entity => entity.id === 'foe').drainCon, 18 - strike * 3);
+  }
+  assert.equal(current.characters[0].hp, 52);
+});
+
+test('dungeon vampires place a valuable five-slot coffin once across authoritative normalization', async () => {
+  const state = scene();
+  state.entities[1].name = 'Vampire';
+  let result = await executeGameCommand(state, { type: 'normalize' });
+  result = await executeGameCommand(result.state_json, { type: 'normalize' });
+  const coffins = result.state_json.entities.filter(entity => entity.gearItem?.coffin);
+  assert.equal(coffins.length, 1);
+  assert.equal(coffins[0].gearItem.costGp, 10);
+  assert.equal(coffins[0].gearItem.slots, 5);
+});
+
+test('a hungry vampire spawn takes an AI turn and rejoins as soon as Blood Drain restores half its HP', async () => {
+  const state = scene();
+  Object.assign(state.characters[0], { hp: 20, maxHitPoints: 20, stats: { CON: 16 } });
+  Object.assign(state.characters[1], { hp: 8, maxHitPoints: 20, dyingRounds: 0, ancestry: 'Vampire Spawn',
+    conditions: { vampirism: { kind: 'vampire spawn', lockedHp: 0, hostile: true } } });
+  const result = await withRandom(.7, () => executeGameCommand(state, { type: 'end_turn', character_id: 'priest' }));
+  const vampire = result.state_json.characters.find(character => character.id === 'friend');
+  assert.equal(vampire.hp, 18);
+  assert.equal(vampire.conditions.vampirism.hostile, false);
+  assert.equal(result.state_json.rollHistory.filter(entry => entry.label === 'Blood Drain').length, 1);
+});

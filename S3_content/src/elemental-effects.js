@@ -1,3 +1,4 @@
+import { isVampire } from './supernatural-traits.js';
 import { isMagicSuppressed } from './magic-suppression.js';
 import { matchingDamageTypes, normalizeDamageType } from './damage-types.js';
 
@@ -14,7 +15,7 @@ export function resistanceType(creature, source) {
 
 export function elementalDamage(creature, amount, source) {
   const types = matchingDamageTypes(source), type = resistanceType(creature, source), original = Math.max(0, Number(amount) || 0);
-  const immunity = (creature?.spellEffects || []).filter(effect => effect.spell === 'protection from energy' && effect.active !== false)
+  const immunity = isVampire(creature) && types.includes('poison') ? 'poison' : (creature?.spellEffects || []).filter(effect => effect.spell === 'protection from energy' && effect.active !== false)
     .flatMap(effect => effect.energyTypes || []).find(energy => types.includes(normalizeDamageType(energy))) || null;
   const gaseousArea = source?.areaEffect === true && (creature?.transformationEffects || []).some(effect => effect.spell === 'gaseous form' && effect.rounds > 0);
   const reduced = type ? Math.floor(original / 2) : original;

@@ -125,16 +125,23 @@ export function resolveWizardTierOne(state, caster, { choice, targetId, x, y, di
   if (dismiss) { caster.pendingSpell = null; return { message: 'Unused spell dissipates. The casting action remains spent.' }; }
   if (pending.spell === 'hold portal') return holdDoor(state, caster, state.entities.find(entity => entity.id === targetId), pending);
   if (pending.spell === 'sleep') return releaseSleep(state, caster, { x, y });
-  const target = state.entities.find(entity => entity.id === targetId && entity.type === 'monster' && !entity.defeated && Number(entity.hp) > 0);
-  if (!target || !isHumanoid(target) || Number(target.level ?? target['**LV**'] ?? 1) > pending.maxLevel) throw new Error(`Choose a humanoid of level ${pending.maxLevel} or less.`);
+  const member = state.characters.find(character => character.id === targetId && character.id !== caster.id &&
+    !character.dead && !character.slain && Number(character.hp) > 0 && !character.summon);
+  const target = member || state.entities.find(entity => entity.id === targetId && entity.type === 'monster' && !entity.defeated && Number(entity.hp) > 0);
+  if (!target || !(member && !member.companion || isHumanoid(target) || isHumanoid(target.companion?.source || {})) || Number(target.level ?? target['**LV**'] ?? 1) > pending.maxLevel) throw new Error(`Choose a humanoid of level ${pending.maxLevel} or less.`);
   if (!canTargetAtRange(state, caster, target, pending.radius, { directAttack: true })) throw new Error('That humanoid is outside range or line of sight.');
   if (blocksMindControl(state, target, 'Charm Person', caster)) throw new Error('Magical protection prevents that charm.');
   if (pending.usedTargetIds.includes(target.id)) throw new Error('Choose a different humanoid.');
   const days = Array.from({ length: pending.durationDice }, () => die(random)).reduce((sum, roll) => sum + roll, 0);
-  target.attitude = 'friendly'; target.attitudeChecked = true; target.hostile = false; target.stealthed = false;
-  if (target.stealthState) target.stealthState.revealed = true;
-  delete target.turnedUndead; delete target.moraleFlight; delete target.curious;
-  target.charm = { casterId: caster.id, remainingMs: days * 24 * 60 * 60 * 1000, days };
+  if (member) {
+    target.conditions ||= {};
+    target.conditions.charm = { sourceId: caster.id, milliseconds: days * 86400000, magical: true, regardsAsFriend: true };
+  } else {
+    target.attitude = 'friendly'; target.attitudeChecked = true; target.hostile = false; target.stealthed = false;
+    if (target.stealthState) target.stealthState.revealed = true;
+    delete target.turnedUndead; delete target.moraleFlight; delete target.curious;
+    target.charm = { casterId: caster.id, remainingMs: days * 86400000, days };
+  }
   pending.usedTargetIds.push(target.id);
   pending.remaining--;
   if (!pending.remaining) caster.pendingSpell = null;

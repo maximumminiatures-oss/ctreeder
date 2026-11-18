@@ -47,6 +47,11 @@ export function dismissIllusion(state, projection) {
 export function cleanupIllusions(state) {
   let changed = false;
   for (const projection of allProjections(state)) {
+    if (projection.illusion.monsterCaster) {
+      const caster = (state.entities || []).find(actor => actor.id === projection.illusion.casterId);
+      if (!caster || caster.defeated || caster.leftPeacefully) changed = dismissIllusion(state, projection) || changed;
+      continue;
+    }
     const caster = (state.characters || []).find(actor => actor.id === projection.illusion.casterId);
     if (!alive(caster) || isSleeping(caster, state) || caster.conditions?.unconscious ||
         caster.focusSpell?.spell !== 'illusion' || !caster.focusSpell.illusionIds?.includes(projection.id))
