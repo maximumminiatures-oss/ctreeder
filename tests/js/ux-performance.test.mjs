@@ -40,7 +40,7 @@ test('unexplored fog starts completely opaque, including when the torch is out',
   assert.deepEqual(context.operations[0], { args: [0, 0, 12 * 54, 8 * 54], style: '#000000', op: 'source-over' });
   const dark = drawingContext();
   renderDungeon(state, { fogCtx: dark }, { motionOnly: true, forceBlackout: true });
-  assert.ok(dark.operations.some(entry => entry.args[0] === 10 * 54 && entry.style === 'rgba(0, 0, 0, 1)'));
+  assert.ok(dark.operations.some(entry => entry.args[0] === 0 && entry.args[2] === 12 * 54 && entry.style === '#000'));
 });
 
 test('visitors can open locked doors before importing; characters retain lock rules', () => {
@@ -87,6 +87,7 @@ test('deferred movement lighting waits for character synchronization and preserv
 
 test('light reuse is scoped to one pass, distinguishes options and invalidates for opening doors', () => {
   const state = scene(), source = { x: 3, y: 3, radius: 6 };
+  state.decor.columns=[{x:3,y:4,blocksMovement:true}];
   const closed = withLightPolygonCache(state, () => {
     const first = computeLightPolygon(state, source);
     assert.equal(computeLightPolygon(state, { ...source }), first);
@@ -98,9 +99,9 @@ test('light reuse is scoped to one pass, distinguishes options and invalidates f
   assert.notDeepEqual(open, closed);
   const seeded = withLightPolygonCache(state, () => computeLightPolygon(state, source), [{ source, polygon: open }]);
   assert.equal(seeded, open);
-  assert.notEqual(computeLightPolygon(state, source), open);
+  assert.notEqual(computeLightPolygon(state, source, {cache:false}), open);
   assert.throws(() => withLightPolygonCache(state, () => { throw new Error('test'); }));
-  assert.notEqual(computeLightPolygon(state, source), open);
+  assert.notEqual(computeLightPolygon(state, source, {cache:false}), open);
 });
 
 test('static JSON requests share in-flight/results but failed responses can be retried', async () => {

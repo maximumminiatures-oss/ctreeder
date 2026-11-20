@@ -1,3 +1,4 @@
+import {waterStepBlock,commitWaterMovement,isOnCeiling,ceilingMovementView} from './water-rules.js';
 import { isLeprechaun, leprechaunTreasure } from './leprechaun.js';
 import { vampireNeedsStake, isReachPole } from './supernatural-traits.js';
 import { DOOR_STATES, ENTITY_TYPES, FEATURE_NAMES, TILE_TYPES } from "./constants.js";
@@ -9,7 +10,7 @@ import { isTileVisible, recomputeVisibility, revealTrapAtPlayer, hasLineOfSightF
 import { isFeatureCurrentlyVisible } from './monster-perception.js';
 import { isDarkvisionCharacter } from './darkvision.js';
 import { getCharacterCoinBagSlots, getCharacterGearFreeSlots, normalizeCharacterState, setActiveCharacter } from "./characters.js";
-import { createTreasureDetails, formatTreasureValue } from "./treasure.js";
+import { createTreasureDetails, formatTreasureValue,syncTreasureGearUnitValue,applyPrintedEquipmentValue } from "./treasure.js";
 import { canCrossOrganicEdge, isOrganicMovementBlockingTile } from "./organic-tiles.js";
 import { isInnerWallBlockingTile } from "./inner-walls.js";
 import { isAngledWallMovementBlockingTile } from "./angled-walls.js";
@@ -470,11 +471,11 @@ function findStumbleEntityAt(state, x, y) {
   });
 }
 
-function revealAndTriggerTrap(trap, state, { remote = false } = {}) {
+function revealAndTriggerTrap(trap, state, { remote = false, actor = null } = {}) {
   if (isUnavailableTrap(trap) || trap.disarmed) {
     return { trap, trapSprung: false, message: isMagicSuppressed(trap) ? "The trap's magic is suppressed." : 'The trap is inactive.' };
   }
-  const target = remote ? null : state?.characters?.find(character => character.id === state.activeCharacterId);
+  const target = remote ? null : actor || state?.characters?.find(character => character.id === state.activeCharacterId);
   if (isIllusionCreature(target)) return { trap, trapSprung: false, message: 'The illusion does not trigger the trap.' };
   trap.targetCharacterId=target?.id||null;
   trap.attackDisadvantage=isInvisible(target);
@@ -647,6 +648,9 @@ function checkOrganicStep(state, fromX, fromY, toX, toY) {
 }
 
 export function canMoveBetweenTiles(state, fromX, fromY, toX, toY, options = {}) {
+  const waterBlock=options.ignoreWaterHabitat?null:waterStepBlock(state,options.creature,fromX,fromY,toX,toY);
+  if(waterBlock)return {ok:false,message:waterBlock};
+  options={...options,creature:options.forceGround?{...options.creature,conditions:{...options.creature?.conditions,ceiling:false}}:ceilingMovementView(state,options.creature,{x:fromX,y:fromY},{x:toX,y:toY})};
   const step = options.ignoreUnderpasses ? { routeId: options.routeId || '' } : routeStep(state,
     { x: fromX, y: fromY, routeId: options.routeId ?? options.creature?.routeId ?? routeOf(state, { x: fromX, y: fromY }) }, { x: toX, y: toY }, { phase: isIncorporeal(options.creature) });
   if (!step) return { ok: false, message: 'These passages cross on separate levels.' };
@@ -683,6 +687,7 @@ export function canMoveBetweenTiles(state, fromX, fromY, toX, toY, options = {})
 }
 
 export function addMonsterLootDrop(state, monster, options = {}) {
+  if(monster?.conjuredCreature || monster?.startingWealthAllocated)return null;
   const dropChance = monster?.wandering === true ? 0.5 : MONSTER_LOOT_DROP_CHANCE;
   if (options.force !== true && Math.random() >= dropChance) {
     return null;
@@ -754,6 +759,7 @@ export function defeatMonster(state, monster, options = {}) {
     priceless: false,
     description: "The remains of a defeated monster.",
     corpseLoot: !options.ash,
+    ...(monster.conjuredCreature?{conjuredSourceId:monster.id}:{}),
     monsterName: options.ash ? '' : monster.name || "monster",
     ...(!options.ash ? {
       sourceMonsterId: monster.id,
@@ -761,11 +767,12 @@ export function defeatMonster(state, monster, options = {}) {
         .filter(key => monster[key] !== undefined).map(key => [key, structuredClone(monster[key])]))
     } : {})
   });
-  const loot = isLeprechaun(monster) ? leprechaunTreasure(state, monster) : addMonsterLootDrop(state, monster);
+  const loot = isLeprechaun(monster) && !monster.genuineGoldAllocated ? leprechaunTreasure(state, monster) : addMonsterLootDrop(state, monster);
   for(const [index,item]of(ensureMonsterGear(monster)).entries())state.entities.push({id:`slain-gear-${monster.id}-${index}`,type:ENTITY_TYPES.TREASURE,
     subtype:'dropped-equipment',kind:'gear',name:item.name,x:monster.x,y:monster.y,routeId:routeOf(state,monster),roomId:monster.roomId,
     visible:true,revealed:true,collected:false,value:Number(item.value)||0,
     gearItem:transferredMonsterGear(item),slots:item.slots??1,
+    ...(item.coinBreakdown?{coinBreakdown:structuredClone(item.coinBreakdown),kind:'coin-cache'}:{}),
     ...(!options.ash ? {corpseEquipment:{corpseId,equipped:item.equipped===true}} : {})});
   monster.gear=[];
   monster.carriedGear=[];
@@ -818,6 +825,7 @@ function revealMovementTrap(state, creature) {
 }
 
 function moveToTileInDarkness(state, tile) {
+  commitWaterMovement(state,state.characters?.find(c=>c.id===state.activeCharacterId),state.player,tile);
   const step = routeStep(state, state.player, tile);
   state.darkness.pendingDoorKey = null;
   clearLockedDoorAction(state);
@@ -880,7 +888,7 @@ function movePlayerInDarkness(state, dx, dy) {
 
   if (door) {
     if (isDoorPassable(door)) {
-      const walkable = isWalkable(state, tile, { creature: state.characters?.find(character => character.id === state.activeCharacterId) });
+      const walkable = isWalkable(state, tile, { creature: ceilingMovementView(state,state.characters?.find(character => character.id === state.activeCharacterId),state.player,tile) });
       if (!walkable.ok) {
         const message = walkable.message === "Blocked by a pillar." ? "You've run into a pillar!" : "You've run into a wall!";
         return { moved: false, message, darknessMessage: message };
@@ -954,7 +962,7 @@ function movePlayerInDarkness(state, dx, dy) {
     return { moved: false, message: "you've run into a door.", darknessMessage: "you've run into a door." };
   }
 
-  const walkable = isWalkable(state, tile, { creature: state.characters?.find(character => character.id === state.activeCharacterId) });
+  const walkable = isWalkable(state, tile, { creature: ceilingMovementView(state,state.characters?.find(character => character.id === state.activeCharacterId),state.player,tile) });
   if (!walkable.ok) {
     state.darkness.pendingDoorKey = null;
     const message = walkable.message === "Blocked by a pillar." ? "You've run into a pillar!" : "You've run into a wall!";
@@ -972,11 +980,21 @@ function movePlayerInDarkness(state, dx, dy) {
 
 export function movePlayer(state, dx, dy, options = {}) {
   const creature = state.characters?.find(character => character.id === state.activeCharacterId);
+  const origin={x:state.player.x,y:state.player.y},wasOnCeiling=isOnCeiling(creature);
+  const waterBlock=waterStepBlock(state,creature,origin.x,origin.y,origin.x+dx,origin.y+dy);
+  if(waterBlock)return {moved:false,message:waterBlock};
   const step = routeStep(state, { ...state.player, routeId: creature?.routeId ?? state.player.routeId }, { x: state.player.x + dx, y: state.player.y + dy }, { phase: isIncorporeal(creature) });
   if (!step) return { moved: false, message: 'These passages cross on separate levels.' };
   if (!canCrossCircleBoundary(state, creature, { ...state.player, routeId: creature?.routeId ?? state.player.routeId }, step)) return { moved: false, message: 'Magic Circle blocks the way.' };
   if (illusionOverlapsMonster(state, creature, step.x, step.y, step.routeId)) return { moved: false, message: 'A living monster blocks the illusion.' };
-  const finish = result => { if (result.moved && creature) creature.routeId = state.player.routeId; return result; };
+  const finish = result => {
+    if(result.moved&&creature){
+      creature.routeId=state.player.routeId;
+      commitWaterMovement(state,creature,origin,state.player);
+      if(!wasOnCeiling&&isOnCeiling(creature)){result.climbedToCeiling=true;result.message=creature.name+' climbs from wall to ceiling.';}
+    }
+    return result;
+  };
   if (isRaving(creature)) return { moved: false, message: 'Mad raving prevents movement.' };
   if (creature?.conditions?.sinkhole && !isIncorporeal(creature)) return { moved: false, message: 'Climb out of the sinkhole before moving.' };
   if (isSleeping(creature, state)) return { moved: false, message: 'Sleeping creatures cannot move.' };
@@ -1041,7 +1059,7 @@ export function movePlayer(state, dx, dy, options = {}) {
     return { moved: false, message: "Blocked by a door." };
   }
 
-  const walkable = isWalkable(state, tile, { creature });
+  const walkable = isWalkable(state, tile, { creature:ceilingMovementView(state,creature,state.player,tile) });
   if (!walkable.ok) {
     return { moved: false, message: walkable.message };
   }
@@ -1051,6 +1069,7 @@ export function movePlayer(state, dx, dy, options = {}) {
     return { moved: false, message: organicStep.message };
   }
 
+  commitWaterMovement(state,creature,state.player,tile);
   state.player.x = nextX;
   state.player.y = nextY;
   state.player.roomId = tile.roomId;
@@ -1234,6 +1253,7 @@ export function collectLoot(state, lootId) {
   if (!entity || entity.collected || (entity.type !== ENTITY_TYPES.TREASURE && entity.type !== ENTITY_TYPES.FEATURE)) {
     return { collected: 0, message: "Loot item not found." };
   }
+  if (entity.type === ENTITY_TYPES.TREASURE && entity.visible === false && !entity.revealed) return { collected: 0, message: "Search to find this treasure first." };
   const collectable = entity.type === ENTITY_TYPES.TREASURE
     ? entity
     : isWorthlessFeature(entity)
@@ -1295,6 +1315,8 @@ export function collectLoot(state, lootId) {
   }
 
   character.gear = Array.isArray(character.gear) ? character.gear : [];
+  applyPrintedEquipmentValue(collectable);
+  if(collectable.subtype!=='dropped-equipment'&&['gear','weapon'].includes(collectable.kind))syncTreasureGearUnitValue(collectable);
   const gearItem = collectable.gearItem
     ? JSON.parse(JSON.stringify(collectable.gearItem))
     : {
@@ -1315,6 +1337,7 @@ export function collectLoot(state, lootId) {
   character.gear.push({
     id: collectable.id,
     ...gearItem,
+    ...(collectable.conjuredSourceId?{conjuredSourceId:collectable.conjuredSourceId}:{}),
     name: collectable.gearItem ? (gearItem.name || treasureName) : treasureName,
     quantity: Number(gearItem.quantity || gearItem.totalUnits || 1) || 1,
     totalUnits: Number(gearItem.totalUnits || gearItem.quantity || 1) || 1,
@@ -1617,4 +1640,9 @@ export function attemptLockedDoor(state, method, modifier = 0, options = {}) {
     method,
     message: `${method === "break" ? "Door broken open" : "Lock picked"}. Door open.`
   };
+}
+
+export function resolveGroundContact(state,actor){
+ const trap=(state.entities||[]).find(e=>e.type===ENTITY_TYPES.TRAP&&!e.disarmed&&!e.triggered&&sameRoute(state,e,actor)&&e.x===actor.x&&e.y===actor.y);
+ return trap?revealAndTriggerTrap(trap,state,{actor}):null;
 }

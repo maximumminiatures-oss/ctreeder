@@ -1,3 +1,4 @@
+import {quenchImmersedEffects} from './water-rules.js';
 import { wakeCreature } from './conditions.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { rollCheck } from './interactions.js';
@@ -8,7 +9,7 @@ import { isFloatingDisc } from './floating-disc.js';
 import { wizardCastingMode, rollWizardMishaps, spellLockRemaining } from './wizard-mishaps.js';
 import { isFeatureCurrentlyVisible } from './monster-perception.js';
 import { circleBlocksHostileAction } from './magic-circle.js';
-import { monsterThought } from './dead-dialogue.js';
+import { monsterThought,thoughtProperName } from './dead-dialogue.js';
 import { creatureTypeName, indefiniteArticle } from './creature-names.js';
 
 export const WIZARD_TIER_TWO_FOCUS = new Set(['acid arrow', 'detect thoughts', 'hold person', 'levitate', 'silence']);
@@ -129,9 +130,10 @@ function damageTarget(state, caster, target, diceCount, { random = Math.random, 
   const damage = rolls.reduce((sum, roll) => sum + roll, 0);
   const context = { caster, spell: 'acid arrow', damageSource: 'acid', rolls, diceCount, diceSides: 6 };
   if (applyDamage) applyDamage(state, target, damage, context);
-  else if ((state.characters || []).includes(target)) setCharacterHp(target, Number(target.hp) - damage, { sourceId: caster.id, damageSource: 'acid' });
+  else if ((state.characters || []).includes(target)) setCharacterHp(target, Number(target.hp) - damage, { state, sourceId: caster.id, damageSource: 'acid' });
   else target.hp = Math.max(0, Number(target.hp) - damage);
   if (damage > 0) wakeCreature(target);
+  quenchImmersedEffects(state,target);
   let defeatHandled = Boolean(target.defeated);
   if (Number(target.hp) <= 0 && !defeatHandled && onDefeat) { onDefeat(state, target, context); defeatHandled = true; }
   return { targetId: target.id, damage, rolls, diceCount, diceSides: 6, defeated: Number(target.hp) <= 0,
@@ -175,8 +177,7 @@ export function castFocusedSpell(state, caster, spell, options = {}) {
 function thoughtDialogue(state, target, round, options) {
   const random = options.random || Math.random;
   const nonUseful = random() < .5;
-  const properName = target.uniqueName || (typeof target.properName === 'string' ? target.properName : null) ||
-    (target.properName === true || target.isUnique || target.isNamed ? target.name : null);
+  const properName = thoughtProperName(state,target);
   const name = properName || creatureTypeName(target.name), reference = properName || `this ${name}`;
   const text = nonUseful ? monsterThought(state, target, { ...options, rng: random }) :
     round === 1 ? `You peer into the mind of ${properName ? name : `${indefiniteArticle(name)} ${name}`} and learn some interesting stuff.` :
@@ -189,6 +190,7 @@ function advanceEffect(state, caster, focus, options) {
   const hits = [], dialogs = [], events = [];
   focus.focusedRounds = (Number(focus.focusedRounds) || 0) + 1;
   if (focus.spell === 'acid arrow') {
+    for(const id of [...(focus.targetIds||[])])quenchImmersedEffects(state,findTarget(state,id));
     focus.targetIds = (focus.targetIds || []).filter(id => alive(findTarget(state, id)));
     for (const id of focus.targetIds) hits.push(damageTarget(state, caster, findTarget(state, id), focus.damageDice || 1, options));
     focus.targetIds = focus.targetIds.filter(id => alive(findTarget(state, id)));

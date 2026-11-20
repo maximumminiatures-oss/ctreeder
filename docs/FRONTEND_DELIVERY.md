@@ -78,6 +78,11 @@ configuration. Never change live database or user saves for delivery tests.
   Resource Timing totals. The resource-byte total also excludes the main HTML;
   navigation transfer is recorded separately. Settled time is not an interaction
   or paint metric.
+- `scripts/measure_mixed_gameplay.py LABEL --moves 3000 --output DIRECTORY`
+  runs a synthetic four-character Firefox fixture. Optional --url/--build-root
+  instruments the built main module only in Playwright. Instruments never ship.
+  The fixture stages controlled combats; it does not test natural ambushes,
+  multiplayer endurance, or account-backed saves. Use a disposable local DB.
 
 ## November 20 rollout boundary
 
@@ -119,3 +124,15 @@ The reproduced 3,000-move fixture has 36,227 points. Its 1,420,500-byte validati
 payload fits in 676,751 encoded bytes and decodes exactly. Firefox checks cover
 hosting, heartbeat, leave/resume, Python/browser interoperability and guest
 isolation. A deliberately failed first floor request recovers via Retry Artwork.
+
+
+## Full pending-work publication
+
+After the isolated dd030e4 hotfix, the user explicitly requested publication of
+all pending gameplay work. The following complete release therefore includes the
+previously local exploration/fog modules, water and habitat systems, stairs and
+account/shared autosaves, UI redraw work, and approved treasure allocation fixes.
+The earlier narrow-release boundary above remains historical. No unused-asset
+archive or private fixture/database is included. Account autosaves require the
+additive owner-role migration in scripts/migrate.py before the new app starts.
+Private exploration transport and all existing visibility rules remain separate.

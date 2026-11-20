@@ -39,7 +39,8 @@ export function createEmptyDungeonState(seed = Date.now(), level = 1) {
       name: "",
       dirty: false,
       lastSavedAt: null,
-      hasUserActivity: false
+      hasUserActivity: false,
+      autosaveSteps: 0
     },
     map: {
       width: MAP_WIDTH_TILES,

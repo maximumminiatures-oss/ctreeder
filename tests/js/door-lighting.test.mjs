@@ -1,3 +1,4 @@
+import { isPointExplored, isTileFullyExplored } from '../../S3_content/src/exploration-memory.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -75,6 +76,8 @@ test('either side of an interior door illuminates without room/hall direction me
 
 test('a door can have both sides lit, and explored sides survive a save/load without becoming current light', () => {
   const state = scene('vertical');
+  state.characters = [{ id: 'left', x: 4, y: 5, hp: 10, lightRadius: 0 },
+    { id: 'right', x: 6, y: 5, hp: 10, lightRadius: 0 }];
   state.entities.push({ id: 'dropped', type: 'treasure', subtype: 'dropped-equipment', x: 6, y: 5,
     lightRadius: 4, lightSource: 'torch', torchLit: true, lit: true });
   recomputeVisibility(state);
@@ -94,17 +97,17 @@ test('closing an explored open door preserves the far-side exploration across sa
     recomputeVisibility(state);
     const far = orientation === 'horizontal' ? [5.5, 5.75] : [5.75, 5.5];
     const wasLit = polygon => isPointInPolygon(far.map(value => value * 54), polygon);
-    assert.equal(state.visibility.exploredLightPolygons.some(wasLit), true);
+    assert.equal(isPointExplored(state,...far), true);
     state.entities[0].doorState = 'closed';
     recomputeVisibility(state);
-    assert.equal(state.visibility.exploredLightPolygonsBeforeNow.some(wasLit), true);
+    assert.equal(isPointExplored(state,...far), true);
     assert.equal(wasLit(computeLightPolygon(state, { ...state.player, radius: 4 })), false);
 
     const saved = serializeDungeonState(state);
     assert.equal(saved.visibility.lightGeometryVersion, state.visibility.lightGeometryVersion);
     const restored = hydrateDungeonState(saved);
     recomputeVisibility(restored);
-    assert.equal(restored.visibility.exploredLightPolygonsBeforeNow.some(wasLit), true);
+    assert.equal(isPointExplored(restored,...far), true);
     assert.equal(wasLit(computeLightPolygon(restored, { ...restored.player, radius: 4 })), false);
   }
 });
@@ -151,4 +154,20 @@ test('partial door exports replace matching rules without discarding secret door
   assert.deepEqual(compiled['door-secret-1'], secret);
   assert.deepEqual(compiled['door-open'], { w: 1, h: 1, paths: [], edges: [] });
   assert.match(readFileSync(output, 'utf8'), /newer matching assets/);
+});
+
+test('found secret doors need observations on both sides of their actual boundary in either visit order', () => {
+  for (const orientation of ['vertical', 'horizontal']) for (const firstSide of [-1, 1]) {
+    const state = scene(orientation, firstSide);
+    Object.assign(state.entities[0], { secret: true, secretFound: true,
+      wallSide: orientation === 'vertical' ? 'east' : 'south' });
+    recomputeVisibility(state);
+    assert.equal(isTileFullyExplored(state, 5, 5), false, orientation + '/' + firstSide);
+    assert.equal(state.visibility.closedDoorExploredSides.get('internal')?.size, 1);
+    if (orientation === 'vertical') state.player.x = 5 - firstSide;
+    else state.player.y = 5 - firstSide;
+    recomputeVisibility(state);
+    assert.equal(state.visibility.closedDoorExploredSides.get('internal')?.size, 2);
+    assert.equal(isTileFullyExplored(state, 5, 5), true, orientation + '/' + firstSide);
+  }
 });

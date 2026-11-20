@@ -1,3 +1,5 @@
+import {dropFromCeiling} from './ceiling-movement.js';
+import {isOnCeiling,canClimbCeiling} from './water-rules.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { canMoveBetweenTiles, rollCheck } from './interactions.js';
 import { castingBonus, canTouchCharacter } from './spell-effects.js';
@@ -196,6 +198,9 @@ export function syncTransformationEffects(state, options = {}) {
         options.onTransformationEnded?.(state, actor, effect, landing);
       }
     }
+    if(isOnCeiling(actor)&&!canClimbCeiling(actor)){
+      const landing=dropFromCeiling(state,actor,options);ended.push({actorId:actor.id,spell:'alter self',landing});
+    }
     const gills = transformationEffect(actor, 'alter self');
     if (hasAlterSelfFeature(actor, 'gills') && isSlowWaterTile(state, actor.x, actor.y)) {
       if (!actor.invisibility || actor.invisibility.source === 'alter-self-gills') actor.invisibility = { source: 'alter-self-gills', rounds: gills.rounds };
@@ -233,12 +238,13 @@ export function maintainLevitationFocus(state, caster, options = {}) {
 }
 
 export function transformationMovementRules(state, actor) {
+  const ceiling=isOnCeiling(actor);
   const levitating = Boolean(transformationEffect(actor, 'levitate'));
   const flying = hasMobilityFlight(actor), gaseous = isGaseousForm(actor), airborne = levitating || flying;
   return { levitating, flying, gaseous, movementSquares: mobilityMovementSquares(actor),
     multiplier: flying ? 1 : hasAlterSelfFeature(actor, 'goat-legs') ? 2 : 1,
-    crossesPits: airborne || hasAlterSelfFeature(actor, 'spider-legs'), passesCreatures: airborne || hasAlterSelfFeature(actor, 'spider-legs'),
-    ignoresWater: airborne || hasAlterSelfFeature(actor, 'gills'), ignoresFloorTraps: airborne, passesStatues: airborne,
+    crossesPits: ceiling || airborne || hasAlterSelfFeature(actor, 'spider-legs'), passesCreatures: ceiling || airborne || hasAlterSelfFeature(actor, 'spider-legs'),
+    ignoresWater: ceiling || airborne || hasAlterSelfFeature(actor, 'gills'), ignoresFloorTraps: ceiling || airborne, passesStatues: airborne,
     passesDoors: gaseous, immuneToWeb: gaseous, immuneToMelee: airborne,
     passesPillars: false, canPickUpGear: !gaseous && (flying || !levitating), canMeleeAttack: !gaseous && (flying || !levitating),
     canWeaponAttack: !gaseous, canCastSpells: !gaseous, canUseGear: !gaseous };

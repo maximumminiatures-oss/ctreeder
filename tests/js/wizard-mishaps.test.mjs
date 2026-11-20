@@ -88,16 +88,16 @@ test('suppression follows the caster, includes dropped and magical sources, and 
   state.characters[1].lightRadius = 6;
   state.entities.push({ subtype: 'dropped-equipment', x: 5, y: 4, lightRadius: 6 });
   mishap(state, 9);
-  assert.equal(collectLightSources(state).length, 0);
+  assert.equal(collectLightSources(state, { physical: true }).length, 0);
   wizard.x = 20;
   assert.equal(isLightSuppressedAt(state, 20, 4), true);
   assert.equal(isLightSuppressedAt(state, 6, 4), false);
-  assert.equal(collectLightSources(state).length, 2);
+  assert.equal(collectLightSources(state, { physical: true }).length, 2);
   advanceWizardTime(state, 90000, { rounds: 9 });
   assert.equal(hasWizardEffect(wizard, 'light-suppression'), true);
   advanceWizardTime(state, 10000, { rounds: 1 });
   assert.equal(hasWizardEffect(wizard, 'light-suppression'), false);
-  assert.equal(collectLightSources(state).length, 3);
+  assert.equal(collectLightSources(state, { physical: true }).length, 3);
 });
 
 test('outside lights cannot reveal tiles within suppression or leak them into explored history', () => {

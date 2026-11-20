@@ -726,14 +726,14 @@ export function setActiveCharacter(state, characterId) {
 let characterDamageListener = null;
 export function setCharacterDamageListener(listener) { characterDamageListener = listener; }
 
-export function setCharacterHp(character, nextHp, { sourceId = null, damageSource = null, areaEffect = false } = {}) {
+export function setCharacterHp(character, nextHp, { sourceId = null, damageSource = null, areaEffect = false, state = null } = {}) {
   if (isFloatingDisc(character)) return character;
   if (!character) {
     return null;
   }
   const before = Number(character.hp) || 0;
   if ((damageSource || areaEffect) && nextHp < before) nextHp = before - elementalDamage(character, before - nextHp,
-    areaEffect ? { damageSource, areaEffect: true } : damageSource).total;
+    areaEffect ? { damageSource, areaEffect: true } : damageSource, state).total;
   const maxHitPoints = clampInt(character.maxHitPoints, 0, MAX_HIT_POINTS, character.hp || 0);
   character.maxHitPoints = maxHitPoints;
   const lockedHp = Number(character.conditions?.vampirism?.lockedHp) || 0;

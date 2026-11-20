@@ -959,3 +959,95 @@ def test_route_darkvision_visibility_rejects_invalid_routes_bounds_and_shapes(cl
     rejected = post(guest, f"/api/rooms/{room['id']}/presence", {"viewer_visibility": {"routeDarkvisionExplored": routes}})
     assert rejected.status_code == 400, rejected.json
     assert guest.get(f"/api/rooms/{room['id']}").json["viewer_visibility"]["routeDarkvisionExplored"] == valid["routeDarkvisionExplored"]
+
+
+def test_shared_autosave_counts_host_steps_only_and_restores_new_room(clients):
+    from autosave_models import AccountAutosave
+    host, guest, _ = clients
+    room = create(host, players_can_import=True)
+    joined = join(guest, room)
+    imported = command(guest, room, "import", character_json=character("Guest"))
+    guest_char = imported.json["owned_character_ids"][0]
+    private_fog = {"exploredEver": ["2,2"]}
+    assert post(guest, f"/api/rooms/{room['id']}/presence", {"viewer_visibility": private_fog}).status_code == 200
+    with Session(engine) as db:
+        original = db.get(GameRoom, room["id"])
+        world = deepcopy(original.state_json)
+        world["run"]["autosaveSteps"] = 99
+        world["marchingGroups"] = {joined["current_player_id"]: {"leaderId":guest_char, "followerIds":[]}}
+        world["entities"].append({"id":"fallen", "type":"treasure", "subtype":"character-corpse",
+            "name":"Dead friend", "x":5, "y":5, "roomId":"r1", "ownerMemberId":joined["current_player_id"]})
+        original.state_json = world
+        db.add(original); db.commit()
+    moved = command(guest, room, "move", character_id=guest_char, dx=1, dy=0, autosave_count_steps=True)
+    assert moved.status_code == 200, moved.json
+    assert moved.json["state_json"]["run"]["autosaveSteps"] == 99
+    assert host.get("/api/autosave").status_code == 404
+    moved = command(host, room, "move", character_id="host-char", dx=0, dy=1)
+    assert moved.status_code == 200, moved.json
+    assert moved.json["autosave"]["saved"] is True
+    saved = host.get("/api/autosave").json
+    assert saved["multiplayer"] is True and saved["state_json"]["run"]["autosaveSteps"] == 0
+    assert guest.get("/api/autosave").status_code == 401
+    with Session(engine) as db:
+        old = db.get(GameRoom, room["id"])
+        before = old.model_dump()
+        old_members = [m.model_dump() for m in db.exec(select(RoomMember).where(RoomMember.room_id==old.id)).all()]
+    restored = post(host, "/api/autosave/restore-room", {})
+    assert restored.status_code == 201, restored.json
+    new = restored.json
+    assert new["id"] != room["id"]
+    assert new["owned_character_ids"] == ["host-char"]
+    assert len(new["state_json"]["characters"]) == 2
+    rejoined = join(guest, new)
+    assert rejoined["owned_character_ids"] == [guest_char]
+    assert rejoined["viewer_visibility"]["exploredEver"] == private_fog["exploredEver"]
+    assert rejoined["current_player_id"] != joined["current_player_id"]
+    corpse = next(e for e in rejoined["state_json"]["entities"] if e["id"] == "fallen")
+    assert corpse["ownerMemberId"] == rejoined["current_player_id"]
+    assert rejoined["state_json"]["marchingGroups"][rejoined["current_player_id"]]["leaderId"] == guest_char
+    assert joined["current_player_id"] not in rejoined["state_json"]["marchingGroups"]
+    with Session(engine) as db:
+        assert db.get(GameRoom, room["id"]).model_dump() == before
+        assert [m.model_dump() for m in db.exec(select(RoomMember).where(RoomMember.room_id==room["id"])).all()] == old_members
+        backup = db.get(AccountAutosave, before["host_user_id"])
+        assert backup.revision == 1
+        assert backup.room_json["source_room_id"] == room["id"]
+
+
+def test_shared_autosave_quota_failure_retains_valid_movement(clients, monkeypatch):
+    import room_autosaves
+    host, _, _ = clients
+    room = create(host)
+    with Session(engine) as db:
+        row=db.get(GameRoom,room["id"]);world=deepcopy(row.state_json)
+        world["run"]["autosaveSteps"]=99;row.state_json=world;db.add(row);db.commit()
+    monkeypatch.setattr(room_autosaves,"storage_available",lambda *args:False)
+    moved=command(host,room,"move",character_id="host-char",dx=1,dy=0)
+    assert moved.status_code==200,moved.json
+    assert moved.json["autosave"]["saved"] is False
+    assert next(c for c in moved.json["state_json"]["characters"] if c["id"]=="host-char")["x"]==3
+    assert host.get("/api/autosave").status_code==404
+
+
+def test_shared_autosave_replayed_command_cannot_write_twice(clients):
+    host,_,_=clients;room=create(host)
+    with Session(engine) as db:
+        row=db.get(GameRoom,room["id"]);world=deepcopy(row.state_json)
+        world["run"]["autosaveSteps"]=99;row.state_json=world;db.add(row);db.commit()
+    revision=host.get(f"/api/rooms/{room['id']}").json["revision"]
+    payload={"revision":revision,"request_id":uuid.uuid4().hex,
+             "command":{"type":"move","character_id":"host-char","dx":1,"dy":0}}
+    first=post(host,f"/api/rooms/{room['id']}/commands",payload)
+    again=post(host,f"/api/rooms/{room['id']}/commands",payload)
+    assert first.status_code==again.status_code==200
+    assert again.json["replayed"] is True
+    assert host.get("/api/autosave").json["revision"]==1
+
+
+def test_solo_autosave_put_cannot_forge_shared_room_metadata(clients):
+    host,_,_=clients
+    result=post(host,"/api/autosave",{"state_json":dungeon(),"room_json":{"version":1}},method="put")
+    assert result.status_code==200,result.json
+    assert host.get("/api/autosave").json["multiplayer"] is False
+    assert post(host,"/api/autosave/restore-room",{}).status_code==404

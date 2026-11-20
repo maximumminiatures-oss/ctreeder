@@ -439,7 +439,8 @@
         "abilities": {
             "**Savage**": "ADV on attacks against creatures below half their HP."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true, "bound": true}
     },
     {
         "Monster Name": "Scarab, Swarm",
@@ -485,7 +486,8 @@
         "abilities": {
             "**Scream**": "Creatures who hear in double near DC 12 CHA or paralyzed for 1d4 rounds."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"averse": true}
     },
     {
         "Monster Name": "Scorpion, Giant",
@@ -553,7 +555,8 @@
             "animal"
         ],
         "abilities": {},
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true, "bound": true}
     },
     {
         "Monster Name": "Smilodon",

@@ -1,3 +1,4 @@
+import {clearConjuredRemains} from './conjured-creatures.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { rollCheck, canMoveBetweenTiles } from './interactions.js';
 import { castingBonus } from './spell-effects.js';
@@ -55,7 +56,7 @@ function removeGear(caster, count, random) {
 
 function damageCreature(state, target, damage, caster, source = null) {
   state.lastDamageSourceId = caster.id;
-  if ((state.characters || []).includes(target)) setCharacterHp(target, Number(target.hp) - damage, { sourceId: caster.id, damageSource: source });
+  if ((state.characters || []).includes(target)) setCharacterHp(target, Number(target.hp) - damage, { state, sourceId: caster.id, damageSource: source });
   else { target.hp = Math.max(0, Number(target.hp) - damage); wakeCreature(target, state); }
 }
 
@@ -250,7 +251,7 @@ export function advanceArcanePhenomena(state, rounds, context = {}) {
     }
     if (entity.arcaneSummonRounds > 0) {
       entity.arcaneSummonRounds -= rounds; changed ||= rounds > 0;
-      if (entity.arcaneSummonRounds <= 0 && state.entities.includes(entity)) state.entities.splice(state.entities.indexOf(entity), 1);
+      if (entity.arcaneSummonRounds <= 0 && state.entities.includes(entity)) {clearConjuredRemains(state,entity);state.entities.splice(state.entities.indexOf(entity), 1);}
     }
   }
   return changed;

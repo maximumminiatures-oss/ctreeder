@@ -63,3 +63,11 @@ export function queryThiefStealthAwareness(state, character) {
     observers, entryBlockingObservers, stealthBreakingObservers,
   };
 }
+
+export function proximityStealthObservers(state,creature,opponents) {
+  if(!hasOrdinaryStealth(creature))return [];
+  return opponents.filter(observer=>isAlive(observer) && !isSleeping(observer,state) && !isBlindObserver(observer) &&
+    !isDeafStealthObserver(observer) && sameRoute(state,creature,observer) &&
+    withinTargetRange(creature,observer,THIEF_STEALTH_RANGES.reveal) &&
+    hasLineOfSightFrom(state,observer.x,observer.y,creature.x,creature.y,{source:observer,target:creature}));
+}

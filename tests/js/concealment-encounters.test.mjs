@@ -16,7 +16,7 @@ test('halfling invisibility is one resource, lasts three rounds and survives att
 });
 test('wizard invisibility breaks on offense; direct ranged attacks cannot target invisible creatures',()=>{
   const character=hero();makeInvisible(character,{source:'spell',rounds:10,breakOnOffense:true});
-  assert.equal(canDirectlyTarget(character,6),false);assert.equal(canDirectlyTarget(character,1),true);
+  assert.equal(canDirectlyTarget(character,6),false);assert.equal(canDirectlyTarget(character,1),false);
   revealAfterOffense(character);assert.equal(isInvisible(character),false);
 });
 test('impostors cannot activate copied ancestry powers',()=>{

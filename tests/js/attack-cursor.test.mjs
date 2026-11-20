@@ -1,3 +1,8 @@
+import * as seaAbilities from '../../S3_content/src/sea-monster-abilities.js';
+import {monsterAttackDamageSource} from '../../S3_content/src/monster-attacks.js';
+import * as waterRules from '../../S3_content/src/water-rules.js';
+import * as waterHabitats from '../../S3_content/src/water-habitats.js';
+const createRuntimeContext=(globals,...options)=>vm.createContext({...waterRules,...waterHabitats,...seaAbilities,monsterAttackDamageSource,...globals},...options);
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,7 +24,7 @@ function runtime(options = {}) {
     },
     fillRect() { paint.push(['color', this.globalCompositeOperation, this.fillStyle]); }
   };
-  const context = vm.createContext({
+  const context = createRuntimeContext({
     SERVER_RUNTIME: false, ui: { mapHost: { parentElement: panel } },
     state: {}, dragState: null, mapHoverPointer: null, shiftAttackHeld: false, targetingMode: null,
     getActiveCharacter: () => ({ id: 'actor' }), ownsCharacter: () => true,

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ShadowSpawner</title>
     <link rel="icon" type="image/png" sizes="72x72" href="./assets/browser-spawner.png" />
+    <link rel="preload" href="./assets/room_grid_background-small.jpg" as="image" fetchpriority="high" />
     <link rel="preload" href="./Tagesschrift-Regular.ttf" as="font" type="font/ttf" crossorigin />
     <link rel="stylesheet" href="./styles.css?v=20261114-sheet-controls" />
     <link rel="stylesheet" href="./save-menus.css" data-sd-save-menus />
@@ -14,7 +15,8 @@
       <section class="controls-panel">
         <h1 class="site-title">ShadowSpawner</h1>
         <section id="dungeon-tab-panel" class="tab-panel" role="tabpanel">
-            <div id="artwork-loading" role="status" aria-live="polite"><span id="artwork-loading-text">Loading dungeon artwork...</span> <button id="artwork-retry" type="button" hidden>Retry Artwork</button></div>
+          <div id="artwork-loading" role="status" aria-live="polite"><span id="artwork-loading-text">Loading dungeon artwork...</span> <button id="artwork-retry" type="button" hidden>Retry Artwork</button></div>
+          <p id="autosave-status" role="status" aria-live="polite" hidden></p>
           <div class="save-load-controls" aria-label="Saved runs">
             <button id="save-load-menu-btn" type="button">Save / Load</button>
             <button id="multiplayer-btn" type="button">Multiplayer</button>

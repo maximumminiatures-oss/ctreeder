@@ -210,13 +210,17 @@ export function deadReminiscence(state, options = {}) {
   return `When I was alive, I ${sentence(true)}. I also ${sentence(false)}.`;
 }
 
+export function thoughtProperName(state,creature){
+ return creature.uniqueName||(typeof creature.properName==='string'?creature.properName:null)||
+  (creature.properName===true||creature.isUnique||creature.isNamed||(state.characters||[]).some(c=>c.id&&c.id===creature.id)?creature.name:null);
+}
+
 export function monsterThought(state, monster, options = {}) {
   const opts = { ...options, rng: options.rng || options.random || Math.random };
   const pattern = deadWeightedChoice(['A', 'B', 'C', 'D', 'E', 'F'].map(text => ({ text, weight: 1 })), opts.rng).text;
   const phrase = verb => `${deadWeightedChoice(DEAD_ADJECTIVES, opts.rng).text} ${chooseNoun(state, verb, opts)}`;
   const action = () => { const verb = chooseVerb(state, opts); return `${verb} ${phrase(verb)}`; };
-  const name = monster.uniqueName || (typeof monster.properName === 'string' ? monster.properName : null) ||
-    (monster.properName === true || monster.isUnique || monster.isNamed ? monster.name : creatureTypeName(monster.name));
+  const name = thoughtProperName(state,monster)||creatureTypeName(monster.name);
   if (pattern === 'A') return `The ${name} is thinking about when it ${action()}.`;
   if (pattern === 'B') { const subject = phrase(); return `I wonder if ${subject} ${action()}.`; }
   if (pattern === 'C') return `I think those adventurers ${action()}.`;

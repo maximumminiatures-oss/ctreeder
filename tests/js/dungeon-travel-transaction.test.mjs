@@ -15,6 +15,7 @@ for (const failure of ['normalize', 'visibility', 'render']) test(`failed ${fail
   const oldTable = [{ name: 'Old' }], oldRules = { old: true };
   const context = vm.createContext({ state: original, shadowdarkContent: oldRules, rulesData: oldRules, monsterTable: oldTable,
     bossMonsterTable: oldTable, trapTable: oldTable, diceHistory: original.rollHistory, viewport: { panX: 10, scale: 2 },
+    accountSession:{authenticated:true}, isSharedRoom:()=>false, requestAutomaticSave() {},
     SERVER_RUNTIME: false, ui: { levelInput: { value: 1 }, seedInput: { value: 123 } },
     loadShadowdarkContent: async () => ({}), loadRulesData: async () => ({}), loadOrganicAssets: async () => [],
     loadInnerWallAssets: async () => [], loadTrapTable: async () => [], loadMonsterTableForLevel: async () => [],

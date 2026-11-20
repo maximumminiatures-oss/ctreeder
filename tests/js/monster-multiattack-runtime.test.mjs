@@ -1,3 +1,8 @@
+import * as seaAbilities from '../../S3_content/src/sea-monster-abilities.js';
+import {monsterAttackDamageSource} from '../../S3_content/src/monster-attacks.js';
+import * as waterRules from '../../S3_content/src/water-rules.js';
+import * as waterHabitats from '../../S3_content/src/water-habitats.js';
+const createRuntimeContext=(globals,...options)=>vm.createContext({...waterRules,...waterHabitats,...seaAbilities,monsterAttackDamageSource,...globals},...options);
 import test from 'node:test';
 import { activeCommand } from '../../S3_content/src/priest-tier-three.js';
 import { stakeTarget, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage } from '../../S3_content/src/supernatural-traits.js';
@@ -29,7 +34,7 @@ function runtime(characters, extra = {}) {
   const moves = [], attacks = [];
   const distance = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   const math = Object.create(Math); math.random = extra.random || (() => 0);
-  const context = vm.createContext({ activeCommand, stakeTarget, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, blockedByAffliction, markAfflictedTurn, isLeprechaun, monsterAbilityDefinitions, applyMonsterStrikeEffect, state, Math: math, RANGE_LIMITS: { close: 1, near: 6, far: 12 },
+  const context = createRuntimeContext({ activeCommand, stakeTarget, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, blockedByAffliction, markAfflictedTurn, isLeprechaun, monsterAbilityDefinitions, applyMonsterStrikeEffect, state, Math: math, RANGE_LIMITS: { close: 1, near: 6, far: 12 },
     parseMonsterAttack, monsterAttackSegments, monsterAttackSequence, monsterIntelligence, selectMonsterAiTarget, planMonsterCover,
     planFiringPosition, findPursuitStep, planDarkReposition, normalizeDamageExpression, routeStep, routeOf, sameRoute,
     prettifyAttackName: name => name,
@@ -39,6 +44,9 @@ function runtime(characters, extra = {}) {
       hasClose: !/near/.test(segment), isCloseOnly: !/near/.test(segment), ranges: new Set([/near/.test(segment) ? 'near' : 'close']) }),
     getMonsterById: id => state.entities.find(actor => actor.id === id),
     getLiveMonsters: () => state.entities.filter(actor => actor.hp > 0), isLiveMonster: actor => actor?.hp > 0,
+    isCharacterAttackableByMonster: actor => !actor.dead && !actor.gaseous,
+    monsterHearsTarget: () => false,
+    markMonsterCorrectlyGuessed: () => {},
     isCharacterTargetableByMonster: actor => !actor.dead && !actor.stealthed && !actor.gaseous,
     hasCharacterMapPosition: actor => Number.isFinite(actor.x), isCharacterDead: actor => !!actor.dead,
     isFloatingDisc: () => false, isIllusionCreature: () => false,

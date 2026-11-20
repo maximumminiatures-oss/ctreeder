@@ -166,18 +166,19 @@ test('collector uses visual positions for attached monster/gear lights and dedup
   assert.deepEqual(collectLightSources(state).map(source => source.radius), [12], 'six-square magic source is redundant inside an existing lantern');
 });
 
-test('shared viewers see attached monster light only while it reaches their route and position', () => {
+test('attached monster light can be seen beyond its radius but not across routes', () => {
   const { state, caster } = scene(); state.sharedRoom = true; state.viewerCharacterIds = new Set([caster.id]);
   const monster = { id: 'monster', type: 'monster', x: 4, y: 3, routeId: '', hp: 10 };
   state.entities.push(monster); cast(state, caster); resolveLight(state, caster, { targetId: monster.id });
   assert.equal(collectLightSources(state).length, 1);
-  monster.x = 14; assert.deepEqual(collectLightSources(state), []);
+  monster.x = 14; assert.equal(collectLightSources(state).length, 1);
   monster.x = 4;
   state.underpasses = [{ id: 'lower', artVersion: 2, lowerCells: [{ x: 3, y: 3 }, { x: 4, y: 3 }],
     upperCrossings: [{ x: 3, y: 3 }, { x: 4, y: 3 }], portals: [], art: [] }];
   monster.routeId = 'lower'; assert.deepEqual(collectLightSources(state), []);
   delete state.viewerCharacterIds;
-  assert.equal(collectLightSources(state)[0].routeId, 'lower');
+  assert.deepEqual(collectLightSources(state), []);
+  assert.equal(collectLightSources(state, { physical: true })[0].routeId, 'lower');
 });
 
 test('expiry clears all supported attached Light flags and removes their collected illumination', () => {

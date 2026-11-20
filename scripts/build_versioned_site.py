@@ -24,6 +24,7 @@ def public_files(source):
   if any(part.startswith('.') or part.lower() in {'unused-assets','old assets','private','saves','backups'} for part in parts):continue
   allowed=len(parts)==1 and (p.name in ROOT_FILES or p.suffix.lower() in ROOT_EXTENSIONS or re.fullmatch(r'monsters-\d+\.json',p.name))
   if len(parts)>1:allowed=parts[0] in STATIC_DIRS and p.suffix.lower() in STATIC_DIRS[parts[0]]
+  if parts[:2]==('src','vendor') and p.name.endswith(('.LICENSE.txt','.APACHE-2.0.txt')):allowed=True
   if allowed:files.append((relative.as_posix(),p.read_bytes()))
  if 'index.html' not in dict(files):raise ValueError('Public index.html is required.')
  return files

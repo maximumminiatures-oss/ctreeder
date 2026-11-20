@@ -164,7 +164,7 @@ test('authoritative Cleansing Weapon adds 1d6 against undead or 1d4 otherwise, s
 });
 
 test('authoritative fire resistance does not halve Cleansing Weapon radiant damage on a flaming weapon', async () => {
-  for (const [resistant, expectedDamage] of [[false, 12], [true, 7]]) {
+  for (const [resistant, expectedDamage] of [[false, 12], [true, 10]]) {
     const state = scene(); foe(state).x = 4;
     const mace = enchantedEquipment({ name: 'Mace', costGp: 6 }, 'weapon', 1);
     identifyMagicItem(mace); mace.equipped = true;
@@ -177,7 +177,7 @@ test('authoritative fire resistance does not halve Cleansing Weapon radiant dama
     assert.ok(attackIndex >= 0);
     result = await command(result, { type: 'attack', monster_id: 'foe', attack_index: attackIndex });
     // Ordinary damage: 1d6 (4) +1 Mighty +1 magic +1d4 fire (3) =9; radiant is an additional 3.
-    assert.equal(foe(result.state_json).hp, 100 - expectedDamage, resistant ? 'floor(9/2) +3 radiant' : '9 +3 radiant');
+    assert.equal(foe(result.state_json).hp, 100 - expectedDamage, resistant ? '6 physical + floor(3 fire/2) +3 radiant' : '9 +3 radiant');
   }
 });
 
@@ -309,7 +309,7 @@ test('authoritative blinded monsters attack remembered adjacent squares at disad
     assert.equal(result.state_json.combat.turnOrder[result.state_json.combat.turnIndex].id, 'priest');
     if (scenario === 'moved-empty-miss') {
       assert.equal(actor(result.state_json).hp, hpBefore, 'even a natural twenty cannot hit a creature outside the guessed square');
-      assert.match(attacks[0].detail, /remembered square.*misses/i);
+      assert.match(attacks[0].detail, /misses\. This tile is empty\./i);
       assert.doesNotMatch(attacks[0].detail, /attacks Dor/i);
     } else {
       assert.match(attacks[0].detail, /attacks Dor at disadvantage/i);

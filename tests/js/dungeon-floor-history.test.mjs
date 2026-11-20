@@ -150,3 +150,25 @@ test('encounter settings follow the party while spawn counters stay on their own
   assert.deepEqual(restored.wanderingMonsters, { numerator: 2, denominator: 8, spawnedCount: 7 });
   assert.deepEqual(first.wanderingMonsters, { numerator: 0, denominator: 12, spawnedCount: 7 });
 });
+
+
+test('guest ascent regenerates the previous seed while retaining party gear, conditions and step counter', () => {
+  const first=party(floor(42)); first.run={autosaveSteps:73};
+  first.entities.push({id:'old-loot',type:'treasure',collected:true});
+  first.visibility.exploredEver.add('17,3');
+  const second=buildNextLevelState(first,{seed:99,generate:floor});
+  second.characters[0].hp=2; second.characters[0].conditions=['poisoned'];
+  second.characters[0].gear.push({name:'Dagger'});
+  const calls=[];
+  const restored=buildPreviousLevelState(gather(second,'up'),{
+    regenerateOnAscent:true, generate:(seed,level,options)=>{calls.push({seed,level,options});return floor(seed,level);}
+  });
+  assert.equal(calls[0].seed,42);
+  assert.equal(restored.seed,42);assert.equal(restored.level,1);
+  assert.equal(restored.entities.some(e=>e.id==='old-loot'),false);
+  assert.equal(restored.visibility.exploredEver.has('17,3'),false);
+  assert.equal(restored.characters[0].hp,2);
+  assert.equal(restored.characters[0].gear.at(-1).name,'Dagger');
+  assert.deepEqual(restored.characters[0].conditions,['poisoned']);
+  assert.equal(restored.run.autosaveSteps,73);
+});

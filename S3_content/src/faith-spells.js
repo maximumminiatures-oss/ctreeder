@@ -31,7 +31,7 @@ export function restoreMonsterSpellStats(state,catalog) {
     monsterCatalogs.set(catalog,records);
   }
   for(const entity of state.entities||[]) if(entity.type==='monster') {
-    const source=records.get(String(entity.name||'').toLowerCase());
+    const source=records.get(String(entity.waterBaseName||entity.name||'').toLowerCase());
     if(!source)continue;
     if(!entity.tags?.length)entity.tags=source.tags||[];
     if(!entity.talents?.length)entity.talents=source.talents||[];

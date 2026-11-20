@@ -183,6 +183,20 @@ export function transferredMonsterGear(item) {
   result.equipped = false;
   return result;
 }
+export function syncCompanionCoinInventory(character) {
+  const coins = character.gear.filter(item => item.coinBreakdown);
+  if (!coins.length) return;
+  for (const key of ['gold','silver','copper']) character[key] = coins.reduce((n,item) => n + Number(item.coinBreakdown[key] || 0), Number(character[key]) || 0);
+  character.gear = character.gear.filter(item => !item.coinBreakdown);
+}
+export function monsterInventoryFromCharacter(character) {
+  const gear = clone(character.gear || []);
+  const coins = Object.fromEntries(['gold','silver','copper'].map(key => [key,Number(character[key]) || 0]));
+  const count = coins.gold + coins.silver + coins.copper;
+  if (count) gear.push({name:`${character.name}'s coins`,type:'sundry',quantity:1,totalUnits:1,
+    value:coins.gold+coins.silver/10+coins.copper/100,slots:Math.max(0,Math.ceil((count-100)/100)),coinBreakdown:coins});
+  return gear;
+}
 export function buildMonsterCompanion(monster,{id,controllerId,ancestries=['Human','Dwarf','Elf','Halfling','Goblin','Half-Orc'],random=Math.random,kind='friendly',impersonated=null}={}) {
   ensureMonsterLanguages(monster);
   const classLike=CLASS_NAMES.test(monster.name||'');
@@ -200,6 +214,7 @@ export function buildMonsterCompanion(monster,{id,controllerId,ancestries=['Huma
     companion:{kind,sourceMonsterId:monster.id,source:clone(monster),controllerCharacterId:controllerId||null,
       gearCapacity:kind==='doppelganger'?12:monsterScore(monster,'S'),damageTaken:0,departurePending:false},
     impersonation:impersonated?clone(impersonated):null};
+  syncCompanionCoinInventory(character);
   return ensureMonsterCompanionTraits(character);
 }
 export function recordCompanionDamage(character,damage) {
@@ -209,6 +224,13 @@ export function recordCompanionDamage(character,damage) {
   if(data.damageTaken>=Math.max(1,Math.floor(character.maxHitPoints*2/3)))data.departurePending=true;
 }
 export function dropCompanionGear(state,character) {
+  const coins = Object.fromEntries(['gold','silver','copper'].map(key => [key,Number(character[key]) || 0]));
+  if (coins.gold || coins.silver || coins.copper) {
+    state.entities.push({id:`departure-coins-${character.id}-${Date.now()}`,type:'treasure',kind:'coin-cache',
+      name:`${character.name}'s coins`,x:character.x,y:character.y,routeId:character.routeId,roomId:character.roomId,
+      visible:true,revealed:true,coinBreakdown:coins,value:coins.gold+coins.silver/10+coins.copper/100});
+    for (const key of ['gold','silver','copper']) { character[key]=0; if(character.raw)character.raw[key]=0; }
+  }
   for(const [index,item]of(character.gear||[]).entries())state.entities.push({
     id:`departure-${character.id}-${index}-${Date.now()}`,type:'treasure',subtype:'dropped-equipment',kind:'gear',name:item.name,
     x:character.x,y:character.y,routeId:character.routeId,roomId:character.roomId,visible:true,value:Number(item.value)||0,slots:item.slots??1,gearItem:transferredMonsterGear(item)

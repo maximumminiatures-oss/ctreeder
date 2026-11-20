@@ -1,3 +1,5 @@
+import {waterEncounterTable,waterSpawnPlacement} from './water-habitats.js';
+import {isSlowWaterTile} from './terrain-movement.js';
 import { ENTITY_TYPES, TILE_TYPES } from "./constants.js";
 import { getTile, tileKey } from "./state-schema.js";
 import { SeededRng } from "./rng.js";
@@ -113,6 +115,8 @@ function monsterDetails(rng, monsterTable) {
     chaModifier: Number(monster.chaModifier ?? monster.Ch ?? monster.CH ?? monster["**CH**"]) || 0,
     abilities: monster.abilities || {},
     tags: monster.tags || [],
+    ...(monster.waterHabitat?{waterHabitat:structuredClone(monster.waterHabitat)}:{}),
+    ...(monster.waterBaseName?{waterBaseName:monster.waterBaseName}:{}),
     carriedGear: monster.gear || monster.carriedGear || [],
     diplomacy: monster.diplomacy || monster.Diplomacy || monster["Diplomacy"] || ""
   };
@@ -140,13 +144,23 @@ export function maybeSpawnWanderingMonster(state, monsterTable = [], options = {
 
   const candidates = (options.allowUnlit ? unlitEdgeCandidates(state, options.origin || state.player) : visibleEdgeCandidates(state))
     .filter(tile => !state.characters?.some(character => character.x === tile.x && character.y === tile.y));
-  const tile = rng.pick(candidates);
+  const pools=new Map();
+  const poolAt=tile=>{
+    if(!pools.has(tile.roomId)){
+      const room=state.rooms.find(room=>room.id===tile.roomId);
+      const base=room?.crypt?monsterTable.filter(isUndeadMonster):monsterTable;
+      pools.set(tile.roomId,waterEncounterTable(state,room,base));
+    }
+    const room=state.rooms.find(room=>room.id===tile.roomId);
+    return pools.get(tile.roomId).filter(monster=>{const placement=waterSpawnPlacement(state,room,monster),wet=isSlowWaterTile(state,tile.x,tile.y);return (!placement.requireWater||wet)&&(!placement.avoidWater||!wet);});
+  };
+  const tile = rng.pick(state.generation?.waterPlan?candidates.filter(tile=>poolAt(tile).length):candidates);
   if (!tile) {
     return { spawned: false, message: "Wandering monster check passed, but no visible edge square was available." };
   }
 
   const crypt = state.rooms.some(room => room.id === tile.roomId && room.crypt === true);
-  const eligible = crypt ? monsterTable.filter(monster => isUndeadMonster(monster) &&
+  const eligible = state.generation?.waterPlan ? poolAt(tile) : crypt ? monsterTable.filter(monster => isUndeadMonster(monster) &&
     (monster?.["Monster Name"] || monster?.name)) : monsterTable;
   if (crypt && !eligible.length) return { spawned: false, message: 'No eligible undead encounter for this crypt.' };
   const details = monsterDetails(rng, eligible);
@@ -181,16 +195,19 @@ export function checkFloorArrivalEncounters(state, monsterTable = []) {
     if (livingFloorMonsters(state).length >= MAX_FLOOR_MONSTERS) break;
     const denominator = wanderingCheckDenominator(state, { roomId: room.id });
     if (rng.nextInt(1, denominator) > chance.numerator) continue;
-    const eligible = room.crypt ? monsterTable.filter(isUndeadMonster) : monsterTable;
+    const eligible = waterEncounterTable(state,room,room.crypt ? monsterTable.filter(isUndeadMonster) : monsterTable);
     if (!eligible.length) continue;
+    const details=monsterDetails(rng,eligible),placement=waterSpawnPlacement(state,room,details);
     const cells = state.tiles.filter(tile => tile.roomId === room.id &&
+      (!placement.requireWater||isSlowWaterTile(state,tile.x,tile.y)) &&
+      (!placement.avoidWater||!isSlowWaterTile(state,tile.x,tile.y)) &&
       !state.characters?.some(character => character.x === tile.x && character.y === tile.y && !character.routeId) &&
-      isSafeDungeonArrival(state, { ...tile, routeId: '' }));
+      isSafeDungeonArrival(state, { ...tile, routeId: '' }, {allowWater:Boolean(state.generation?.waterPlan)}));
     const tile = rng.pick(cells);
     if (!tile) continue;
     const entity = { id: `arrival-monster-${state.floorTransitions}-${++chance.spawnedCount}`,
       type: ENTITY_TYPES.MONSTER, subtype: 'wandering-foe', x: tile.x, y: tile.y,
-      routeId: '', roomId: room.id, visible: true, defeated: false, wandering: true, ...monsterDetails(rng, eligible) };
+      routeId: '', roomId: room.id, visible: true, defeated: false, wandering: true, ...details };
     state.entities.push(entity); results.push(entity);
   }
   return results;

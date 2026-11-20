@@ -1,4 +1,5 @@
-import { routeOf, routeStep, routeKey } from './underpasses.js';
+import { planFiringPosition } from './pursuit.js';
+import { routeOf, routeStep, routeKey, sameRoute } from './underpasses.js';
 
 export const monsterIntelligence = monster => Number(monster?.I ?? monster?.['**I**'] ?? 0) || 0;
 const randomEntry = (entries, random) => entries[Math.min(entries.length - 1, Math.floor(random() * entries.length))] || null;
@@ -54,4 +55,21 @@ export function planMonsterCover(state, monster, { movement, canStep, isCover, s
     }
   }
   return null;
+}
+
+/** Stage outside proximity reveal range if a hidden attacker cannot strike this turn. */
+export function planStealthApproach(state,creature,target,{movement,canStep,canAttackFrom,stepCost=()=>1,observers=[]}={}) {
+  if(!(movement>0))return null;
+  const path=planFiringPosition(state,creature,target,{movement:Infinity,canStep,canAttackFrom,stepCost,maxNodes:2048});
+  if(!path)return null;
+  let cost=0,last=null;
+  for(let i=0;i<path.steps.length;i++) {
+    const from=i?path.steps[i-1]:creature;
+    cost+=stepCost(from.x,from.y,from);
+    if(cost>movement)break;
+    const point=path.steps[i];
+    if(observers.some(observer=>sameRoute(state,point,observer) && Math.hypot(point.x-observer.x,point.y-observer.y)<=3))break;
+    last={...point,cost,steps:path.steps.slice(0,i+1),attackNextTurn:path.cost-cost<=movement};
+  }
+  return last;
 }

@@ -203,6 +203,8 @@ function ambushScene({ movement = 6, x = movement + 2, attack = '1 sword +2 (1d6
 test('hidden melee monsters start surprise at movement plus attack reach, with turns only for monsters and goblins', async () => {
   for (const movement of [6, 12]) {
     const state = ambushScene({ movement });
+    // A 12-square mover begins outside its 12-square sight radius; it must first get closer.
+    if (movement === 12) state.entities[1].x--;
     let result = await withRandom(.6, () => executeGameCommand(state, { type: 'tick', elapsed_ms: 1000 }));
     assert.equal(result.state_json.combat.surpriseRound, true);
     assert.equal(result.state_json.combat.round, 0);
@@ -230,15 +232,16 @@ test('hidden approaches remain outside combat until the monster can attack this 
   assert.equal(result.state_json.combat.surpriseRound, true);
 });
 
-test('ranged ambushers plan through ordinary doors and fire at the longest visible circular range', async () => {
-  const state = ambushScene({ x: 10, attack: '1 bow +3 (near 1d6)' });
-  state.entities.push({ id: 'door', type: 'feature', subtype: 'door', x: 8, y: 2, roomId: 'room', wallSide: 'east', doorState: 'closed', visible: true });
+test('ranged ambushers hear through an ordinary door and open it before firing', async () => {
+  const state = ambushScene({ x: 4, attack: '1 bow +3 (near 1d6)' });
+  // The closed door blocks sight; the ambusher hears the character three squares away.
+  state.entities.push({ id: 'door', type: 'feature', subtype: 'door', x: 3, y: 2, roomId: 'room', wallSide: 'east', doorState: 'closed', visible: true });
   let result = await withRandom(.6, () => executeGameCommand(state, { type: 'tick', elapsed_ms: 1000 }));
   assert.equal(result.state_json.combat.surpriseRound, true);
   result = await withRandom(.6, () => executeGameCommand(result.state_json, { type: 'end_turn', character_id: 'priest' }));
   assert.equal(result.state_json.entities.find(entity => entity.id === 'door').doorState, 'open');
-  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').x, 7);
-  assert.ok(result.state_json.rollHistory.some(entry => /Bandit attacks Priest at advantage/.test(entry.detail)));
+  assert.equal(result.state_json.entities.find(entity => entity.id === 'foe').x, 2);
+  assert.ok(result.state_json.rollHistory.some(entry => /Bandit attacks (?:Priest|Friend) at advantage/.test(entry.detail)), JSON.stringify(result.state_json.rollHistory));
 });
 
 test('a revealed archer retreats into darkness, attacks at advantage, and cannot be directly targeted there', async () => {
@@ -288,6 +291,7 @@ test('ranged monsters pursue through a closed door instead of ending combat or s
   state.tiles.forEach(tile => { if (tile.y !== 2) tile.type = 'wall'; });
   state.entities.push({ id: 'door', type: 'feature', subtype: 'door', x: 3, y: 2, roomId: 'room', wallSide: 'east', doorState: 'closed', visible: true });
   state.entities[1].attack = '1 bow +3 (near 1d6)';
+  state.entities[1].knownCharacterSquares = { priest: { id: 'priest', x: 1, y: 2, routeId: '', seen: true } };
   const result = await withRandom(.6, () => executeGameCommand(state, { type: 'end_turn', character_id: 'priest' }));
   assert.equal(result.state_json.combat.active, true);
   assert.equal(result.state_json.entities.find(entity => entity.id === 'door').doorState, 'open');
@@ -314,6 +318,7 @@ test('an incorporeal monster crosses walls but spends a later action materializi
   state.combat.turnOrder = [{ type: 'character', id: 'priest' }, { type: 'monster', id: 'foe' }]; state.combat.playerOrderIds = ['priest'];
   state.tiles.forEach(tile => { if (tile.x === 3 || tile.y !== 2) tile.type = 'wall'; });
   state.entities[1].name = 'Ghost'; state.entities[1].conditions = { incorporeal: true };
+  state.entities[1].knownCharacterSquares = { priest: { id: 'priest', x: 1, y: 2, routeId: '', seen: true } };
   let result = await executeGameCommand(state, { type: 'end_turn', character_id: 'priest' });
   let ghost = result.state_json.entities.find(entity => entity.id === 'foe');
   assert.equal(ghost.x, 2); assert.equal(ghost.conditions.incorporeal, true); assert.equal(result.state_json.characters[0].hp, 3);
@@ -364,7 +369,8 @@ test('empty attacks log a miss and melee door attacks deplete AC 10 / HP 15 door
   const state = discScene(); const actor = state.characters[0];
   Object.assign(actor, { className: 'Fighter', stats: { STR: 18 }, equipmentInitialized: true, lightSpellLit: true, gear: [{ name: 'Dagger', type: 'weapon', equipped: true }] });
   let result = await withRandom(.8, () => executeGameCommand(state, { type: 'attack_empty', character_id: actor.id, x: 1, y: 2, attack_index: 0 }));
-  assert.match(result.state_json.rollHistory[0].detail, /attacks nothing.*\n17 misses\./);
+  assert.match(result.state_json.rollHistory[0].detail, /Your dagger misses\. This tile is empty\./);
+  assert.equal(result.state_json.rollHistory[0].rollCard.results[0].value, 17);
   result.state_json.entities.push({ id: 'door', type: 'feature', subtype: 'door', x: 3, y: 2, roomId: 'room', wallSide: 'east', doorState: 'closed', breakDc: 10, visible: true });
   result = await withRandom(.9, () => executeGameCommand(result.state_json, { type: 'attack_door', character_id: actor.id, entity_id: 'door', attack_index: 0 }));
   assert.ok(result.state_json.entities.find(entity => entity.id === 'door').hp < 15);

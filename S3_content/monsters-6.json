@@ -20,7 +20,8 @@
             "**Impervious**": "Only damaged by fire.",
             "**Corrosive**": "Wood or metal that touches the ooze dissolves on a d6 roll of 1-3."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Cave Brute",
@@ -235,7 +236,8 @@
             "**Impervious**": "Only damaged by magical sources.",
             "**Whirlpool**": "All within close DC 15 STR or immobilized inside water elemental (treat as underwater). DC 15 STR on turn to escape. Elementals are semi-humanoid beings of pure energy that speak rudimentary Primordial. Earth and air are anathema to each other, as are fire and water. Lesser elementals are LV 6 and their slam deals 2 dice of damage. Greater elementals are LV 9 and their slam deals 3 dice of damage."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true, "prefersWater": true}
     },
     {
         "Monster Name": "Ghost",
@@ -286,7 +288,8 @@
             "**Shapechange**": "Instantly change to look like any other humanoid.",
             "**Terrify**": "A creature who first sees her true form DC 15 CHA or DISADV on attacks 1d4 rounds."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true, "prefersWater": true}
     },
     {
         "Monster Name": "Hag, Weald",
@@ -503,7 +506,8 @@
             "**Impervious**": "Only harmed by fire.",
             "**Dissolve**": "One random piece of non-magical gear the target carries is destroyed."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Rat, Swarm",

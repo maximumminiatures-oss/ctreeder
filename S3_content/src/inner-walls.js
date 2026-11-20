@@ -115,3 +115,13 @@ export function getInnerWallConnectedSides(tileOrData) {
 export function isInnerWallBlockingTile(tile) {
   return getInnerWallTileData(tile)?.blocksMovement === true;
 }
+
+/** The connected edges are opaque to the tile boundary; other edges have a 5px transparent band. */
+export function getInnerWallOpaqueBounds(tile, tileSize = 54) {
+  const data=getInnerWallTileData(tile);
+  if(!data?.blocksMovement)return null;
+  const sides=new Set(getInnerWallConnectedSides(data)),inset=5/tileSize;
+  const left=tile.x+(sides.has('west')?0:inset),top=tile.y+(sides.has('north')?0:inset);
+  const right=tile.x+1-(sides.has('east')?0:inset),bottom=tile.y+1-(sides.has('south')?0:inset);
+  return {left,top,right,bottom};
+}

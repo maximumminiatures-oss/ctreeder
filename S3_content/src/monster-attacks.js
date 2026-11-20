@@ -19,3 +19,11 @@ export function monsterAttackSequence(attacks, selected) {
   const routine = selected.routineIndex == null ? [selected] : attacks.filter(attack => attack.routineIndex === selected.routineIndex);
   return routine.flatMap(attack => Array.from({ length: Math.min(100, Math.max(1, attack.attackCount || 1)) }, () => attack));
 }
+
+/** Damage comes from an attack, never an elemental creature name alone. */
+export function monsterAttackDamageSource(monster,attack){
+  const explicit=attack.damageType||attack.damageTypes;
+  if(explicit)return {damageTypes:explicit};
+  if(/^(?:fire elemental|elemental,? fire)$/i.test(monster.waterBaseName||monster.name||'')&&/^touch$/i.test(attack.name||''))return {damageType:'fire'};
+  return {damageSource:[attack.name,attack.detail,attack.text,attack.segment].filter(Boolean).join(' ')};
+}

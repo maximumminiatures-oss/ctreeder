@@ -1,3 +1,8 @@
+import * as seaAbilities from '../../S3_content/src/sea-monster-abilities.js';
+import {monsterAttackDamageSource} from '../../S3_content/src/monster-attacks.js';
+import * as waterRules from '../../S3_content/src/water-rules.js';
+import * as waterHabitats from '../../S3_content/src/water-habitats.js';
+const createRuntimeContext=(globals,...options)=>vm.createContext({...waterRules,...waterHabitats,...seaAbilities,monsterAttackDamageSource,...globals},...options);
 import test from 'node:test';
 import { vampireInTorpor } from '../../S3_content/src/supernatural-traits.js';
 import assert from 'node:assert/strict';
@@ -22,7 +27,7 @@ function load(context, ...names) {
 function sandbox(t, html = '') {
   const dom = new JSDOM(html, { url: 'http://localhost/site/' });
   t.after(() => dom.window.close());
-  const context = vm.createContext({ window: dom.window, document: dom.window.document });
+  const context = createRuntimeContext({ window: dom.window, document: dom.window.document });
   return { dom, context, document: dom.window.document };
 }
 

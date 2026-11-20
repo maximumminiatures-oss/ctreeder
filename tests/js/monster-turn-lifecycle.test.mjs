@@ -1,3 +1,5 @@
+import * as seaAbilities from '../../S3_content/src/sea-monster-abilities.js';
+import {monsterAttackDamageSource} from '../../S3_content/src/monster-attacks.js';
 import test from 'node:test';
 import { lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage } from '../../S3_content/src/supernatural-traits.js';
 import { applyMonsterStrikeEffect } from '../../S3_content/src/monster-abilities.js';
@@ -22,12 +24,12 @@ for (const name of ['Pirate', 'Beastman']) for (const hit of [false, true]) {
       turnIndex: 0, turnOrder: [{ id: 'foe', type: 'monster' }, { id: 'hero', type: 'character' }] } };
     let logged = 0, nextTurnStarted = false;
     const attack = { name: 'Dagger', rangeInfo: { maxRange: 1 }, damageExpression: '1d4' };
-    const context = vm.createContext({ state, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, applyMonsterStrikeEffect, isLiveMonster: actor => actor.hp > 0,
+    const context = createRuntimeContext({ state, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, applyMonsterStrikeEffect, isLiveMonster: actor => actor.hp > 0,
       circleBlocksHostileAction, circleBlocksMentalControl, isGaseousForm,
       isIllusionCreature: actor => actor?.illusion?.kind === 'creature',
       isCharacterTargetableByMonster: actor => actor.hp > 0, sameRoute: () => true,
       transformationMovementRules: () => ({}), blocksMindControl: () => false,
-      hasWizardEffect: () => false, isStealthed: () => false, canCharacterSeeMonster: () => true,
+      hasWizardEffect: () => false, isStealthed: () => false, canCharacterSeeMonster: () => true, canMonsterSeeCharacter: () => true,
       protectionDisadvantage: () => false, isInvisible: () => false, transformationAttackDisadvantage: () => false,
       conditionAttackMode: () => ({}), getMonsterDistanceToCharacter: () => 1,
       rollCheck: () => ({ roll: hit ? 19 : 2, modifier: 0, total: hit ? 19 : 2 }),
@@ -66,3 +68,5 @@ for (const name of ['Pirate', 'Beastman']) for (const hit of [false, true]) {
     assert.equal(context.applyMonsterAttack(oldMonster, oldTarget, attack), '');
   });
 }
+
+const createRuntimeContext=(globals,...options)=>vm.createContext({...seaAbilities,monsterAttackDamageSource,...globals},...options);

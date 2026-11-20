@@ -1,3 +1,16 @@
+import {printedEquipmentUnitValue} from './treasure.js';
+import {dropFromCeiling} from './ceiling-movement.js';
+import {monsterAttackDamageSource} from './monster-attacks.js';
+import {movementSpentSoFar,reconcileMovementBudget} from './combat-rules.js';
+import {ceilingMovementView} from './water-rules.js';
+import {holySparkActive,advanceSeaMonsterEffects} from './sea-monster-abilities.js';
+import {dismissSummon} from './magic-effect-registry.js';
+import {waterHabitat} from './water-habitats.js';
+import {isOnCeiling,willUseCeiling,commitWaterMovement,quenchImmersedEffects,modeMovementSquares} from './water-rules.js';
+import { recordAutosaveStep, createAutosaveCoordinator } from './autosave.js';
+import { saveAutosave, restoreAutosaveRoom } from './persistence.js';
+import { characterViewSignature } from './character-view-cache.js';
+import { serializeExplorationMemory, hydrateExplorationMemory } from './exploration-memory.js';
 import { DEFAULT_LIGHT_RADIUS, MAX_SEARCH_MODIFIER, MIN_SEARCH_MODIFIER, TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
 import { loadLocalJson } from './data-loader.js';
 import { formatRulesMessage } from './rules-message.js';
@@ -91,7 +104,7 @@ import { castMagicMissile, chooseMagicMissile, fireMagicMissile, dismissMagicMis
 import { castLight, resolveLight, LIGHT_TARGET_PROMPT } from './light-spell.js';
 import { applyBurningHands, castBurningHands, chooseBurningHands, releaseBurningHands } from './burning-hands.js';
 import { ATTACK_RANGES, OFFENSIVE_SPELLS, canTargetAtRange, withinTargetRange, hasReadyOffensiveSpell, pendingSpellAllowsCommand, planClickMovement } from './targeting.js';
-import { movementStepCost, WATER_STEP_DURATION_MS } from './terrain-movement.js';
+import { movementStepCost, WATER_STEP_DURATION_MS, isSlowWaterTile } from './terrain-movement.js';
 import { isFloatingDisc, FLOATING_DISC_COLOR, floatingDiscSlotsAvailable, followFloatingDiscs, advanceFloatingDiscTime } from './floating-disc.js';
 import { isInvisible, isStealthed, isHiddenMonster, neverSurprised, activateHalflingInvisibility, revealAfterOffense,
   advanceConcealmentRounds, updateMonsterStealth, surpriseParticipants, attemptsMonsterStealth, isDuergar, makeInvisible } from './concealment.js';
@@ -122,14 +135,14 @@ import { removeAffliction, blockedByAffliction, monsterControl, markAfflictedTur
 import { PRIEST_TIER_TWO_SPELLS, castPriestTierTwoSpell, resolvePriestTierTwoSpell,
   isPriestTierTwoFocus, maintainPriestTierTwoFocus, cleanupPriestTierTwoFocus, advancePriestTierTwoRounds,
   cleansingWeaponDice, priestTierTwoPresentation } from './priest-tier-two.js';
-import { queryThiefStealthAwareness } from './stealth-awareness.js';
+import { queryThiefStealthAwareness, proximityStealthObservers } from './stealth-awareness.js';
 import { auguryAssessment, zoneTruthAnswer } from './divination.js';
 import { beginLuckEvent, captureLuckChange, finishLuckEvent, checkLuckEvent, consumeLuck, grantLuckToken, isLuckResolution } from './luck.js';
 import { isTierTwoFocus, maintainTierTwoFocus, cleanupWizardTierTwoFocus, resolveDetectThoughtsResistance, detectThoughtsModifiers } from './wizard-tier-two-focus.js';
 import { syncTransformationEffects, advanceTransformationRounds, maintainLevitationFocus, transformationAttackOptions, transformationAttackDisadvantage, transformationMovementRules, interceptMirrorImageHit, hasAlterSelfFeature, validateMistyStepDestination, spendClawAttack, remainingClawAttacks } from './transformation-spells.js';
 import { syncAreaSpellConditions, advanceAreaSpells, areaSpellPlacement, silenceBlocksAction, silenceStealthSuccess, noiseIsSilenced, isRestrainedByWeb, escapeWeb, igniteWebsAt } from './area-spells.js';
 import { initializeDisguises, concealedMimic, isDoppelganger, displayMonsterName, buildMonsterCompanion,
-  recordCompanionDamage, companionLeaves, archiveSlainCharacter, dropCompanionGear, concealedAnimatedArmor,
+  recordCompanionDamage, companionLeaves, archiveSlainCharacter, dropCompanionGear, concealedAnimatedArmor, syncCompanionCoinInventory, monsterInventoryFromCharacter,
   updateAnimatedArmorDisguises, shouldAnimatedArmorWait, animatedArmorCanEnter, planWanderingArmorRetreat, nativeGear, nativeAttackLines, ensureMonsterGear, transferredMonsterGear } from './companions.js';
 import { initializeMorale, processMorale, automaticallyHostile, reactionSpeaker, resolveReaction, suspiciousProvoked, monsterScore, isAnimalMonster, creatureLanguages } from './encounters.js';
 import { advanceWizardTime, hasWizardEffect, isLightSuppressedAt, processWizardTurn, spellLockRemaining, SPELL_ROUND_MS, wizardCastingMode, rollWizardMishaps, selectedSpellCastingAdvantage } from './wizard-mishaps.js';
@@ -169,15 +182,15 @@ import { animatedDeadInitiativeCharacters, animatedDeadPlayerEntries, insertAnim
 import { portalHeld, forceHeldDoor, advancePortalRounds } from './control-spells.js';
 import { findPursuitStep, planFiringPosition, planDarkReposition } from './pursuit.js';
 import { parseMonsterAttack, monsterAttackSegments, monsterAttackSequence } from './monster-attacks.js';
-import { monsterIntelligence, selectMonsterAiTarget, planMonsterCover } from './monster-ai.js';
-import { isMonsterCurrentlyVisible, isFeatureCurrentlyVisible } from './monster-perception.js';
+import { planStealthApproach, monsterIntelligence, selectMonsterAiTarget, planMonsterCover } from './monster-ai.js';
+import { isMonsterCurrentlyVisible, isFeatureCurrentlyVisible, isCreatureLocationKnown, monsterHearsTarget, refreshMonsterAwareness } from './monster-perception.js';
 import { resetBurningLights, releaseUnequippedTorches, burningTorchCount, extinguishTorches } from './light-lifecycle.js';
 import { stealableGear, selectStealTarget, takeStolenItem, validStealTarget, findStealTarget } from './thievery.js';
 import { rollTextSegments, damageRollSegments, checkHistoryPresentation, reactionHistorySegments, burningHandsHistorySegments, historyMonsterColor } from './roll-history.js';
 import { restTourFrame } from './rest-scene.js';
 import { unawareReason, backstabMultiplier } from './backstab.js';
 import { createTalentMagicItem } from './talent-magic.js';
-import { elementalDamage } from './elemental-effects.js';
+import { elementalDamage, elementalWeaponDamage } from './elemental-effects.js';
 import { isDarkvisionCharacter, companionEquipmentClass } from './darkvision.js';
 import { markMonsterCorrectlyGuessed, shouldRepositionAfterDarkGuess } from './monster-perception.js';
 import { awardExperience, canLevelUp, beginLevelUp, xpTarget, advancementOptions, resolveAdvancement, classAttackBonus, masteryTargets, classArmorBonus,
@@ -377,6 +390,29 @@ let multiplayerRefreshInFlight = false;
 let lastRestHeartbeatAt = 0;
 let multiplayerAutoJoinAttempted = false;
 let accountSession = { authenticated: false };
+let automaticSaveCoordinator=null;
+let serverAutosaveReasons = new Set();
+let serverCountsCommandedSteps = true;
+let serverAutosaveSnapshot = null;
+function requestAutomaticSave(reason) {
+  if(SERVER_RUNTIME){serverAutosaveReasons.add(reason);if(reason==="combat")serverAutosaveSnapshot=serializeDungeonState(state);return;}
+  if(isSharedRoom())return;
+  const snapshot=reason==="combat"?serializeDungeonState(state):undefined;
+  queueMicrotask(()=>{
+    automaticSaveCoordinator ||= createAutosaveCoordinator({
+      canSave:()=>accountSession.authenticated && !isSharedRoom() && Boolean(state),
+      getSnapshot:()=>serializeDungeonState(state),write:saveAutosave,
+      onError:()=>{const e=document.getElementById('autosave-status');if(e){e.hidden=false;e.textContent='Autosave could not finish. Use Save / Load to save or retry.';}},
+      onSaved:()=>{const e=document.getElementById('autosave-status');if(e){e.hidden=false;e.textContent='Autosaved.';}}
+    });
+    void automaticSaveCoordinator.request(reason,snapshot);
+  });
+}
+function recordCommandedMovement() {
+  if(SERVER_RUNTIME && !serverCountsCommandedSteps)return;
+  if(recordAutosaveStep(state))requestAutomaticSave('steps');
+}
+
 let saveMenus = null;
 
 function getSaveMenus() {
@@ -452,7 +488,7 @@ async function travelDungeon(direction) {
     loadShadowdarkContent(), loadRulesData(), loadOrganicAssets(), loadInnerWallAssets(), loadTrapTable(),
     loadMonsterTableForLevel(level), loadBossMonsterTableForLevel(level), ensureSpellLibraryLoaded()
   ]);
-  const next = buildNextLevelState(state, { direction, seed: createRandomDungeonSeed(), generationOptions: {
+  const next = buildNextLevelState(state, { direction, regenerateOnAscent: !SERVER_RUNTIME && !accountSession.authenticated && !isSharedRoom(), seed: createRandomDungeonSeed(), generationOptions: {
     partySize: state.characters.length,
     monsterTable: monsters, bossMonsterTable: bosses, trapTable: traps, contentCatalog: content, rulesData: rules,
     spells: library.spells, organicAssets: organic, innerWallAssets: inner
@@ -467,6 +503,7 @@ async function travelDungeon(direction) {
     normalizeCharacterState(state); ensureCombatState(); syncAllCharacterEquipmentDerivedStats(); syncPlayerToActiveCharacter();
     recomputeVisibility(state); markRunDirty();
     if (!SERVER_RUNTIME) { resetFloorUi(); ui.levelInput.value = state.level; ui.seedInput.value = state.seed; setupCanvasLayers(state); updatePanels(); render(); }
+    requestAutomaticSave('stairs');
     setStatus(`${direction === 'up' ? 'Ascended' : 'Descended'} to dungeon level ${state.level}.`);
     if (!SERVER_RUNTIME) { processMonsterVisibilityChange(); updatePanels(); render(); }
   } catch (error) {
@@ -813,6 +850,7 @@ function applyViewportScale(nextScale, anchor = null) {
   ui.mapHost.style.marginRight = "";
   ui.mapHost.style.marginBottom = "";
   commitViewportTransform();
+  scheduleViewportPaint();
 }
 
 function zoomMapBy(multiplier) {
@@ -821,6 +859,7 @@ function zoomMapBy(multiplier) {
   }
   const panel = ui.mapHost.parentElement;
   applyViewportScale(viewport.scale * multiplier, getMapViewCenter(panel));
+  scheduleViewportPaint();
 }
 
 let statusPrivateCharacterId = null;
@@ -937,7 +976,7 @@ function updateCombatUi() {
     const actor = state.characters.find(character => character.id === entry.id);
     ui.combatPanel.style.setProperty('--turn-color', getCharacterColorValue(actor));
     const detail = document.createElement("div");
-    detail.textContent = `Move ${combat.movementRemaining}/${combat.movementBudget ?? characterMovementBudget(actor)}. Action ${combat.actionUsed ? "used" : "ready"}.`;
+    detail.textContent = `Move ${combat.movementRemaining}/${combat.movementBudget ?? characterMovementBudget(actor,state)}. Action ${combat.actionUsed ? "used" : "ready"}.`;
     ui.combatPanel.append(detail);
   }
 }
@@ -1241,6 +1280,7 @@ function processIllusionContact(world, monster) {
   return touched;
 }
 
+let latestVisibilityResult = null;
 function recomputeVisibility(world) {
   if ([...(world.characters || []), ...(world.entities || [])].some(object => object.illusion)) {
     cleanupIllusions(world);
@@ -1249,7 +1289,30 @@ function recomputeVisibility(world) {
   const results = syncIllusionStealth(world);
   if (world === state) for (const result of results) pushDiceHistory('Stealth', result.message, result.actorId,
     result.check ? rollTextSegments(result.message, result.check) : null);
-  return recomputeDungeonVisibility(world);
+  for(const creature of [...(world.characters || []),...(world.entities || [])])if(creature.darkGuess &&
+      (creature.darkGuess.x!==creature.x || creature.darkGuess.y!==creature.y || (creature.darkGuess.routeId || '')!==routeOf(world,creature))) delete creature.darkGuess;
+  const polygons = recomputeDungeonVisibility(world);
+  for(const monster of world.entities || []) if(monster.type==='monster' && !monster.defeated && !monster.leftPeacefully)
+    refreshMonsterAwareness(world,monster,{canSee:target=>!isStealthed(target) && !isSleeping(monster,world) && !monster.conditions?.blind &&
+      Math.hypot(monster.x-target.x,monster.y-target.y)<=12 && sameRoute(world,monster,target) &&
+      hasLineOfSightFrom(world,monster.x,monster.y,target.x,target.y,{source:monster,target})});
+  latestVisibilityResult = { world, polygons };
+  return polygons;
+}
+
+function dungeonViewBounds() {
+  const panel=ui.mapHost.parentElement;
+  if (!panel?.clientWidth || !panel?.clientHeight || !viewport.scale) return null;
+  const margin=TILE_SIZE_PX;
+  const x=Math.max(0,-viewport.panX/viewport.scale-margin), y=Math.max(0,-viewport.panY/viewport.scale-margin);
+  const right=Math.min(state.map.width*TILE_SIZE_PX,(panel.clientWidth-viewport.panX)/viewport.scale+margin);
+  const bottom=Math.min(state.map.height*TILE_SIZE_PX,(panel.clientHeight-viewport.panY)/viewport.scale+margin);
+  return {x,y,width:Math.max(0,right-x),height:Math.max(0,bottom-y)};
+}
+let viewportPaintFrame=null;
+function scheduleViewportPaint() {
+  if (SERVER_RUNTIME || viewportPaintFrame || !state || !layers) return;
+  viewportPaintFrame=requestAnimationFrame(()=>{viewportPaintFrame=null;render({motionOnly:true});});
 }
 
 function render(options = {}) {
@@ -1269,6 +1332,7 @@ function render(options = {}) {
     motionOnly: options.motionOnly === true,
     discoveryPulse: discoveryPulse && { ...discoveryPulse, progress: Math.max(0, (now - discoveryPulse.startedAt) / 650) },
     lightPolygons: options.lightPolygons,
+    viewBounds: dungeonViewBounds(),
     targeting: currentTargetingOverlay(), areaPreview: tierThreePreview || areaPreview, restNow: now, restSceneVisible: restVisible
   });
   if (caster) { [caster.visualX, caster.visualY] = visual; }
@@ -1580,7 +1644,7 @@ function performRevive(character) {
   if (check.roll === 20) {
     setCharacterHp(character, 1);
     character.conditions ||= {}; character.conditions.prone = true;
-    if (isCombatActive()) state.combat.movementRemaining = characterMovementBudget(character);
+    if (isCombatActive()) state.combat.movementRemaining = characterMovementBudget(character,state);
   } else decrementCharacterDyingRounds(character);
   syncCharacterDyingRaw(character);
   if (isCombatActive()) state.combat.actionUsed = check.roll !== 20;
@@ -1589,10 +1653,18 @@ function performRevive(character) {
   checkCombatEnd(); updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
 }
 
+function performDropFromCeiling(character){
+ if(sendSharedCommand('drop_ceiling',{},character))return;
+ if(!canControlCharacter(character)||!isCharacterAbleToAct(character)||isCombatActive()&&!isCurrentCharacterTurn(character))return;
+ const result=dropFromCeiling(state,character);if(!result)return;
+ if(isCombatActive())reconcileMovementBudget(state.combat,characterMovementBudget(character,state));
+ recomputeVisibility(state);markRunDirty();setStatus(result.message);updatePanels();render();
+}
+
 function performStand(character) {
   if (sendSharedCommand('stand', {}, character)) return;
   if (!canControlCharacter(character) || !isCharacterAbleToAct(character) || isCombatActive() && !isCurrentCharacterTurn(character)) return;
-  const budget = characterMovementBudget(character);
+  const budget = characterMovementBudget(character,state);
   const remaining = standCreature(character, budget, isCombatActive() ? state.combat.movementRemaining : budget, state);
   if (isCombatActive()) state.combat.movementRemaining = remaining;
   markRunDirty(); setStatus(`${character.name} stands up.`); updatePanels(); render();
@@ -1605,7 +1677,7 @@ function autoStandWokenFollowers() {
     const wokeAt = character.conditions?.wokeAt;
     if (!Number.isFinite(wokeAt) || now - wokeAt < 5000 || !followerIds.has(character.id) ||
         !isProne(character, state) || !isCharacterAbleToAct(character) || !canControlCharacter(character) || character.pendingSpell) continue;
-    if (isCombatActive() && state.combat.movementRemaining < Math.ceil(characterMovementBudget(character) / 2)) continue;
+    if (isCombatActive() && state.combat.movementRemaining < Math.ceil(characterMovementBudget(character,state) / 2)) continue;
     performStand(character);
     if (isSharedRoom()) break;
   }
@@ -1654,8 +1726,12 @@ function canUseCharacterInventory(character) {
   return Boolean(character) && !isIllusionCreature(character) && !isIncorporeal(character) && !isGaseousForm(character) && !isTied(inventoryController(character)) && isCharacterAbleToAct(inventoryController(character));
 }
 
+function isCharacterAttackableByMonster(character) {
+  return character && !isFloatingDisc(character) && !isGaseousForm(character) && !isCharacterDead(character) &&
+    !vampireInTorpor(character) && hasCharacterMapPosition(character);
+}
 function isCharacterTargetableByMonster(character) {
-  return character && !isFloatingDisc(character) && !isGaseousForm(character) && !isCharacterDead(character) && !vampireInTorpor(character) && !isStealthed(character) && hasCharacterMapPosition(character);
+  return isCharacterAttackableByMonster(character) && !isStealthed(character);
 }
 
 function getCombatCharacters() {
@@ -1673,7 +1749,8 @@ function canMonsterSeeCharacter(monster, character) {
   return isLiveMonster(monster) &&
     !isSleeping(monster, state) && !monster.conditions?.blind &&
     isCharacterTargetableByMonster(character) &&
-    sameRoute(state, monster, character) && (isIncorporeal(monster) || creatureSight(monster, character));
+    sameRoute(state, monster, character) && Math.hypot(character.x-monster.x,character.y-monster.y)<=12 &&
+    creatureSight(monster, character);
 }
 
 function creatureSight(source, target) {
@@ -1684,7 +1761,8 @@ function canCharacterSeeMonster(character, monster, { includeInvisible = false }
   return !isFloatingDisc(character) && isCharacterAbleToAct(character) &&
     hasCharacterMapPosition(character) &&
     isLiveMonster(monster) &&
-    (includeInvisible || !isInvisible(monster) || character.magicDetectedIds?.includes(monster.id)) && isMonsterCurrentlyVisible(state, monster, { viewer: character });
+    (includeInvisible || !isStealthed(monster) || character.magicDetectedIds?.includes(monster.id)) &&
+    isMonsterCurrentlyVisible(state, monster, { viewer: character });
 }
 
 function ensureCombatState() {
@@ -2057,6 +2135,7 @@ function beginCombat(reason = "Combat begins.", { initiator = null, extraMonster
   for (const character of state.characters) if (hasReadyOffensiveSpell(character)) character.openingSpellActionSpent = true;
   pushCombatLog(reason);
   announceCombatBegins();
+  requestAutomaticSave('combat');
   startCurrentCombatTurn();
   return true;
 }
@@ -2126,14 +2205,15 @@ function checkCombatEnd() {
     return true;
   }
   const anyMonsterCanSee = possession || supernaturalHostile || liveCombatMonsters.some(monster => livingCharacters.some(character =>
-    sameRoute(state, monster, character) && (isIncorporeal(monster) || creatureSight(monster, character))));
-  const pursuit = !anyMonsterCanSee && liveCombatMonsters.some(monster => !isSleeping(monster, state) && livingCharacters.some(character =>
-    getMonsterDistanceToCharacter(monster, character) <= 12 && findPursuitStep(state, monster, character, {
-      canStep: (x, y, nx, ny, point) => canMoveBetweenTiles(state, x, y, nx, ny, { ignoreClosedDoors: true, routeId: point.routeId }).ok,
+    canMonsterSeeCharacter(monster,character) || monsterHearsTarget(state,monster,character)));
+  const partySeesOpponent = liveCombatMonsters.some(monster => livingCharacters.some(character => canCharacterSeeMonster(character, monster)));
+  const pursuit = !anyMonsterCanSee && liveCombatMonsters.some(monster => !isSleeping(monster, state) && Object.values(monster.knownCharacterSquares || {}).some(character =>
+    findPursuitStep(state, monster, character, {
+      canStep: (x, y, nx, ny, point) => monsterCanPlanStep(monster, x, y, nx, ny, { routeId: point.routeId }),
       canAttackFrom: (x, y) => Math.max(Math.abs(x - character.x), Math.abs(y - character.y)) <= 1,
       maxNodes: 2048
     })));
-  if (!anyMonsterCanSee && !pursuit) {
+  if (!anyMonsterCanSee && !partySeesOpponent && !pursuit) {
     endCombat("Combat ends. The monsters have lost line of sight.");
     return true;
   }
@@ -2152,7 +2232,7 @@ function detectAdditionalCombatMonsters() {
   const candidates = getLiveMonsters().filter(monster => !combatMonsterSet.has(monster.id) &&
     (monster.hostile || ['combat','hostile'].includes(monster.attitude)) && !isHiddenMonster(monster));
   const joining = candidates.filter((monster) => {
-    if ((state.characters || []).some((character) => canMonsterSeeCharacter(monster, character))) {
+    if ((state.characters || []).some((character) => canMonsterSeeCharacter(monster, character) || !isStealthed(monster) && monsterHearsTarget(state,monster,character))) {
       return true;
     }
     return combatMonsters.some((combatMonster) => (
@@ -2207,8 +2287,9 @@ function startCurrentCombatTurn() {
   syncPlayerToActiveCharacter();
   if (character.conditions?.sinkhole) character.conditions.sinkholeMovementSpent = 0;
   delete state.animatedDeadTurn;
-  combat.movementBudget = characterMovementBudget(character);
+  combat.movementBudget = characterMovementBudget(character,state);
   combat.movementRemaining = combat.movementBudget;
+  combat.movementSpent=0;
   combat.lastUnoccupiedPosition = { x: Number(character.x), y: Number(character.y), roomId: character.roomId, routeId: routeOf(state, character) };
   markAfflictedTurn(character);
   if (character.conditions?.lycanthropy) character.conditions.lycanthropy.turnStrikes = 0;
@@ -2269,6 +2350,7 @@ function advanceCombatTurn() {
   }
   const combat = ensureCombatState();
   const previousEntry = getCurrentCombatEntry();
+  revealNearbyStealthAtTurnEnd(previousEntry?.type==='monster'?getMonsterById(previousEntry.id):state.characters.find(member=>member.id===previousEntry?.id));
   const previous = state.characters.find(character => character.id === getCurrentCombatEntry()?.id);
   if (hasReadyOffensiveSpell(previous)) {
     previous.pendingSpell = null;
@@ -2449,7 +2531,10 @@ function resolveSteal(character, { targetId, index, cancel = false } = {}) {
     }
     else {
       const { item, monster } = takeStolenItem(state, character, index);
-      if (getCharacterGearFreeSlots(character) >= getPickupSlotCost(character, item)) character.gear.push(item);
+      if (item.coinBreakdown) {
+        const pile = addDroppedGearPile(item, character);
+        collectLoot(state, pile.id);
+      } else if (getCharacterGearFreeSlots(character) >= getPickupSlotCost(character, item)) character.gear.push(item);
       else {
         const tile = [[0,-1],[1,0],[0,1],[-1,0],[1,1],[-1,1],[1,-1],[-1,-1]].map(([dx,dy]) => ({ x: character.x + dx, y: character.y + dy }))
           .find(point => canMoveBetweenTiles(state, character.x, character.y, point.x, point.y).ok) || findEquipmentDropTile(character);
@@ -2597,7 +2682,7 @@ function consumeCharacterCombatAction(character, { teleport = false, clawAttack 
 }
 
 function getVisibleMonsterAtTile(x, y) {
-  return getLiveMonsters().find(monster => sameRoute(state, monster, state.player) && Number(monster.x) === x && Number(monster.y) === y && isMonsterCurrentlyVisible(state, monster)) || null;
+  return getLiveMonsters().find(monster => sameRoute(state, monster, state.player) && Number(monster.x) === x && Number(monster.y) === y && (isMonsterCurrentlyVisible(state, monster) || isCreatureLocationKnown(state,monster,{viewer:getActiveCharacter(state)}))) || null;
 }
 
 function consumeWeaponCombatAction(character, attack) {
@@ -2715,13 +2800,14 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
     monster.suspectedIllusionIds = [...new Set([...(monster.suspectedIllusionIds || []), ...character.illusionStealthIds])];
   }
   const advantageReason = unawareReason(character, monster, state);
+  const unseenAttacker = !partyTarget && !canMonsterSeeCharacter(monster, character);
   const backstab = advantageReason ? getBackstabMultiplier(character) : 0;
   const surprisedMimic=concealedMimic(monster);
   if(surprisedMimic)monster.disguiseRevealed=true;
   const wardDisadvantage = character.conditions?.blind || character.conditions?.screech || character.conditions?.terrify ||
-    character.conditions?.carrionStench || character.conditions?.stinkBomb || protectionDisadvantage(state, character) || (isInvisible(monster) && !character.magicDetectedIds?.includes(monster.id)) ||
-    !isDarkvisionCharacter(character) && (blindSquare || !isTileIlluminated(state, monster.x, monster.y, monster));
-  if (blindSquare) markMonsterCorrectlyGuessed(monster);
+    character.conditions?.carrionStench || character.conditions?.stinkBomb || protectionDisadvantage(state, character) || isStealthed(monster) ||
+    blindSquare || !isDarkvisionCharacter(character) && !isTileIlluminated(state, monster.x, monster.y, monster);
+  if (blindSquare) markMonsterCorrectlyGuessed(monster,state);
   const item = heldWeapon;
   const baseRanged = Boolean(profile?.ammo);
   const ranged = baseRanged || thrown;
@@ -2737,7 +2823,7 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
   const thoughts = detectThoughtsModifiers(state, character, monster);
   const extraBonus = magicBonus(item) - revealedMagicBonus(item) + magicBonus(ammo) + thoughts.attack;
   const roll = rollCheck((combatAttack.attack.bonus || 0) + extraBonus + modeAttackBonus, conditionAttackMode(monster, {
-    attacker: character, advantage: Boolean(advantageReason), disadvantage: wardDisadvantage, melee: combatAttack.range.maxRange <= 1 || !ammoType && distance <= 1, close: distance <= 1, state }));
+    attacker: character, advantage: Boolean(advantageReason) || unseenAttacker, disadvantage: wardDisadvantage, melee: combatAttack.range.maxRange <= 1 || !ammoType && distance <= 1, close: distance <= 1, state }));
   if (character.conditions?.stinkBomb) delete character.conditions.stinkBomb;
   if (ammo) {
     const remaining = getGearUnits(ammo) - 1;
@@ -2789,9 +2875,10 @@ function resolveCharacterAttackAgainstMonster(character, combatAttack, monster, 
       if (giantStrengthActive(character) && (combatAttack.range.maxRange === 1 || (!ammoType && distance <= 1))) { damage.total *= 2; damage.multiplier *= 2; radiantTotal *= 2; elementalTotal *= 2; }
       const damageMultiplier = attackDamageMultiplier(monster);
       damage.total *= damageMultiplier; damage.multiplier *= damageMultiplier; radiantTotal *= damageMultiplier; elementalTotal *= damageMultiplier;
-      const resistance = elementalDamage(monster, damage.total - radiantTotal, !isMagicSuppressed(item) && item?.magic?.element || '');
-      if (resistance.immunity) { damage.unresistedTotal = damage.total; damage.total -= elementalTotal; }
-      else if (resistance.resistance) { damage.unresistedTotal = damage.total; damage.resistance = resistance.resistance; damage.total = resistance.total + radiantTotal; }
+      const resistance = elementalWeaponDamage(monster,
+        {physical:damage.total-elementalTotal-radiantTotal,elemental:elementalTotal,radiant:radiantTotal},
+        !isMagicSuppressed(item)&&item?.magic?.element||'',state);
+      if(resistance.total!==damage.total){damage.unresistedTotal=damage.total;damage.resistance=resistance.resistance;damage.water=resistance.water;damage.total=resistance.total;}
       if (!supernaturalAttackCanDamage(monster, character, {
         silver: silverItem(item) || silverItem(ammo),
         magical: Boolean(item?.magic && !isMagicSuppressed(item) || ammo?.magic && !isMagicSuppressed(ammo) || elementalTotal || radiantTotal || item?.holyWeapon)
@@ -2920,6 +3007,8 @@ function openVampireStakePrompt(character, monster) {
 
 function attackClickedMonster(monster) {
   const character = getActiveCharacter(state);
+  if (isStealthed(monster) && isCreatureLocationKnown(state, monster, { viewer: character }) &&
+      !character?.magicDetectedIds?.includes(monster.id)) return attackEmptyTile(character, monster.x, monster.y);
   return resolveCharacterAttackAgainstMonster(character, targetingMode?.kind === 'weapon' && targetingMode.characterId === character?.id
     ? getCombatAttackFromParsedAttack(targetingMode.attack) : getFirstCombatAttack(character), monster);
 }
@@ -2938,10 +3027,12 @@ function attackEmptyTile(character, x, y, index = null) {
   if (isIllusionCreature(character)) { const result = illusionAttack(state, character); if (isCombatActive()) state.combat.actionUsed = true; setStatus(result.message); return result; }
   const attack = selectedWeaponAttack(character, index);
   if (!attack || !Number.isInteger(x) || !Number.isInteger(y) || !canTargetAtRange(state, character, { x, y, routeId: routeOf(state, character) }, attack.range.maxRange, { requireLight: false })) throw new Error('That square is outside attack range.');
-  if (state.characters.some(member => member.x === x && member.y === y && sameRoute(state, member, character)) || getDoorAt(state, x, y)) throw new Error('Choose an empty square.');
+  if(character.x===x && character.y===y)throw new Error('You cannot attack yourself.');
+  const partyOccupant=state.characters.find(member=>member.id!==character.id && member.x===x && member.y===y && sameRoute(state,member,character));
+  const hidden = partyOccupant || getLiveMonsters().find(monster => monster.x === x && monster.y === y && sameRoute(state, character, monster));
+  if (partyOccupant && !isStealthed(partyOccupant) && !character.conditions?.blind || getDoorAt(state,x,y) && !hidden) throw new Error('Choose an empty square.');
   const attackIndex = getRenderableAttacks(character).findIndex(text => parseAttackText(text)?.name === attack.attack.name);
   if (sendSharedCommand('attack_empty', { x, y, attack_index: attackIndex }, character)) return;
-  const hidden = getLiveMonsters().find(monster => monster.x === x && monster.y === y && sameRoute(state, character, monster));
   if (hidden) return resolveCharacterAttackAgainstMonster(character, attack, hidden, { blindSquare: !isMonsterCurrentlyVisible(state, hidden) || concealedMimic(hidden) });
   if (!isAttackEquipped(character, attack.attack)) throw new Error('Choose an equipped attack.');
   const item = character.gear[getAttackGearIndex(character, attack.attack)];
@@ -2988,7 +3079,10 @@ function attackEmptyTile(character, x, y, index = null) {
   const parts = attackRollSegments({ character, monster: { name: feature?.name || 'nothing', ...(feature ? { ac: 10 } : {}) }, weapon: attack.attack.name, roll, ability,
     abilityModifier: abilityScoreModifier(character.stats?.[ability]), hit, damage: damage?.total, damageRoll: damage,
     magic: revealedMagicBonus(item) + revealedMagicBonus(ammo), hiddenMagic });
-  const message = parts.map(part => part.text).join('');
+  const message = feature ? parts.map(part => part.text).join('') :
+    'Your '+(ammoType === 'arrows' ? 'arrow' : ammoType === 'bolts' ? 'crossbow bolt' : attack.attack.name.toLowerCase())+' misses. This tile is empty.';
+  if(!feature && parts[0]?.rollCard)parts[0].rollCard.summary=message;
+  if (!feature) parts.push({text:' This tile is empty.'});
   pushDiceHistory('Attack', message, character.id, parts); setStatus(message); revealAfterOffense(character);
   finishLuckEvent(state, luck, { succeeded: hit });
   targetingMode = null; dismissedTurnRadius = targetingTurnKey(); markRunDirty(); updatePanels(); render(); scheduleAutoEndTurnIfNeeded();
@@ -3109,14 +3203,53 @@ function applyDamageResultToPanel(roll, sourceLabel, options = {}) {
   setDamageDetailVisibility(false);
 }
 
+
+function canStealthAttackAfterMovement(creature,opponents) {
+  if(!isCharacterAbleToAct(creature) || isSleeping(creature,state))return false;
+  const native=creature.type==='monster';
+  const entry=getCurrentCombatEntry();
+  if(isCombatActive() && (entry?.id!==creature.id || !native && state.combat.actionUsed))return false;
+  const movement=isCombatActive() && !native ? state.combat.movementRemaining :
+    native ? Math.max(0,getMonsterMoveSquares(creature)-(creature.standingMovementCost||0)) : characterMovementBudget(creature,state);
+  const attacks=native ? getMonsterAttackOptions(creature).map(attack=>({range:attack.rangeInfo.maxRange})) :
+    [...new Set([...getRenderableAttacks(creature),...(creature.gear || []).filter(item=>item.equipped).map(item=>buildWeaponAttackText(creature,item)).filter(Boolean)])]
+      .filter(text=>!attackRequiresMissingAmmo(creature,text))
+      .map(text=>getCombatAttackFromParsedAttack(parseAttackText(text),text)).filter(Boolean)
+      .filter(attack=>isAttackEquipped(creature,attack.attack)).map(attack=>({range:attack.range.maxRange}));
+  // A legal guessed-square attack counts as an attack even without current sight.
+  return opponents.some(target=>attacks.some(attack=>planFiringPosition(state,creature,target,{
+    movement,
+    canStep:(fx,fy,x,y,point)=>native ? monsterCanPlanStep(creature,fx,fy,x,y,{forceDoors:false,routeId:point.routeId}) :
+      !characterOccupant(state,x,y,creature.id,{routeId:point.routeId}) &&
+      !getLiveMonsters().some(monster=>monster.x===x && monster.y===y && routeOf(state,monster)===point.routeId) &&
+      canMoveBetweenTiles(state,fx,fy,x,y,{creature,routeId:point.routeId}).ok,
+    stepCost:(x,y)=>movementStepCost(state,x,y,creature),
+    canAttackFrom:(x,y,point)=>sameRoute(state,point,target) && withinTargetRange(point,target,attack.range) &&
+      creatureSight({...creature,...point},target)
+  })));
+}
+
+function revealNearbyStealthAtTurnEnd(creature) {
+  if(!creature)return false;
+  const opponents=creature.type==='monster'?state.characters:getLiveMonsters();
+  if(!proximityStealthObservers(state,creature,opponents).length)return false;
+  if(creature.type==='monster')revealAfterOffense(creature);
+  else setCharacterStealthed(creature,false);
+  markRunDirty();return true;
+}
+
 function syncThiefStealthProximity() {
-  let changed = false;
-  for (const character of state.characters) if (character.stealthed && queryThiefStealthAwareness(state, character).breakStealth) {
-    setCharacterStealthed(character, false);
-    setStatus(`${character.name} is too close to a watching monster to remain hidden.`);
-    changed = true;
+  let changed=false;
+  const creatures=[...state.characters,...getLiveMonsters()];
+  for(const creature of creatures) {
+    if (isCombatActive() && getCurrentCombatEntry()?.id !== creature.id) continue;
+    const opponents=creature.type==='monster'?state.characters:getLiveMonsters();
+    if(!proximityStealthObservers(state,creature,opponents).length || canStealthAttackAfterMovement(creature,opponents))continue;
+    if(creature.type==='monster')revealAfterOffense(creature);
+    else setCharacterStealthed(creature,false);
+    changed=true;
   }
-  if (changed) markRunDirty();
+  if(changed)markRunDirty();
   return changed;
 }
 
@@ -3150,7 +3283,7 @@ function prepareEncounterState() {
   refreshMagicDetection(state);
   for (const character of [...state.characters]) if (character.detectedDoppelganger && character.companion?.kind === 'doppelganger') {
     const monster = { ...structuredClone(character.companion.source), id: character.companion.sourceMonsterId,
-      x: character.x, y: character.y, routeId: routeOf(state, character), roomId: character.roomId, hp: character.hp, gear: character.gear, carriedGear: character.gear,
+      x: character.x, y: character.y, routeId: routeOf(state, character), roomId: character.roomId, hp: character.hp, gear: monsterInventoryFromCharacter(character), carriedGear: monsterInventoryFromCharacter(character),
       disguiseRevealed: true, impersonatedCharacter: null, hostile: true, attitude: 'hostile', attitudeChecked: true };
     state.entities.push(monster);
     state.characters = state.characters.filter(member => member.id !== character.id);
@@ -3204,7 +3337,7 @@ function endCharacterCharm(character, harmed = false) {
   if (character.companion?.kind !== 'charmed') return;
   const monster = { ...structuredClone(character.companion.source), id: character.companion.sourceMonsterId,
     x: character.x, y: character.y, routeId: routeOf(state, character), roomId: character.roomId, hp: character.hp, maxHp: character.maxHitPoints,
-    gear: structuredClone(character.gear), carriedGear: structuredClone(character.gear), defeated: character.dead || character.slain,
+    gear: monsterInventoryFromCharacter(character), carriedGear: monsterInventoryFromCharacter(character), defeated: character.dead || character.slain,
     hostile: harmed, attitude: harmed ? 'hostile' : 'suspicious', attitudeChecked: true };
   delete monster.charm;
   state.characters = state.characters.filter(member => member.id !== character.id);
@@ -3287,6 +3420,7 @@ function settleCompanionsAfterCombat() {
     if(hadRoom){victim.gear=[];victim.gold=0;victim.silver=0;victim.copper=0;victim.raw={...(victim.raw||{}),gear:[],gold:0,silver:0,copper:0};state.characters.push(victim);}
     const character=buildMonsterCompanion(monster,{kind:'doppelganger',controllerId:victim.id,impersonated:monster.impersonatedCharacter});
     if(monster.carriedGear?.length)character.gear=structuredClone(monster.carriedGear);
+    syncCompanionCoinInventory(character);
     state.entities=state.entities.filter(entity=>entity.id!==monster.id);state.characters.push(character);
     normalizeCharacterState(state);ensureCharacterPresentation();if(selected)setActiveCharacter(state,character.id);
   }
@@ -3297,7 +3431,7 @@ function betrayDoppelganger(character) {
   const monster=structuredClone(data.source);
   Object.assign(monster,{id:data.sourceMonsterId,type:'monster',hp:character.hp,maxHp:character.maxHitPoints,
     x:character.x,y:character.y,routeId:routeOf(state,character),roomId:character.roomId,impersonationStarted:false,impersonatedCharacter:null,
-    disguiseRevealed:false,gear:structuredClone(character.gear),carriedGear:structuredClone(character.gear)});
+    disguiseRevealed:false,gear:monsterInventoryFromCharacter(character),carriedGear:monsterInventoryFromCharacter(character)});
   state.characters=state.characters.filter(member=>member.id!==character.id);
   state.entities=state.entities.filter(entity=>entity.id!==monster.id);state.entities.push(monster);
   const target=state.characters.filter(member=>!isFloatingDisc(member)&&!isCharacterDead(member)).sort((a,b)=>
@@ -3330,7 +3464,7 @@ function monsterFiringPosition(monster, target, range, movement, { preferRange =
     canStep: (fromX, fromY, x, y, point) => monsterCanPlanStep(monster, fromX, fromY, x, y, { forceDoors, routeId: point?.routeId }),
     canAttackFrom: (x, y, point) => withinTargetRange({ x, y, routeId: point?.routeId }, target, range) &&
       (isIncorporeal(monster) || creatureSight({ ...monster, x, y, routeId: point?.routeId }, target)),
-    stepCost: (x, y) => isIncorporeal(monster) ? 1 : movementStepCost(state, x, y),
+    stepCost: (x, y) => isIncorporeal(monster) ? 1 : movementStepCost(state, x, y, monster),
     isHidden: (x, y, point) => !isTileVisible(state, x, y, point)
   });
 }
@@ -3346,7 +3480,8 @@ function hiddenMonsterAttackPlan(monster) {
   if (!(isStealthed(monster) || (attemptsMonsterStealth(monster) || isDuergar(monster)) && !monster.stealthState) || isSleeping(monster, state) || concealedMimic(monster) || isDoppelganger(monster) ||
       monster.curious || monster.departing || ['friendly', 'neutral', 'indifferent'].includes(monster.attitude)) return null;
   const target = state.characters.filter(character => isCharacterTargetableByMonster(character) && sameRoute(state, monster, character) &&
-    Math.hypot(character.x - monster.x, character.y - monster.y) <= 14)
+    Math.hypot(character.x - monster.x, character.y - monster.y) <= 12 &&
+    (canMonsterSeeCharacter(monster,character) || monsterHearsTarget(state,monster,character)))
     .sort((a, b) => Math.hypot(a.x - monster.x, a.y - monster.y) - Math.hypot(b.x - monster.x, b.y - monster.y))[0];
   const preference = getMonsterAttackPreference(monster);
   const attack = preference.preferNear ? preference.bestNear : preference.bestClose;
@@ -3375,8 +3510,8 @@ function progressEncounterCreatures(milliseconds) {
   for(const monster of [...getLiveMonsters()]) {
     if (monster.wandering && concealedAnimatedArmor(monster)) {
       const retreat = planWanderingArmorRetreat(state, monster, {
-        movement: Math.max(1, movementStepCost(state, monster.x, monster.y)), isIlluminated: point => isTileIlluminated(state, point.x, point.y, point), hasLineOfSight: creatureSight,
-        stepCost: (x, y) => movementStepCost(state, x, y),
+        movement: Math.max(1, movementStepCost(state, monster.x, monster.y, monster)), isIlluminated: point => isTileIlluminated(state, point.x, point.y, point), hasLineOfSight: creatureSight,
+        stepCost: (x, y) => movementStepCost(state, x, y, monster),
         canStep: (fromX, fromY, x, y, point) => monsterCanPlanStep(monster, fromX, fromY, x, y, { routeId: point.routeId, ignoreArmorLight: true })
       });
       if (retreat?.steps.length) { changed = moveMonsterPlannedStep(monster, retreat.steps[0]) || changed; recomputeVisibility(state); }
@@ -3409,12 +3544,13 @@ function progressEncounterCreatures(milliseconds) {
     const ambush = hiddenMonsterAttackPlan(monster);
     if (ambush) {
       if (beginHiddenMonsterAmbush(monster, ambush)) { changed = true; break; }
-      const step = findPursuitStep(state, monster, ambush.target, {
-        canStep: (fromX, fromY, x, y, point) => monsterCanPlanStep(monster, fromX, fromY, x, y, { forceDoors: false, routeId: point.routeId }),
-        canAttackFrom: (x, y, target, point) => withinTargetRange({ x, y }, ambush.target, ambush.attack.rangeInfo.maxRange) &&
-          sameRoute(state, point, ambush.target) && (isIncorporeal(monster) || creatureSight(point, ambush.target)),
-        maxNodes: 2048
+      const staging=planStealthApproach(state,monster,ambush.target,{
+        movement:getMonsterMoveSquares(monster),observers:state.characters.filter(character=>!isStealthed(character)),
+        canStep:(fx,fy,x,y,point)=>monsterCanPlanStep(monster,fx,fy,x,y,{forceDoors:false,routeId:point.routeId}),
+        canAttackFrom:(x,y,point)=>withinTargetRange(point,ambush.target,ambush.attack.rangeInfo.maxRange) && creatureSight(point,ambush.target),
+        stepCost:(x,y)=>movementStepCost(state,x,y,monster)
       });
+      const step=staging?.steps[0];
       if (step) {
         const door = getDoorBetween(state, monster.x, monster.y, step.x, step.y) || getDoorAt(state, step.x, step.y);
         if (!isIncorporeal(monster) && door && door.doorState === 'closed' && !isMagicallyLocked(door)) setDoorState(door, 'open');
@@ -3450,6 +3586,11 @@ function processMonsterSightings() {
       if (nearby && sameRoute(state, monster, nearby) && !creatureSight(monster, nearby)) {
         monster.conditions ||= {}; monster.conditions.incorporeal = true;
       }
+    }
+    const hearingHostile=(monster.hostile || ['hostile','combat'].includes(monster.attitude) || automaticallyHostile(monster)) &&
+      state.characters.some(character=>monsterHearsTarget(state,monster,character));
+    if(hearingHostile && !isStealthed(monster)) {
+      combatStarted=beginCombat('Combat begins.',{extraMonsterIds:[monster.id]});break;
     }
     if (isStealthed(monster)) {
       if (beginHiddenMonsterAmbush(monster)) { combatStarted = true; break; }
@@ -3632,11 +3773,12 @@ function getAverageDamage(expression) {
 }
 
 function getMonsterMoveSquares(monster) {
+  if(isOnCeiling(monster))return modeMovementSquares(monster,"climb",6);
   const movement = String(monster?.movement || monster?.mv || monster?.["**MV**"] || "").toLowerCase();
-  if (/triple\s+near/.test(movement)) {
+  if (/triple\s*near/.test(movement)) {
     return 18;
   }
-  if (/double\s+near/.test(movement)) {
+  if (/double\s*near/.test(movement)) {
     return 12;
   }
   if (/\bnear\b/.test(movement)) {
@@ -3656,8 +3798,9 @@ function getMonsterMoveSquares(monster) {
 }
 
 function isMonsterMoveOccupied(monster, x, y, routeId = routeStep(state, monster, { x, y })?.routeId ?? routeOf(state, monster)) {
-  return (state.characters || []).some((character) => routeOf(state, character) === routeId && !isFloatingDisc(character) && !isIllusionCreature(character) && !isCharacterDead(character) && hasCharacterMapPosition(character) && Number(character.x) === x && Number(character.y) === y) ||
-    getLiveMonsters().some((candidate) => routeOf(state, candidate) === routeId && candidate.id !== monster.id && Number(candidate.x) === x && Number(candidate.y) === y);
+  const ceiling=willUseCeiling(state,monster,monster,{x,y});
+  return (state.characters || []).some((character) => isOnCeiling(character)===ceiling && routeOf(state, character) === routeId && !isFloatingDisc(character) && !isIllusionCreature(character) && !isCharacterDead(character) && hasCharacterMapPosition(character) && Number(character.x) === x && Number(character.y) === y) ||
+    getLiveMonsters().some((candidate) => isOnCeiling(candidate)===ceiling && routeOf(state, candidate) === routeId && candidate.id !== monster.id && Number(candidate.x) === x && Number(candidate.y) === y);
 }
 
 function canMonsterStep(monster, x, y) {
@@ -3696,6 +3839,7 @@ function moveMonsterOneStep(monster, target, mode) {
   candidates.sort((a, b) => {
     const distanceSort = mode === "away" ? b.distance - a.distance : a.distance - b.distance;
     if (distanceSort) return distanceSort;
+    if(waterHabitat(monster).prefersWater){const wet=Number(isSlowWaterTile(state,b.x,b.y))-Number(isSlowWaterTile(state,a.x,a.y));if(wet)return wet;}
     return b.straightness - a.straightness;
   });
   const currentDistance = getMonsterDistanceToCharacter(monster, target);
@@ -3703,6 +3847,7 @@ function moveMonsterOneStep(monster, target, mode) {
   if (!next) {
     return false;
   }
+  commitWaterMovement(state,monster,monster,next);
   monster.routeId = routeStep(state, monster, next)?.routeId ?? routeOf(state, monster);
   monster.x = next.x;
   monster.y = next.y;
@@ -3712,7 +3857,7 @@ function moveMonsterOneStep(monster, target, mode) {
 
 function moveMonsterPlannedStep(monster, step) {
   const next = routeStep(state, monster, step);
-  if (!next) return false;
+  if (!next || !canMoveBetweenTiles(state,monster.x,monster.y,step.x,step.y,{creature:monster,routeId:routeOf(state,monster),ignoreClosedDoors:true}).ok) return false;
   if (monster.conditions?.sinkhole && !isIncorporeal(monster)) return false;
   const door = getDoorBetween(state, monster.x, monster.y, step.x, step.y) || getDoorAt(state, step.x, step.y);
   if (!isIncorporeal(monster) && door && !['open', 'gone'].includes(door.doorState)) {
@@ -3728,6 +3873,7 @@ function moveMonsterPlannedStep(monster, step) {
     } else setDoorState(door, 'open');
     recomputeVisibility(state);
   }
+  commitWaterMovement(state,monster,monster,step);
   monster.x = step.x; monster.y = step.y; monster.routeId = next.routeId;
   monster.roomId = getTileAt(step.x, step.y)?.roomId ?? null;
   processIllusionContact(state, monster);
@@ -3740,7 +3886,7 @@ async function moveMonsterAlongPlan(monster, steps, turn, { stepCost } = {}) {
   for (const step of steps) {
     monster = getMonsterById(monster.id);
     if (!monster || !isLiveMonster(monster)) break;
-    const cost = stepCost ? stepCost(monster) : isIncorporeal(monster) ? 1 : movementStepCost(state, monster.x, monster.y);
+    const cost = stepCost ? stepCost(monster) : isIncorporeal(monster) ? 1 : movementStepCost(state, monster.x, monster.y, monster);
     if (!(cost > 0) || cost > turn.remaining || !moveMonsterPlannedStep(monster, step)) break;
     turn.remaining -= cost; moved += cost;
     render(); updatePanels(); await delay(200);
@@ -3771,7 +3917,7 @@ async function moveMonsterForPlan(monster, target, preferNear, movement, {stopAt
       break;
     }
     const mode = preferNear && distance <= 1 ? "away" : "toward";
-    const cost = isIncorporeal(monster) ? 1 : movementStepCost(state, Number(monster.x), Number(monster.y));
+    const cost = isIncorporeal(monster) ? 1 : movementStepCost(state, Number(monster.x), Number(monster.y), monster);
     if (!(cost > 0) || moved + cost > movement) break;
     if (mode === 'away') { if (!moveMonsterOneStep(monster, target, mode)) break; }
     else {
@@ -3795,7 +3941,7 @@ async function moveMonsterForPlan(monster, target, preferNear, movement, {stopAt
 
 function consciousMonsterTargets(monster, eligible = () => true) {
   const healthy = (state.characters || []).filter(character => isCharacterTargetableByMonster(character) &&
-    Number(character.hp) > 0 && eligible(character));
+    Number(character.hp) > 0 && (canMonsterSeeCharacter(monster,character) || monsterHearsTarget(state,monster,character)) && eligible(character));
   const awake = healthy.filter(character => !isSleeping(character, state));
   return awake.length ? awake : healthy;
 }
@@ -3810,7 +3956,7 @@ function monsterAttackEligible(monster, target, attack) {
 function monsterAttackPlan(monster, target, attack, movement) {
   return planFiringPosition(state, monster, target, { movement,
     canStep: (fromX, fromY, x, y, point) => monsterCanPlanStep(monster, fromX, fromY, x, y, { routeId: point.routeId, forceDoors: false }),
-    stepCost: (x, y) => isIncorporeal(monster) ? 1 : movementStepCost(state, x, y),
+    stepCost: (x, y) => isIncorporeal(monster) ? 1 : movementStepCost(state, x, y, monster),
     canAttackFrom: (x, y, point) => monsterAttackEligible({ ...monster, x, y, routeId: point.routeId }, target, attack)
   });
 }
@@ -3881,7 +4027,7 @@ async function chooseMonsterAttack(monster, target, turn = { remaining: Math.max
     const plan = attack && planDarkReposition(state, monster, target, {
       movement, preferRange: preference.preferNear,
       isIlluminated: (x, y, point) => isTileIlluminated(state, x, y, point),
-      stepCost: (x, y) => movementStepCost(state, x, y),
+      stepCost: (x, y) => movementStepCost(state, x, y, monster),
       canStep: (fromX, fromY, x, y, point) => monsterCanPlanStep(monster, fromX, fromY, x, y, { routeId: point.routeId }),
       canAttackFrom: (x, y, point) => withinTargetRange(point, target, attack.rangeInfo.maxRange) && creatureSight({ ...monster, x, y, routeId: point.routeId }, target)
     });
@@ -3994,13 +4140,30 @@ async function runMonsterAttackRoutine(monster, target, attack, turn, { allowMov
       Number(character.hp) > 0 && !isSleeping(character, state) && hasCharacterMapPosition(character));
     const plan = planMonsterCover(state, monster, { movement: turn.remaining,
       canStep: (from, next) => monsterCanPlanStep(monster, from.x, from.y, next.x, next.y, { routeId: from.routeId, forceDoors: false }),
-      stepCost: (x, y) => movementStepCost(state, x, y),
+      stepCost: (x, y) => movementStepCost(state, x, y, monster),
       isCover: point => !isTileIlluminated(state, point.x, point.y, point) ||
         !observers.some(character => sameRoute(state, character, point) && creatureSight(character, { ...monster, ...point }))
     });
     if (plan) await moveMonsterAlongPlan(monster, plan.steps, turn);
   }
   return messages.join(' ');
+}
+
+
+async function runRememberedMonsterTurn(monster,turn) {
+  const memory=Object.values(monster.knownCharacterSquares || {}).filter(square=>sameRoute(state,monster,square));
+  if(!memory.length)return '';
+  const attacks=getMonsterAttackOptions(monster).slice().sort((a,b)=>b.averageDamage-a.averageDamage);
+  let choices=attacks.flatMap(attack=>memory.filter(square=>canTargetAtRange(state,monster,square,attack.rangeInfo.maxRange,{requireLight:false})).map(square=>({attack,square})));
+  if(!choices.length && turn.remaining>0) {
+    const square=memory.slice().sort((a,b)=>Math.hypot(a.x-monster.x,a.y-monster.y)-Math.hypot(b.x-monster.x,b.y-monster.y))[0];
+    const location={x:square.x,y:square.y,routeId:square.routeId};
+    await moveMonsterForPlan(monster,location,false,turn.remaining,{turn});
+    monster=getMonsterById(monster.id);if(!monster)return '';
+    choices=attacks.flatMap(attack=>memory.filter(point=>canTargetAtRange(state,monster,point,attack.rangeInfo.maxRange,{requireLight:false})).map(point=>({attack,square:point})));
+  }
+  if(!choices.length)return monster.name+' searches the last known location.';
+  return runBlindMonsterRoutine(monster,choices[0].attack,memory);
 }
 
 function runBlindMonsterRoutine(monster, attack, memory) {
@@ -4012,31 +4175,32 @@ function runBlindMonsterRoutine(monster, attack, memory) {
       canTargetAtRange(state, monster, square, strike.rangeInfo.maxRange, { requireLight: false }));
     if (!squares.length) continue;
     const square = squares.length === 1 ? squares[0] : squares[Math.floor(Math.random() * squares.length)];
-    const targets = consciousMonsterTargets(monster, member => member.x === square.x && member.y === square.y && sameRoute(state, member, square));
+    const targets = state.characters.filter(member=>isCharacterAttackableByMonster(member) && Number(member.hp)>0 && member.x===square.x && member.y===square.y && sameRoute(state,member,square));
     const target = targets.length <= 1 ? targets[0] : targets[Math.floor(Math.random() * targets.length)];
-    if (target) messages.push(applyMonsterAttack(monster, target, strike));
+    if (target) {markMonsterCorrectlyGuessed(target,state);messages.push(applyMonsterAttack(monster, target, strike, {guessedSquare:true}));}
     else {
       const check = rollCheck(strike.bonus || 0, conditionAttackMode(null, { advantage: isStealthed(monster), disadvantage: true }));
       revealAfterOffense(monster);
-      const message = `${monster.name} attacks a remembered square and misses (${check.total}).`;
+      const message = monster.name+"'s "+strike.name.toLowerCase()+" misses. This tile is empty.";
+      if(square.id && monster.knownCharacterSquares)delete monster.knownCharacterSquares[square.id];
       pushDiceHistory('Attack', message); messages.push(message);
     }
   }
   return messages.filter(Boolean).join(' ');
 }
 
-function applyMonsterAttack(monster, target, attack) {
+function applyMonsterAttack(monster, target, attack, {guessedSquare=false}={}) {
   // Animated turns yield while sheet refreshes can replace normalized actors.
   monster = state.entities.find(entity => entity.type === 'monster' && entity.id === monster?.id);
   target = state.characters.find(character => character.id === target?.id);
-  if (!monster || !target || !isLiveMonster(monster) || !isCharacterTargetableByMonster(target)) return '';
+  if (!monster || !target || !isLiveMonster(monster) || !(guessedSquare?isCharacterAttackableByMonster(target):isCharacterTargetableByMonster(target))) return '';
   if (!sameRoute(state, monster, target)) return `${monster.name} cannot attack across separate passages.`;
   if (circleBlocksHostileAction(state, monster, target) || circleBlocksMentalControl(state, monster, target)) return 'Magic Circle prevents the attack.';
   if (isGaseousForm(target) || attack.rangeInfo.maxRange <= 1 && transformationMovementRules(state, target).immuneToMelee) return `${target.name} is beyond this attack's reach.`;
   if (blocksMindControl(state, target, attack.name || '', monster)) return `${monster.name}'s ${attack.name} fails against the protection aura.`;
   const advantage = hasWizardEffect(target, 'purple-glow') || isStealthed(monster) || !canCharacterSeeMonster(target, monster);
   const hiddenAttack=isStealthed(monster),traits=JSON.stringify([monster.abilities,monster.talents]);
-  const disadvantage = protectionDisadvantage(state, monster) || monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0 || isInvisible(target) || monster.conditions?.blind || transformationAttackDisadvantage(monster, target);
+  const disadvantage = guessedSquare || !canMonsterSeeCharacter(monster,target) || protectionDisadvantage(state, monster) || monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0 || isInvisible(target) || monster.conditions?.blind || transformationAttackDisadvantage(monster, target);
   const roll = rollCheck(attack.bonus || 0, conditionAttackMode(target, { attacker: monster, advantage, disadvantage,
     melee: attack.rangeInfo.maxRange <= 1, close: getMonsterDistanceToCharacter(monster, target) <= 1, state }));
   revealAfterOffense(monster);monster.ambushAttack=null;
@@ -4076,12 +4240,17 @@ function applyMonsterAttack(monster, target, attack) {
   }
   const damage = rollDamageExpression(expression);
   damage.total *= attackDamageMultiplier(target); damage.multiplier *= attackDamageMultiplier(target);
-  const resistance = elementalDamage(target, damage.total, `${monster.name} ${attack.name} ${attack.text || ''} ${attack.damageExpression || ''}`);
-  if (resistance.resistance || resistance.immunity) { damage.unresistedTotal = damage.total; damage.resistance = resistance.resistance; damage.total = resistance.total; }
+  const resistance = elementalDamage(target, damage.total, monsterAttackDamageSource(monster,attack), state);
+  if (resistance.resistance || resistance.immunity || resistance.water) { damage.unresistedTotal = damage.total; damage.resistance = resistance.resistance; damage.total = resistance.total; }
   if (!supernaturalAttackCanDamage(target, monster, {
-    silver: silverItem({ name: attack.name }), magical: attack.magic,
+    silver: silverItem({ name: attack.name }), magical: attack.magic||holySparkActive(monster),
     special: /psychic|fire|frost|cold|acid|lightning|mind blast|necrotic|radiant|thunder|force/i.test(attack.segment || attack.name)
   })) damage.total = 0;
+  if(holySparkActive(monster)){
+    const spark=rollDamageExpression('1d6'),extra=elementalDamage(target,spark.total,{damageType:'lightning'},state).total;
+    damage.total+=extra;damage.subtotal+=spark.total;
+    damage.terms.push(...spark.terms.map(term=>({...term,element:'lightning',label:'Holy Spark'})));
+  }
   setCharacterHp(target, Number(target.hp || 0) - damage.total, { sourceId: monster.id });
   if (recordLycanthropeDamage(target, monster, damage.total)) pushDiceHistory('Lycanthropy', target.name + ' contracts lycanthropy.', target.id);
   const carriesToxin = /\b(?:toxin|poison)\b/i.test(attack.segment || attack.name);
@@ -4171,7 +4340,7 @@ function runForcedPartyTurn(character) {
       for (const step of commandMovementPath(state, character, lure, (from, to) => commandStepAllowed(character, from, to, true))) {
         if (state.combat.movementRemaining <= 0 || !isCharacterAbleToAct(character)) break;
         const previousX = character.x, previousY = character.y;
-        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false });
+        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false, commanded: false });
         if (character.x === previousX && character.y === previousY) break;
       }
       state.combat.actionUsed = true; state.combat.movementRemaining = 0;
@@ -4184,7 +4353,7 @@ function runForcedPartyTurn(character) {
     if (result <= 3) { state.combat.actionUsed = true; state.combat.movementRemaining = 0; return; }
     if (result <= 5) {
       const directions = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
-      handleCombatMovement(directions[Math.floor(Math.random() * directions.length)], { render: false });
+      handleCombatMovement(directions[Math.floor(Math.random() * directions.length)], { render: false, commanded: false });
       state.combat.actionUsed = true; state.combat.movementRemaining = 0;
       return;
     }
@@ -4197,7 +4366,7 @@ function runForcedPartyTurn(character) {
       for (const step of commandMovementPath(state, character, flee, (from, to) => commandStepAllowed(character, from, to))) {
         if (state.combat.movementRemaining <= 0 || !isCharacterAbleToAct(character)) break;
         const previousX = character.x, previousY = character.y;
-        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false });
+        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false, commanded: false });
         if (character.x === previousX && character.y === previousY) break;
       }
     }
@@ -4220,7 +4389,7 @@ function runForcedPartyTurn(character) {
       if (combat.movementRemaining <= 0 || !isCharacterAbleToAct(character)) break;
       if (resistedCommandStep(character, step, order)) return;
       const previous = { x: character.x, y: character.y };
-      handleCombatMovement([step.x - character.x, step.y - character.y], { render: false });
+      handleCombatMovement([step.x - character.x, step.y - character.y], { render: false, commanded: false });
       if (previous.x === character.x && previous.y === character.y) break;
     }
   } else {
@@ -4236,7 +4405,7 @@ function runForcedPartyTurn(character) {
       for (const step of commandMovementPath(state, character, pursuit, (from, to) => commandStepAllowed(character, from, to))) {
         if (combat.movementRemaining <= 0 || canTargetAtRange(state, character, target, weapon.range.maxRange, { requireLight: false })) break;
         const previous = { x: character.x, y: character.y };
-        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false });
+        handleCombatMovement([step.x - character.x, step.y - character.y], { render: false, commanded: false });
         if (previous.x === character.x && previous.y === character.y) break;
       }
       if (canTargetAtRange(state, character, target, weapon.range.maxRange, { requireLight: false })) {
@@ -4257,10 +4426,10 @@ function harmFromMonster(target, amount, monster, options = {}) {
   if (!supernaturalAttackCanDamage(target, monster, { magical: options.spell, special: true })) return 0;
   const before = Number(target.hp);
   if (target.type === 'monster') {
-    target.hp = Math.max(0, before - elementalDamage(target, amount, options).total);
+    target.hp = Math.max(0, before - elementalDamage(target, amount, options, state).total);
     if (before > target.hp) wakeCreature(target, state);
     if (!target.hp) defeatMonster(state, target);
-  } else setCharacterHp(target, before - amount, { sourceId: monster?.id, damageSource: options.damageSource });
+  } else setCharacterHp(target, before - amount, { state, sourceId: monster?.id, damageSource: options.damageSource });
   return before - Number(target.hp);
 }
 
@@ -4286,18 +4455,23 @@ function applyNearbyMonsterAfflictions(target) {
 async function runMonsterSpecialAbility(monster, turn) {
   const entries = monsterAbilityDefinitions(monster);
   if (!entries.length) return '';
-  const eligible = (point, entry, target) => availableMonsterAbility(monster, entry, target) &&
+  const eligible = (point, entry, target) => availableMonsterAbility(monster, entry, target, state) &&
     (entry[0] !== 'harpySong' || (target.conditions?.harpySongImmunity?.[monster.id] || 0) <= (state.arcaneTime?.elapsedMs || 0)) &&
     sameRoute(state, point, target) && withinTargetRange(point, target, entry[2]) && creatureSight(point, target);
   const targets = consciousMonsterTargets(monster);
   for (const entry of entries) {
     const [id, , range] = entry;
+    if(entry[6]?.self){
+      if(!availableMonsterAbility(monster,entry,monster,state))continue;
+      const message=castMonsterAbility(state,monster,entry,[monster],{catalog:shadowdarkContent?.monsters});
+      recomputeVisibility(state);markRunDirty();return message;
+    }
     if (id === 'harpySong') {
       const hazards = state.entities.filter(entity => (entity.type === 'trap' && !entity.disarmed && !entity.triggered ||
         entity.subtype === 'pit' && !entity.closed) && sameRoute(state, monster, entity));
       const plan = planFiringPosition(state, monster, null, { movement: turn.remaining,
         canStep: (fx, fy, x, y, from) => monsterCanPlanStep(monster, fx, fy, x, y, { forceDoors: false, routeId: from.routeId }),
-        stepCost: (x, y) => movementStepCost(state, x, y),
+        stepCost: (x, y) => movementStepCost(state, x, y, monster),
         positionScore: point => targets.some(target => eligible(point, entry, target) && hazards.some(hazard =>
           withinTargetRange(point, hazard, 3) && Math.hypot(hazard.x - target.x, hazard.y - target.y) <
           Math.hypot(point.x - target.x, point.y - target.y))) ? 1 : 0 });
@@ -4315,6 +4489,7 @@ async function runMonsterSpecialAbility(monster, turn) {
     if (!selected.length) continue;
     if (!entry[6]?.area) selected = selected.slice(0, 1);
     const message = castMonsterAbility(state, monster, entry, selected, {
+      catalog:shadowdarkContent?.monsters,
       harm: (target, amount, fields) => harmFromMonster(target, amount, monster, fields)
     });
     recomputeVisibility(state); markRunDirty();
@@ -4421,8 +4596,19 @@ async function runMonsterTurn(monster) {
     delete monster.conditions.prone;
     monster.standingMovementCost = Math.ceil(getMonsterMoveSquares(monster) / 2);
   } else monster.standingMovementCost = 0;
+  const movement = Math.max(0, getMonsterMoveSquares(monster) - monster.standingMovementCost);
+  const turn = { remaining: movement };
+  if(isStealthed(monster) && monster.darkGuess && monster.darkGuess.x===monster.x && monster.darkGuess.y===monster.y && turn.remaining>0) {
+    const cost=movementStepCost(state,monster.x,monster.y,monster);
+    if(cost<=turn.remaining) {
+      const directions=[[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]];
+      const step=directions.map(([dx,dy])=>routeStep(state,monster,{x:monster.x+dx,y:monster.y+dy}))
+        .find(point=>point && monsterCanPlanStep(monster,monster.x,monster.y,point.x,point.y,{forceDoors:false,routeId:routeOf(state,monster)}));
+      if(step) {await moveMonsterAlongPlan(monster,[step],turn);monster=getMonsterById(monster.id);if(!monster)return '';delete monster.darkGuess;}
+    }
+  }
   if (monster.conditions?.blind && !isIncorporeal(monster) && !(monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0)) {
-    const memory = (monster.blindTargetMemory || []).filter(square => sameRoute(state, monster, square));
+    const memory = (monster.blindTargetMemory || Object.values(monster.knownCharacterSquares || {})).filter(square => sameRoute(state, monster, square));
     const options = memory.flatMap(square => getMonsterAttackOptions(monster).filter(attack =>
       canTargetAtRange(state, monster, square, attack.rangeInfo.maxRange, { requireLight: false }))
       .map(attack => ({ square, attack }))).sort((a, b) => b.attack.averageDamage - a.attack.averageDamage);
@@ -4430,12 +4616,14 @@ async function runMonsterTurn(monster) {
     if (!guessed) return `${monster.name} cannot locate a target while blinded.`;
     return runBlindMonsterRoutine(monster, guessed.attack, memory);
   }
-  const movement = Math.max(0, getMonsterMoveSquares(monster) - monster.standingMovementCost);
-  const turn = { remaining: movement };
   if (!isIncorporeal(monster) && !(monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0)) {
     if (isLeprechaun(monster)) return runLeprechaunTurn(monster, turn);
     const ability = await runMonsterSpecialAbility(monster, turn);
-    if (ability && !/^(?:naga|night hag)$/i.test(monster.name)) return ability;
+    if(ability&&/^sea druid$/i.test(monster.name)){
+      const second=await runMonsterSpecialAbility(getMonsterById(monster.id)||monster,turn);
+      return [ability,second].filter(Boolean).join(' ');
+    }
+    if (ability && !/^(?:naga|night hag)$/i.test(monster.waterBaseName||monster.name)) return ability;
     if (ability) pushCombatLog(ability);
   }
   if (!(monster.turnedUndead?.rounds > 0 || monster.moraleFlight?.rounds > 0)) {
@@ -4451,7 +4639,9 @@ async function runMonsterTurn(monster) {
     }
   }
   if (canPhase(monster)) {
-    const target = pickMonsterTarget(monster);
+    const remembered = Object.values(monster.knownCharacterSquares || {}).filter(square => sameRoute(state, monster, square))
+      .sort((a, b) => getMonsterDistanceToCharacter(monster, a) - getMonsterDistanceToCharacter(monster, b))[0];
+    const target = pickMonsterTarget(monster) || (remembered && { x: remembered.x, y: remembered.y, routeId: remembered.routeId });
     if (target) {
       const adjacent = getMonsterDistanceToCharacter(monster, target) <= 1;
       if (isIncorporeal(monster) && adjacent && canMoveBetweenTiles(state, monster.x, monster.y, monster.x, monster.y, { routeId: routeOf(state, monster) }).ok && creatureSight(monster, target)) {
@@ -4478,7 +4668,7 @@ async function runMonsterTurn(monster) {
       while (turn.remaining > 0) {
         monster = getMonsterById(monster.id);
         if (!monster || !isLiveMonster(monster)) return '';
-        const cost = movementStepCost(state, Number(monster.x), Number(monster.y));
+        const cost = movementStepCost(state, Number(monster.x), Number(monster.y), monster);
         if (!(cost > 0) || cost > turn.remaining) break;
         const step = chooseUndeadFleeStep(state, monster, caster, (fromX,fromY,x,y) =>
           !isMonsterMoveOccupied(monster,x,y) && canMoveBetweenTiles(state,fromX,fromY,x,y,{creature:monster}).ok, visited);
@@ -4505,7 +4695,18 @@ async function runMonsterTurn(monster) {
   }
   const target = pickMonsterTarget(monster);
   if (!target) {
-    return `${monster.name || "Monster"} has no visible target.`;
+    return await runRememberedMonsterTurn(monster,turn) || monster.name+' has no visible target.';
+  }
+  if(isStealthed(monster) && !getMonsterAttackOptions(monster).some(attack=>monsterAttackPlan(monster,target,attack,turn.remaining))) {
+    const attack=getMonsterAttackPreference(monster).bestClose || getMonsterAttackPreference(monster).bestNear;
+    const staging=attack && planStealthApproach(state,monster,target,{
+      movement:turn.remaining,observers:state.characters.filter(member=>!isStealthed(member)),
+      canStep:(fx,fy,x,y,point)=>monsterCanPlanStep(monster,fx,fy,x,y,{forceDoors:false,routeId:point.routeId}),
+      canAttackFrom:(x,y,point)=>withinTargetRange(point,target,attack.rangeInfo.maxRange) && creatureSight(point,target),
+      stepCost:(x,y)=>movementStepCost(state,x,y,monster)
+    });
+    if(staging?.steps.length)await moveMonsterAlongPlan(monster,staging.steps,turn);
+    return monster.name+' waits in hiding.';
   }
   const attack = await chooseMonsterAttack(monster, target, turn);
   monster = getMonsterById(monster.id);
@@ -4587,18 +4788,25 @@ function handleCombatMovement(delta, options = {}) {
     return true;
   }
   if (isProne(character, state)) { setStatus('Stand up before moving.'); return true; }
+  const destination={x:Number(character.x)+delta[0],y:Number(character.y)+delta[1]};
+  const projected={...ceilingMovementView(state,character,character,destination),...destination};
+  const spent=movementSpentSoFar(state.combat),newBudget=characterMovementBudget(projected,state);
+  const available=Math.max(state.combat.movementRemaining,newBudget-spent);
   const cost = movementStepCost(state, Number(character.x), Number(character.y), character);
-  if (state.combat.movementRemaining < cost) {
+  if (available < cost) {
     setStatus(`${character.name || "Character"} ${state.combat.movementRemaining ? 'needs 2 movement points to leave water.' : 'has no movement left.'}`);
     return true;
   }
-  const blocked = combatStepBlock(state, character, Number(character.x) + delta[0], Number(character.y) + delta[1]);
+  const blocked = combatStepBlock({...state,combat:{...state.combat,movementRemaining:available}}, character, Number(character.x) + delta[0], Number(character.y) + delta[1]);
   if (blocked) { setStatus(blocked); return true; }
   syncPlayerToActiveCharacter();
   const result = movePlayer(state, delta[0], delta[1], { deferVisibility: true });
   if (result.moved) {
-    state.combat.movementRemaining = Math.max(0, state.combat.movementRemaining - cost);
+    if(options.commanded !== false)recordCommandedMovement();
+    state.combat.movementSpent=spent+cost;
     syncActiveCharacterToPlayer();
+    state.combat.movementBudget=characterMovementBudget(character,state);
+    state.combat.movementRemaining=Math.max(0,state.combat.movementBudget-state.combat.movementSpent);
     if (!characterOccupant(state, Number(character.x), Number(character.y), character.id) &&
         !(hasMobilityFlight(character) && mobilityLandingOccupant(state, character))) {
       state.combat.lastUnoccupiedPosition = { x: Number(character.x), y: Number(character.y), roomId: character.roomId, routeId: routeOf(state, character) };
@@ -4644,7 +4852,8 @@ function updateMonsterHoverCursor() {
   const hovered = mapHoverPointer ? getTileFromPointer(mapHoverPointer) : null;
   const blessedTarget = hovered && getCharacterAtTile(hovered.x, hovered.y);
   const stairs = hovered && state?.visibility?.exploredEver?.has(`${hovered.x},${hovered.y}`) && stairsAtMapPoint(state, hovered.x, hovered.y);
-  const title = blessedTarget && (blessedTarget.luckToken || Number(blessedTarget.luckTokens) > 0) ? 'Target already has luck.' :
+  const hoveredCreature=blessedTarget||(hovered&&getVisibleMonsterAtTile(hovered.x,hovered.y));
+  const title = isOnCeiling(hoveredCreature) ? "climbing on ceiling." : blessedTarget && (blessedTarget.luckToken || Number(blessedTarget.luckTokens) > 0) ? 'Target already has luck.' :
     stairs?.doorKind === 'stairs-down' ? 'These stairs lead down to a deeper dungeon level.' :
       stairs?.doorKind === 'stairs-up' && Number(state.level) > 1 ? 'These stairs lead back to the previous dungeon level.' : '';
   if (panel.title !== title) panel.title = title;
@@ -4708,6 +4917,7 @@ function applyLocalMovement(delta, options = {}) {
   let followersMoved = false;
   let lightPolygons;
   if (result.moved) {
+    recordCommandedMovement();
     syncActiveCharacterToPlayer();
     if (actor && !SERVER_RUNTIME && options.render !== false && movementStepCost(state, origin.x, origin.y, actor) > 1) animateLocalWaterStep(actor, origin);
     lightPolygons = recomputeVisibility(state);
@@ -4717,8 +4927,9 @@ function applyLocalMovement(delta, options = {}) {
   markUserActivity();
   if (!sighting?.combatStarted && !sighting?.combatEnded) setStatus(result);
   if (renderResult) {
-    // Reuse only this step's lighting; followers and combat can change it again.
-    render({ lightPolygons: !followersMoved && !sighting?.combatStarted && !sighting?.combatEnded ? lightPolygons : undefined });
+    // Each actual follower move recomputes lighting for encounter checks.
+    // Reuse the final result; selecting the anchor again does not move a light.
+    render({ lightPolygons: latestVisibilityResult?.world === state ? latestVisibilityResult.polygons : lightPolygons });
     updatePanels({ charactersUnchanged: result.moved && !result.trapSprung && !followersMoved &&
       !isCombatActive() && !sighting?.combatStarted && !sighting?.combatEnded });
   }
@@ -5631,11 +5842,11 @@ function syncCharacterEquipmentDerivedStats(character) {
   rebuildCharacterAttacks(character);
   rebuildCharacterArmorClass(character);
   if (isCombatActive() && getCurrentCombatEntry()?.id === character.id) {
-    const budget = characterMovementBudget(character), oldBudget = state.combat.movementBudget ?? budget;
+    const budget = characterMovementBudget(character,state), oldBudget = state.combat.movementBudget ?? budget;
     if (budget !== oldBudget) {
-      const spent = Math.max(0, oldBudget - state.combat.movementRemaining);
+      const spent = movementSpentSoFar(state.combat);
       if (character.conditions?.sinkhole && oldBudget > 0) character.conditions.sinkholeMovementSpent = spent;
-      state.combat.movementBudget = budget; state.combat.movementRemaining = Math.max(0, budget - spent);
+      reconcileMovementBudget(state.combat,budget);
     }
   }
 }
@@ -6268,6 +6479,12 @@ function addDroppedGearPile(item, tile, litSource = "") {
     return mergeable;
   }
   const entity = createDroppedGearEntity(item, tile, litSource);
+  if (item.coinBreakdown) {
+    entity.coinBreakdown = structuredClone(item.coinBreakdown); entity.kind = 'coin-cache';
+    entity.value = getCoinBreakdownCopper(entity.coinBreakdown) / 100;
+    const count = Object.values(entity.coinBreakdown).reduce((n, value) => n + Number(value || 0), 0);
+    entity.slots = Math.max(0, Math.ceil((count - 100) / 100));
+  }
   state.entities.push(entity);
   return entity;
 }
@@ -7783,6 +8000,7 @@ function activateCharacter(character) {
   if (!state || !character) {
     return null;
   }
+  if (state.activeCharacterId === character.id) return getCurrentCharacter(character);
   setActiveCharacter(state, character.id);
   ensureCharacterPresentation();
   syncPlayerToActiveCharacter();
@@ -7810,6 +8028,7 @@ function getCharacterAtTile(x, y, { includeDiscs = false } = {}) {
     character.slain !== true &&
     (includeDiscs || !isFloatingDisc(character)) &&
     hasCharacterMapPosition(character) &&
+    (ownsCharacter(character) || isMonsterCurrentlyVisible(state,character) || isCreatureLocationKnown(state,character)) &&
     sameRoute(state, character, state.player) &&
     (Number(character.x) === x && Number(character.y) === y ||
       isIllusionCreature(character) && illusionCells(character).some(cell => cell.x === x && cell.y === y))
@@ -7921,8 +8140,11 @@ function createDyingBanner(character) {
   return banner;
 }
 
+const characterCardBindings = new WeakMap();
+const characterCardViews = new Map();
 function renderCharacterCard(character) {
   const card = document.createElement("article");
+  characterCardBindings.set(card, next => { character = next; });
   card.className = "character-card";
   const combatEntry = getCurrentCombatEntry();
   card.classList.toggle("is-active", character.id === state.activeCharacterId);
@@ -8100,6 +8322,10 @@ function renderCharacterCard(character) {
       const steal = document.createElement('button'); steal.type = 'button'; steal.textContent = 'Steal'; steal.disabled = stealth.disabled;
       steal.addEventListener('click', event => { event.stopPropagation(); beginSteal(getCurrentCharacter(character)); }); stats.append(steal);
     }
+  }
+  if(isOnCeiling(character)){
+    const drop=document.createElement('button');drop.type='button';drop.textContent='Drop From Ceiling';
+    drop.addEventListener('click',event=>{event.stopPropagation();performDropFromCeiling(getCurrentCharacter(character));});stats.append(drop);
   }
   if (isProne(character, state) && !isSleeping(character, state) && !isCharacterDying(character)) {
     const stand = document.createElement('button'); stand.type = 'button'; stand.textContent = 'Stand';
@@ -8398,6 +8624,7 @@ function renderCharacterDetail(character, target = ui.characterDetail, options =
   target.append(sheet);
   target.dataset.characterId = character.id;
   target.dataset.interactionKey = characterSheetInteractionKey(character);
+  target.dataset.presentationKey = characterPresentationKey(character);
   if(character.companion) {
     for(const control of target.querySelectorAll('.sd-save-character-button'))control.disabled=true;
   }
@@ -8431,6 +8658,7 @@ function renderFloatingDiscSheet(character, target) {
   sheet.append(gear); target.append(sheet);
   target.dataset.characterId = character.id;
   target.dataset.interactionKey = characterSheetInteractionKey(character);
+  target.dataset.presentationKey = characterPresentationKey(character);
   const disabled = !canControlCharacter(character) || !canUseCharacterInventory(character) ||
     Boolean(inventoryController(character)?.pendingSpell) || isCombatActive() && state.combat.actionUsed;
   if (disabled) for (const control of target.querySelectorAll('input,select,button:not(.sd-sheet-icon)')) control.disabled = true;
@@ -9049,7 +9277,7 @@ function updateCharactersUi() {
   syncAllCharacterEquipmentDerivedStats();
   applyCharacterColorOverrides();
   ensureCharacterPresentation();
-  ui.charactersList.innerHTML = "";
+
   if (isCombatActive()) {
     const entry = getCurrentCombatEntry();
     if (entry?.type === 'character' && state.activeCharacterId !== entry.id &&
@@ -9064,13 +9292,28 @@ function updateCharactersUi() {
     const index = (id) => order.includes(id) ? order.indexOf(id) : order.length;
     return index(a.id) - index(b.id);
   });
-  for (const character of orderedCharacters) {
-    const card = renderCharacterCard(character);
+  const retainedIds = new Set(orderedCharacters.map(character => character.id));
+  for (const [id, view] of characterCardViews) if (!retainedIds.has(id)) { view.card.remove(); characterCardViews.delete(id); }
+  for (const [index, character] of orderedCharacters.entries()) {
+    const signature = characterPresentationKey(character);
+    let view = characterCardViews.get(character.id);
+    if (!view || view.signature !== signature) {
+      const card = renderCharacterCard(character);
+      view?.card.replaceWith(card);
+      view = {card,signature:characterPresentationKey(character)};
+      characterCardViews.set(character.id,view);
+    } else {
+      characterCardBindings.get(view.card)?.(character);
+      const pits=view.card.querySelector('.pit-mini-actions');
+      if(pits)updateMiniPitActions(pits,character);
+    }
+    const card=view.card;
     card.dataset.characterId = character.id;
     card.draggable = false;
     card.classList.toggle("is-readonly", !canControlCharacter(character));
     if (!canControlCharacter(character) || (isCombatActive() && !isCurrentCharacterTurn(character))) for (const control of card.querySelectorAll("input, select, button:not(.character-reorder-handle):not(.spellcasting-menu-button):not(.wake-button):not(.mini-sheet-open)")) control.disabled = true;
-    ui.charactersList.append(card);
+    const current=ui.charactersList.children[index];
+    if(current!==card)ui.charactersList.insertBefore(card,current || null);
   }
   ui.characterDetail.hidden = true;
   ui.characterDetail.innerHTML = "";
@@ -9213,7 +9456,9 @@ function getGearItemValueCopper(item) {
   const magicValue = magicSaleValue(item);
   if (magicValue !== null) return Math.round(magicValue * 100);
   const directGp = Number(item?.value ?? item?.costGp ?? item?.cost ?? NaN);
-  const baseGp = Number.isFinite(directGp) ? Math.max(0, directGp) : getRulesItemValueGp(item?.name);
+  const printed=printedEquipmentUnitValue(item);
+  const stated=Number.isFinite(directGp)?Math.max(0,directGp):getRulesItemValueGp(item?.name);
+  const baseGp=printed===null?stated:Math.min(stated,printed);
   const units = item?.treasureItem === true ? 1 : Math.max(1, Number(item?.totalUnits ?? item?.quantity ?? 1) || 1);
   return Math.round(baseGp * units * 100);
 }
@@ -10289,7 +10534,7 @@ function resolveMagicMissile(character, { choice, targetId, x, y, blind = false,
       let monster = blind ? null : getMonsterById(targetId);
       outcome = fireMagicMissile(caster, blind ? { x, y, blind: true } : member || monster, { state, canTarget: target => canTargetMagicMissile(caster, target) });
       monster = monster || outcome.guessedMonster;
-      if (blind && monster) markMonsterCorrectlyGuessed(monster);
+      if (blind && monster) markMonsterCorrectlyGuessed(monster,state);
       const surprisedMimic=concealedMimic(monster);
       if(surprisedMimic)monster.disguiseRevealed=true;
       revealAfterOffense(caster);state.lastDamageSourceId=caster.id;
@@ -10394,7 +10639,7 @@ function summonMishapMonster(origin, { name = null, minimumLevel = 0, rounds = 0
   const source = sources[Math.floor(Math.random() * sources.length)], tile = candidates[Math.floor(Math.random() * candidates.length)];
   const monster = { ...structuredClone(source), id: `arcane-monster-${Date.now()}-${state.entities.length}`, type: 'monster',
     x: tile.x, y: tile.y, roomId: tile.roomId, maxHp: Number(source.hp), hp: Number(source.hp), visible: true,
-    hostile: true, attitude: 'combat', attitudeChecked: true, defeated: false, arcaneSummonRounds: rounds || null };
+    hostile: true, attitude: 'combat', attitudeChecked: true, defeated: false, gear:[],carriedGear:[],conjuredCreature:true,arcaneSummonRounds: rounds || null };
   state.entities.push(monster);
   if (isCombatActive()) addMonstersToCombat([monster], 'An arcane mishap summons a foe.');
   else beginCombat('An arcane mishap summons a foe.', { extraMonsterIds: [monster.id] });
@@ -10462,7 +10707,7 @@ function performMishapAction(character, command) {
       else {
         const spent = caster.conditions.sinkholeMovementSpent || 0;
         delete caster.conditions.sinkhole; delete caster.conditions.sinkholeMovementSpent; delete caster.conditions.prone;
-        if (isCombatActive()) { state.combat.movementBudget = characterMovementBudget(caster); state.combat.movementRemaining = Math.max(0, state.combat.movementBudget - spent); }
+        if (isCombatActive()) { state.combat.movementBudget = characterMovementBudget(caster,state); state.combat.movementRemaining = Math.max(0, state.combat.movementBudget - spent); }
       }
     }
     message = `${caster.name}: ${command.action === 'climb' ? 'climb out' : 'close Gate'} ${result.total} vs DC ${dc}: ${result.total >= dc ? 'success' : 'failed'}.`;
@@ -10996,7 +11241,7 @@ function runIllusionCombatTurn(character) {
     const preference = getMonsterAttackPreference(character.companion.source);
     const range = preference.bestNear?.rangeInfo.maxRange || 1;
     const plan = planFiringPosition(state, character, result.target, {
-      movement: characterMovementBudget(character), preferRange: Boolean(preference.bestNear),
+      movement: characterMovementBudget(character,state), preferRange: Boolean(preference.bestNear),
       canStep: (fromX, fromY, x, y, point) => canMoveBetweenTiles(state, fromX, fromY, x, y, { creature: character, routeId: point.routeId }).ok,
       canAttackFrom: (x, y, point) => canTargetAtRange(state, { ...character, x, y, routeId: point.routeId }, result.target, range, { requireLight: false }),
       stepCost: () => 1
@@ -11138,8 +11383,10 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
   const hasFaith = hasCleansing || state.entities.some(portalHeld) || state.characters.some(character => character.invisibility || character.turnedUndead || character.faithEffects?.length || character.focusSpell || character.gear?.some(item => item.holyWeapon || item.cleansingWeapon)) ||
     state.entities.some(entity => entity.invisibility || entity.moraleFlight || entity.turnedUndead || entity.gearItem?.holyWeapon || entity.gearItem?.cleansingWeapon);
   const phenomena = state.entities.some(entity => entity.subtype === 'arcane-shred' || entity.subtype === 'arcane-gate' && !entity.closed || entity.arcaneSummonRounds > 0);
+  const hasTransformations=[...state.characters,...state.entities].some(e=>e.transformationEffects?.length);
+  const hasSeaEffects=state.spellEffects?.some(e=>e.spell==="summon shark")||[...state.characters,...state.entities].some(e=>holySparkActive(e));
   const suppressionActive = hasMagicSuppression(state);
-  if (!monsterAfflictions && !hasSleep && !hasItems && !hasFaith && !phenomena && !suppressionActive && !state.characters.some(character => character.wizardEffects?.length || Object.keys(character.spellLocks || {}).length)) return discsChanged || illusionsChanged || undeadChanged;
+  if (!hasTransformations && !hasSeaEffects && !monsterAfflictions && !hasSleep && !hasItems && !hasFaith && !phenomena && !suppressionActive && !state.characters.some(character => character.wizardEffects?.length || Object.keys(character.spellLocks || {}).length)) return discsChanged || illusionsChanged || undeadChanged;
   const lightingMayChange = phenomena || state.characters.some(character => hasWizardEffect(character, 'light-suppression'));
   const armoredIds = new Set(state.characters.filter(mageArmorEffect).map(character => character.id));
   if (rounds == null) {
@@ -11147,6 +11394,8 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
     rounds = Math.floor(state.arcaneTime.crawlRemainderMs / SPELL_ROUND_MS);
     state.arcaneTime.crawlRemainderMs %= SPELL_ROUND_MS;
   }
+  const seaEffectsChanged=hasSeaEffects&&advanceSeaMonsterEffects(state,rounds,dismissSummon);
+  if(seaEffectsChanged)markRunDirty();
   const afflictionsChanged = monsterAfflictions && advanceMonsterAfflictions(state, {
     rounds, milliseconds, harm: (target, amount, fields) => harmFromMonster(target, amount, null, fields)
   });
@@ -11155,7 +11404,7 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
   if (rounds > 0 && hasSleep) markRunDirty();
   const suppressionChanged = rounds > 0 && advanceMagicSuppression(state, rounds);
   if (suppressionChanged) { syncAllCharacterEquipmentDerivedStats(); markRunDirty(); }
-  if ((hasFaith || hasItems) && rounds > 0) {
+  if ((hasTransformations || hasFaith || hasItems) && rounds > 0) {
     advanceTransformationRounds(state, rounds, pitActionOptions()); advanceAreaSpells(state, rounds);
     cleanupWizardTierTwoFocus(state); syncTransformationEffects(state); syncAreaSpellConditions(state);
     advancePortalRounds(state, rounds);
@@ -11192,7 +11441,7 @@ function progressWizardEffects(milliseconds, { rounds = null, crawlingTurns = fa
     }
   });
   if (changed) { syncAllCharacterEquipmentDerivedStats(); if (lightingMayChange) recomputeVisibility(state); markRunDirty(); }
-  return discsChanged || illusionsChanged || undeadChanged || changed || woke || afflictionsChanged || suppressionChanged || ((hasFaith || hasItems) && rounds > 0);
+  return discsChanged || illusionsChanged || undeadChanged || seaEffectsChanged || changed || woke || afflictionsChanged || suppressionChanged || ((hasFaith || hasItems) && rounds > 0);
 }
 
 function syncFloatingDiscFollowers() {
@@ -11599,8 +11848,10 @@ function performLuck(character) {
       const elementalTotal = event.context.elementalDice ? rollDamageExpression(event.context.elementalDice).total : 0;
       damage.total += elementalTotal;
       const radiant = event.context.cleansingDice ? rollDamageExpression(event.context.cleansingDice).total : 0;
-      const protection = elementalDamage(target, damage.total, event.context.element || '');
-      const total = (protection.immunity ? damage.total - elementalTotal : protection.total) + radiant;
+      const protection = elementalWeaponDamage(target,
+        {physical:damage.total-elementalTotal,elemental:elementalTotal,radiant},
+        event.context.element||'',draft);
+      const total=protection.total;
       if (event.context.feature) {
         target.hp = Math.max(0, (Number.isFinite(target.hp) ? target.hp : event.context.door ? 15 : 10) - total);
         if (!target.hp) {
@@ -12164,6 +12415,20 @@ function appendCharacterColoredText(target, value) {
     target.append(span);
     offset = match.index + match.character.name.length;
   }
+}
+
+function characterPresentationKey(character) {
+  return characterViewSignature(character,{
+    floor: [state.seed,state.level],active:character.id===state.activeCharacterId,
+    combat:[state.combat?.active,getCurrentCombatEntry()?.id,state.combat?.round,state.combat?.actionUsed,state.combat?.movementRemaining],
+    owned:ownsCharacter(character),control:canControlCharacter(character),rest:state.rest?.phase,
+    follow:localFollowIds().includes(character.id),party:state.characters.map(c=>[c.id,c.name,isAnimatedDead(c)]),
+    gates:state.entities.filter(e=>e.subtype==='arcane-gate' && !e.closed && e.casterId===character.id).map(e=>e.id),
+    activeUndead:isAnimatedDead(getActiveCharacter(state)),
+    sleeping:isSleeping(character,state),
+    sheetOpened:character.advancements?.some(event=>event.initial&&!event.completed) ? Boolean(localStorage.getItem('sd-sheet-opened:'+character.id)) : true,
+    luckAvailable:(character.luckTokens||character.luckToken) ? checkLuckEvent(state,{ownerId:character.id}).ok : false
+  });
 }
 
 function characterSheetInteractionKey(character) {
@@ -13780,7 +14045,7 @@ function updatePanels(options = {}) {
   if (!ui.spellcastingModal.hidden) renderSpellcastingMenu({ id: ui.spellcastingModal.dataset.characterId });
   if (!options.charactersUnchanged && !ui.characterSheetModal?.hidden) {
     const character = state.characters.find(item => item.id === ui.characterSheetContent?.dataset.characterId);
-    if (character && (ui.characterSheetContent.dataset.interactionKey !== characterSheetInteractionKey(character) || !ui.characterSheetContent.contains(document.activeElement))) renderCharacterDetail(character, ui.characterSheetContent, { popout: true });
+    if (character && (ui.characterSheetContent.dataset.interactionKey !== characterSheetInteractionKey(character) || ui.characterSheetContent.dataset.presentationKey !== characterPresentationKey(character))) renderCharacterDetail(character, ui.characterSheetContent, { popout: true });
   }
 }
 
@@ -14187,6 +14452,7 @@ async function refreshSavedRuns() {
   ui.savedRunsList.innerHTML = "";
   try {
     saveDialog.runs = await listRunsWithNames();
+    if(saveDialog.mode==='save')saveDialog.runs=saveDialog.runs.filter(run=>run.id!=='autosave');
     if (saveDialog.mode !== "save") {
       const joined = await listJoinedRooms();
       const roomRuns = joined.results || [];
@@ -14319,6 +14585,11 @@ async function saveCurrentRun(overwriteRun = null) {
 async function loadSelectedRun(run) {
   ui.saveLoadStatus.textContent = "Loading...";
   try {
+    if (run.id === "autosave" && run.multiplayer) {
+      applyMultiplayerSessionState(await restoreAutosaveRoom());
+      closeSaveLoadModal();
+      return;
+    }
     if (run.room_id) {
       if (isSharedRoom() && multiplayerSession.id !== run.room_id) await leaveSharedRoom();
       applyMultiplayerSessionState(await roomRequest(run.room_id, "resume", {}));
@@ -14329,7 +14600,7 @@ async function loadSelectedRun(run) {
     const loaded = await (run.state_json ? Promise.resolve(run) : loadRun(run.id));
     state = hydrateDungeonState(loaded.state_json);
     restoreMonsterSpellStats(state,shadowdarkContent?.monsters);
-    state.run.id = loaded.id;
+    state.run.id = loaded.id === 'autosave' ? null : loaded.id;
     state.run.name = normalizeSaveName(loaded.name || state.run.name);
     state.run.dirty = false;
     state.run.hasUserActivity = false;
@@ -14462,7 +14733,7 @@ function advanceMarchingOrder(anchor, delta = null, command = null, options = {}
   }
   state.marchingGroups[groupId] = group;
   const steps = planMarchingSteps(state, anchor.id, { order: values.marching_order, followingIds: values.following_ids, ...group }, {
-    canStep: (x, y, nextX, nextY, point) => canMoveBetweenTiles(state, x, y, nextX, nextY, { routeId: point?.routeId }).ok,
+    canStep: (x, y, nextX, nextY, point, creature) => canMoveBetweenTiles(state, x, y, nextX, nextY, { creature, routeId: point?.routeId }).ok,
     isLit: (x, y) => isTileVisible(state, x, y)
   });
   if (options.previewOnly) return steps.length > 0;
@@ -14481,6 +14752,7 @@ function advanceMarchingOrder(anchor, delta = null, command = null, options = {}
     syncPlayerToActiveCharacter();
     const result = movePlayer(state, step.dx, step.dy, { deferVisibility: true });
     if (!result.moved) continue;
+    if(result.climbedToCeiling)pushDiceHistory("Movement",result.message,character.id);
     changed = true;
     syncActiveCharacterToPlayer();
     if (!SERVER_RUNTIME && movementStepCost(state,before.x,before.y,character)>1) animateLocalWaterStep(character,before);
@@ -14494,7 +14766,7 @@ function advanceMarchingOrder(anchor, delta = null, command = null, options = {}
   }
   if (!isCombatActive()) setActiveCharacter(state, anchor.id);
   syncPlayerToActiveCharacter();
-  if (changed) { recomputeVisibility(state); markRunDirty(); }
+  if (changed) markRunDirty();
   return changed;
 }
 
@@ -14537,6 +14809,7 @@ function createSharedViewerVisibility(base, saved = {}) {
     routeExplored: Object.fromEntries(Object.entries(saved.routeExplored || {}).map(([id, cells]) => [id, new Set(cells)])),
     exploredEver: new Set(Array.isArray(saved.exploredEver) ? saved.exploredEver : []),
     exploredBeforeNow: new Set(Array.isArray(saved.exploredEver) ? saved.exploredEver : []),
+    explorationMemory: hydrateExplorationMemory(saved.explorationMemory,state,saved),
     exploredLightPolygons: [],
     exploredLightPolygonsBeforeNow: [],
     exploredLightPolygonKeys: new Set(),
@@ -14562,6 +14835,7 @@ function serializeSharedViewerVisibility() {
   if (!visibility) return {};
   return {
     floorLevel: state.level,
+    explorationMemory: serializeExplorationMemory(visibility.explorationMemory,state),
     exploredEver: Array.from(visibility.exploredEver || []),
     routeExplored: Object.fromEntries(Object.entries(visibility.routeExplored || {}).map(([id, cells]) => [id, [...cells]])),
     routeDarkvisionExplored: Object.fromEntries(Object.entries(visibility.routeDarkvisionExplored || {}).map(([id, cells]) =>
@@ -14657,8 +14931,9 @@ function animateLocalWaterStep(character, origin) {
           x: origin.x + (destination.x - origin.x) * progress,
           y: origin.y + (destination.y - origin.y) * progress
         });
-        if (now - lastVisibilityAt >= 50 || progress === 1) { recomputeVisibility(state); lastVisibilityAt = now; }
-        render({ motionOnly: true });
+        let lightPolygons;
+        if (now - lastVisibilityAt >= 50 || progress === 1) { lightPolygons=recomputeVisibility(state); lastVisibilityAt = now; }
+        render({ motionOnly: true,lightPolygons });
         if (progress === 1) break;
       }
     } finally {
@@ -14666,7 +14941,7 @@ function animateLocalWaterStep(character, origin) {
         localWaterMotions.delete(character.id);
         clearSharedCharacterVisualPosition(character.id);
         if (state === initialState || (roomId && multiplayerSession?.id === roomId)) {
-          recomputeVisibility(state); render({ motionOnly: true });
+          const lightPolygons=recomputeVisibility(state); render({ motionOnly: true,lightPolygons });
         }
       }
     }
@@ -14686,7 +14961,7 @@ async function animateSharedMotion(motion, generation) {
   const stepDurationMs = Math.max(28, Math.min(100, 220 / Math.max(1, destinations.length)));
   for (const destination of destinations) {
     const start = sharedCharacterVisualPositions.get(characterId) || current;
-    const duration = movementStepCost(state, Math.round(start.x), Math.round(start.y)) > 1 ? WATER_STEP_DURATION_MS : stepDurationMs;
+    const duration = movementStepCost(state, Math.round(start.x), Math.round(start.y),state.characters.find(c=>c.id===characterId)) > 1 ? WATER_STEP_DURATION_MS : stepDurationMs;
     const startedAt = performance.now();
     while (true) {
       const now = await nextAnimationFrame();
@@ -14930,6 +15205,10 @@ function queueMonsterTurnPresentations(events, roomChanged) {
 }
 
 function applyMultiplayerSessionState(payload, options = {}) {
+  if(payload.autosave) {
+    const status=document.getElementById('autosave-status');
+    if(status){status.hidden=false;status.textContent=payload.autosave.saved?'Host autosaved.':payload.autosave.message;}
+  }
   if (payload.id && multiplayerSession.id === payload.id && payload.revision < multiplayerSession.revision) return;
   const previousOwned = multiplayerSession.owned_character_ids || [];
   const previousCanExplore = multiplayerSession.can_explore;
@@ -15485,8 +15764,9 @@ function hookInputEvents() {
       event.preventDefault();
       if (event.repeat) return;
       const sheetIsOpen = !ui.characterSheetModal.hidden && ui.characterSheetContent.dataset.characterId === id;
+      const previousActiveId = state.activeCharacterId;
       const selected = activateCharacter(character);
-      if (selected) {
+      if (selected && selected.id !== previousActiveId) {
         markUserActivity();
         updatePanels();
         render();
@@ -15893,6 +16173,7 @@ function hookMapViewportInteractions() {
     viewport.panX = dragState.panStartX + dx;
     viewport.panY = dragState.panStartY + dy;
     commitViewportTransform();
+    scheduleViewportPaint();
   };
 
   const finishPointerSequence = (event) => {
@@ -16000,6 +16281,7 @@ function hookMapViewportInteractions() {
     const stairs = stairsAtMapPoint(state, x, y);
     if (stairs?.doorKind === 'stairs-down' && !currentTargetingOverlay()) { void requestDungeonDescent(); return; }
     if (Number(state.level) > 1 && stairs?.doorKind === 'stairs-up' && !currentTargetingOverlay()) { void requestDungeonDescent('up'); return; }
+    if (Number(state.level) === 1 && stairs?.doorKind === 'stairs-up' && !currentTargetingOverlay()) return;
     let overlay = currentTargetingOverlay();
     if (overlay?.kind === 'weapon') overlay = null;
     if (overlay?.kind === 'monster') return;
@@ -16483,7 +16765,7 @@ async function initialize() {
     accountSession = session;
     renderMultiplayerUi();
   }).catch(() => {});
-  document.getElementById('artwork-retry')?.addEventListener('click', () => { void loadDungeonArtwork(); });
+  document.getElementById('artwork-retry')?.addEventListener('click',()=>{void loadDungeonArtwork();});
   const assetsReady = loadDungeonArtwork();
   hookInputEvents();
   hookMapViewportInteractions();
@@ -16516,9 +16798,14 @@ export async function executeGameCommand(rawState, command) {
       .then(([content, rules]) => { shadowdarkContent = content; rulesData = rules; });
   }
   await serverContentReady;
+  serverAutosaveReasons = new Set();
+  serverAutosaveSnapshot = null;
+  serverCountsCommandedSteps = command.autosave_count_steps !== false;
   state = hydrateDungeonState(rawState);
+  for(const target of [...state.characters,...state.entities.filter(e=>e.type==="monster")])quenchImmersedEffects(state,target);
   prepareCharacterBackgrounds();
   restoreMonsterSpellStats(state,shadowdarkContent?.monsters);
+  for (const monster of state.entities) if (monster.type === 'monster' && !monster.defeated) refreshMonsterAwareness(state, monster);
   prepareEncounterState();
   serverMonsterTurns = null;
   serverFollowerFrames = new Map();
@@ -16612,6 +16899,7 @@ export async function executeGameCommand(rawState, command) {
     case 'steal_cancel': resolveSteal(character, { cancel: true }); break;
     case 'revive': performRevive(character); break;
     case 'stand': performStand(character); break;
+    case 'drop_ceiling': performDropFromCeiling(character); break;
     case 'wake': performWake(character, command.target_id); break;
     case "normalize":
       break;
@@ -16646,6 +16934,7 @@ export async function executeGameCommand(rawState, command) {
         if (!handleCombatMovement([dx, dy])) {
           const result = movePlayer(state, dx, dy, { deferVisibility: true });
           if (result.moved) {
+            recordCommandedMovement();
             syncActiveCharacterToPlayer();
             recomputeVisibility(state);
             processMonsterVisibilityChange();
@@ -16990,7 +17279,7 @@ export async function executeGameCommand(rawState, command) {
   if (message) state.activity.push({ message: message.slice(0, 2000), characterId: character?.id || null, time: Date.now(),
     ...(statusPrivateCharacterId ? { privateCharacterId: statusPrivateCharacterId } : {}) });
   state.combat.autoRunning = false;
-  return { state_json: serializeDungeonState(state), message, dice: lastDamageRoll,
+  return { state_json: serializeDungeonState(state), message, dice: lastDamageRoll, autosave_reasons: [...serverAutosaveReasons], autosave_state_json:serverAutosaveSnapshot,
     ...(statusPrivateCharacterId ? { privateCharacterId: statusPrivateCharacterId } : {}) };
 }
 

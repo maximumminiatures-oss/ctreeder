@@ -1,5 +1,4 @@
 from private_visibility import pack_private_visibility, unpack_private_visibility, ENCODING as FOG_ENCODING, HEADER as FOG_HEADER
-import math
 """Host-owned dungeons, guest participation and authoritative game commands."""
 
 from copy import deepcopy
@@ -7,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 import hashlib
 import hmac
+import math
 import secrets
 import uuid
 
@@ -17,6 +17,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from game_runtime import game_runtime, GameRuntimeError
+from autosave_models import AccountAutosave
+from room_autosaves import capture_room_autosave, restore_room_autosave
 from room_models import GameRoom, RoomMember, RoomInvite, RoomCommand, SaveCheckpoint, utcnow
 from validation import validate_json, validate_state
 from storage_limits import storage_available, STORAGE_FULL
@@ -36,7 +38,7 @@ CHARACTER_COMMANDS = {
     "pit_action",
     "phase",
     "steal", "steal_target", "steal_take", "steal_cancel", "attack_empty", "attack_door",
-    "revive", "stand", "wake",
+    "revive", "stand", "wake", "drop_ceiling",
     "move", "move_batch", "attack", "end_turn", "search", "stealth", "get", "leave", "disarm",
     "interact", "pick_lock", "break_door", "spell", "light", "snuff", "guard",
     "drop_gear", "pickup", "collect", "persuade", "edit_character", "rename_character", "dismiss", "bury",
@@ -126,6 +128,7 @@ def primary_assignments(room, members):
             continue
         result[member.id] = next((character_id for character_id in character_ids if ownership.get(character_id) == member.id), None)
     return result
+
 
 
 def validate_exploration_memory(memory, state):
@@ -491,6 +494,27 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             db.commit()
             return {**room_view(db, room, host), **invitation}, 201
 
+    @app.post("/api/autosave/restore-room")
+    @login_required
+    @rate_limit("5 per minute")
+    @checked
+    def restore_shared_autosave():
+        body()
+        with Session(engine) as db:
+            db.exec(update(User).where(User.id == current_user.id).values(session_version=User.session_version))
+            saved = db.get(AccountAutosave, current_user.id)
+            if saved is None or not saved.room_json:
+                return {"error": "not_found", "message": "No multiplayer autosave is available."}, 404
+            retained = db.exec(select(GameRoom).where(GameRoom.host_user_id == current_user.id)).all()
+            if len(retained) >= 50 or sum(room.closed_at is None for room in retained) >= MAX_ROOMS:
+                return {"error": "room_limit", "message": "Close an open dungeon before restoring another."}, 409
+            room, host = restore_room_autosave(db, saved, current_user, User, OPTION_KEYS)
+            invitation = create_invite(db, room)
+            if not storage_available(db, current_user.id, SavedRun, SavedCharacter):
+                return STORAGE_FULL
+            db.commit()
+            return {**room_view(db, room, host), **invitation}, 201
+
     @app.post("/api/rooms/join")
     @rate_limit("6 per minute; 30 per hour")
     @checked
@@ -622,10 +646,11 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             room.updated_at = utcnow()
             room.revision += 1
             db.add(room)
+            automatic = capture_room_autosave(db, room, User, SavedRun, SavedCharacter, OPTION_KEYS, result.get("autosave_state_json")) if action in {"ascend", "descend"} and proposal["status"] == "completed" else None
             if not storage_available(db, room.host_user_id, SavedRun, SavedCharacter):
                 return STORAGE_FULL
             db.commit()
-            return room_view(db, room, member)
+            return {**room_view(db, room, member), "autosave": automatic}
 
     @app.get("/api/rooms/saved")
     @login_required
@@ -658,6 +683,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             room, member = member_room(db, room_id)
             if not room:
                 return not_found
+            automatic = None
             now = utcnow()
             member.last_seen_at = now
             if "viewer_visibility" in data:
@@ -675,10 +701,13 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
                     room.state_json = validate_state(result["state_json"], require_map=True)
                     reconcile_companion_ownership(db, room, dict(room.ownership_json or {}))
                     room.revision += 1
+                    db.add(room)
+                    if result.get("autosave_reasons"):
+                        automatic = capture_room_autosave(db, room, User, SavedRun, SavedCharacter, OPTION_KEYS, result.get("autosave_state_json"))
                 room.simulated_at = now
                 db.add(room)
             db.commit()
-            return room_view(db, room, member, include_state=data.get("revision") != room.revision)
+            return {**room_view(db, room, member, include_state=data.get("revision") != room.revision), "autosave": automatic}
 
     @app.post("/api/rooms/<room_id>/commands")
     @rate_limit("1200 per minute")
@@ -709,6 +738,7 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             assignments = dict(room.primary_assignments_json or {})
             own_ids = {key for key, owner in ownership.items() if owner == member.id}
             trusted = deepcopy(command)
+            trusted["autosave_count_steps"] = member.role == "host"
             trusted["rest_member_id"] = member.id
             trusted["rest_member_ids"] = sorted(online | {member.id})
             if action == "rest":
@@ -822,11 +852,12 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             db.add(member)
             db.add(RoomCommand(room_id=room.id, member_id=member.id, request_id=request_id, revision=room.revision, message=message))
             db.exec(delete(RoomCommand).where(RoomCommand.room_id == room.id, RoomCommand.created_at < utcnow() - timedelta(days=1)))
+            automatic = capture_room_autosave(db, room, User, SavedRun, SavedCharacter, OPTION_KEYS, result.get("autosave_state_json")) if result.get("autosave_reasons") else None
             if not storage_available(db, room.host_user_id, SavedRun, SavedCharacter):
                 return STORAGE_FULL
             db.commit()
             return {**room_view(db, room, member), "message": message,
-                    "dice": result.get("dice") if can_read_result else None}
+                    "dice": result.get("dice") if can_read_result else None, "autosave": automatic}
 
     @app.post("/api/rooms/<room_id>/invite")
     @rate_limit("6 per minute")

@@ -1,4 +1,5 @@
 """Account recovery codes and versioned private save management."""
+from autosave_models import AccountAutosave
 from datetime import timedelta
 import secrets
 
@@ -75,6 +76,14 @@ def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_li
                                 db.add(checkpoint)
                     db.exec(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
                     db.exec(delete(SavedParty).where(SavedParty.user_id == user.id))
+                    for backup in db.exec(select(AccountAutosave).where(AccountAutosave.user_id != user.id)).all():
+                        context = backup.room_json
+                        if context and any(row.get("user_id") == user.id for row in context.get("members", [])):
+                            backup.room_json = {**context, "members": [
+                                {**row, "user_id": None, "guest_hash": None, "display_name": "Deleted player"}
+                                if row.get("user_id") == user.id else row for row in context["members"]]}
+                            db.add(backup)
+                    db.exec(delete(AccountAutosave).where(AccountAutosave.user_id == user.id))
                     db.delete(user)
                     db.commit()
                     logout_user()
@@ -121,6 +130,7 @@ def register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_li
             characters = db.exec(select(SavedCharacter).where(SavedCharacter.user_id == user.id)).all()
             parties = db.exec(select(SavedParty).where(SavedParty.user_id == user.id)).all()
             response = jsonify({"schema_version": 1, "account": {"username": user.username, "email": user.email},
+                "autosave": db.get(AccountAutosave,user.id).model_dump(mode="json") if db.get(AccountAutosave,user.id) else None,
                 "saved_games": [run.model_dump(mode="json") for run in runs],
                 "characters": [char.model_dump(mode="json") for char in characters],
                 "parties": [party.model_dump(mode="json") for party in parties]})

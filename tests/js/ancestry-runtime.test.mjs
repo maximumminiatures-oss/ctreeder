@@ -72,7 +72,8 @@ test('authoritative Half-Orc unarmed attacks and guessed empty-square attacks re
   emptyState.entities.push({ id: 'foe', type: 'monster', hp: 100, ac: 1, name: 'Target', x: 8, y: 7, roomId: 'room', hostile: false, attitude: 'neutral', attitudeChecked: true });
   let normalized = await fixedRandom(() => executeGameCommand(emptyState, { type: 'normalize' }));
   const missed = await fixedRandom(() => executeGameCommand(normalized.state_json, { type: 'attack_empty', character_id: 'hero', x: 3, y: 3, attack_index: 0 }));
-  assert.match(missed.state_json.rollHistory[0].detail, /12 misses/);
+  assert.equal(missed.state_json.rollHistory[0].rollCard.results[0].value,12,'Mighty still applies to an empty-square attack');
+  assert.match(missed.state_json.rollHistory[0].detail,/This tile is empty/);
 });
 
 test('dagger and spear use Mighty in melee but not when thrown, including attacks at guessed dark squares', async () => {

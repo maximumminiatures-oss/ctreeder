@@ -211,7 +211,7 @@ function smiteDamage(state, caster, target, pending, options) {
   const rolls = Array.from({ length: pending.diceCount }, () => die(pending.diceSides, options.rng));
   const damage = rolls.reduce((total, roll) => total + roll, 0), before = Number(target.hp);
   const context = { state, caster, spell: 'smite', damageType: 'radiant', damageSource: 'radiant', rolls, diceCount: pending.diceCount, diceSides: pending.diceSides };
-  if ((state.characters || []).includes(target)) setCharacterHp(target, before - damage, { sourceId: caster.id, damageSource: 'radiant' });
+  if ((state.characters || []).includes(target)) setCharacterHp(target, before - damage, { state, sourceId: caster.id, damageSource: 'radiant' });
   else { target.hp = Math.max(0, before - damage); wakeCreature(target, state); }
   options.onDamage?.(target, damage, context);
   let defeatHandled = Boolean(target.defeated);

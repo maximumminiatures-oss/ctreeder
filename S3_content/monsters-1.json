@@ -303,7 +303,8 @@
             "outsider"
         ],
         "abilities": {},
-        "diplomacy": "Y"
+        "diplomacy": "Y",
+        "waterHabitat": {"eligible": true, "prefersWater": true}
     },
     {
         "Monster Name": "Rat, Giant",

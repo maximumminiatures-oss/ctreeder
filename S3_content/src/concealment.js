@@ -17,7 +17,7 @@ export const neverSurprised = creature => {
     Boolean(monsterName && /\bgoblin\b/i.test(creature?.ancestry || ''));
 };
 export const canDirectlyTarget = (target, range = 1, actor = null) => !isGaseousForm(target) &&
-  (!isInvisible(target) || Number(range) <= Math.SQRT2 || Boolean(actor?.magicDetectedIds?.includes(target.id)));
+  (!isStealthed(target) || Boolean(actor?.magicDetectedIds?.includes(target.id)));
 
 export function makeInvisible(creature, { rounds = 3, source = 'halfling', breakOnOffense = false } = {}) {
   creature.invisibility = { rounds, source, breakOnOffense };

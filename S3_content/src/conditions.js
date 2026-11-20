@@ -1,3 +1,4 @@
+import { isStealthed } from './concealment.js';
 import { isVampire } from './supernatural-traits.js';
 
 export const isIncorporeal = creature => creature?.conditions?.incorporeal === true;
@@ -64,8 +65,8 @@ export function advanceSleepRounds(state, rounds) {
 }
 
 export function conditionAttackMode(target, { attacker = null, melee = true, close = true, advantage = false, disadvantage = false, state = null } = {}) {
-  advantage ||= isBlind(target) || isParalyzed(target) || isProne(target, state) && melee;
-  disadvantage ||= isProne(attacker, state) || isProne(target, state) && !melee && !close;
+  advantage ||= isStealthed(attacker) || isBlind(target) || isParalyzed(target) || isProne(target, state) && melee;
+  disadvantage ||= isBlind(attacker) || isStealthed(target) || isProne(attacker, state) || isProne(target, state) && !melee && !close;
   return { doubleRoll: advantage && !disadvantage, disadvantage: disadvantage && !advantage };
 }
 

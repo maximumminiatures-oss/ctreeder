@@ -70,11 +70,13 @@ function darkvisionScene() {
   return { state, human, companion, monster, treasure };
 }
 
-test('shared companion darkvision permits direct monster and feature targeting without physical illumination', () => {
-  const { state, human, monster, treasure } = darkvisionScene();
+test('selected companion darkvision reveals creatures while feature perception remains shared', () => {
+  const { state, human, companion, monster, treasure } = darkvisionScene();
   assert.equal(isTileVisible(state, monster.x, monster.y, monster), false);
   assert.equal(isTilePerceived(state, monster.x, monster.y, monster), true);
-  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), true);
+  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), false);
+  state.activeCharacterId = companion.id;
+  assert.equal(canTargetAtRange(state, companion, monster, 6, { directAttack: true }), true);
   assert.equal(canTargetAtRange(state, human, treasure, 6), true);
   assert.equal(human.lightRadius, 0, 'target selection does not grant illumination or change attack penalties');
   monster.stealthState = { attempted: true, revealed: false };
@@ -90,13 +92,15 @@ test('perceived targets still require the acting character range and own physica
   assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), false);
 });
 
-test('direct targeting respects global viewer ownership rather than forcing the human attacker to possess darkvision', () => {
+test('creature darkvision respects both viewer ownership and the selected companion', () => {
   const { state, human, companion, monster, treasure } = darkvisionScene();
   state.viewerCharacterIds = new Set([human.id]); recomputeVisibility(state);
   assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), false);
   assert.equal(canTargetAtRange(state, human, treasure, 6), false);
-  state.viewerCharacterIds.add(companion.id); recomputeVisibility(state);
-  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), true);
+  state.viewerCharacterIds.add(companion.id); state.activeCharacterId = human.id; recomputeVisibility(state);
+  assert.equal(canTargetAtRange(state, human, monster, 6, { directAttack: true }), false);
+  state.activeCharacterId = companion.id;
+  assert.equal(canTargetAtRange(state, companion, monster, 6, { directAttack: true }), true);
   assert.equal(canTargetAtRange(state, human, treasure, 6), true);
 });
 

@@ -6,14 +6,17 @@ import {
   TREASURE_SPAWN_CHANCE
 } from "./constants.js";
 import { SeededRng } from "./rng.js";
+import {waterEncounterTable,waterSpawnPlacement} from "./water-habitats.js";
+import {chooseWaterProfile,applyDungeonWater} from "./water-generation.js";
 import {
   createDoorEntity,
   createEmptyDungeonState,
   getTile,
   setTileType,
 } from "./state-schema.js";
-import { createTreasureDetails } from "./treasure.js";
-import { placeMagicTreasure } from './magic-items.js';
+import { createTreasureDetails,syncTreasureGearUnitValue,printedEquipmentUnitValue } from "./treasure.js";
+import { placeMagicTreasure, highestMagicSaleValue } from './magic-items.js';
+import {prepareStartingWealth,finalizeStartingWealth,floorWealthTarget,FloorWealthAllocationError} from './treasure-generation.js';
 import { addUnderpasses, routeOf, routeExistsAt, routeStep, routeKey, pitTraversalNeighbors } from './underpasses.js';
 import { addPitFeatures } from './pit-tunnels.js';
 import { isPit, pitContains } from './pits.js';
@@ -931,7 +934,7 @@ function isVisualDecorAt(state, x, y) {
   const decor = state.decor || {};
   const placements = [
     ...(Array.isArray(decor.columns) ? decor.columns : []),
-    ...(Array.isArray(decor.water) ? decor.water : []),
+    ...(state.generation.waterPlan ? [] : Array.isArray(decor.water) ? decor.water : []),
     ...(Array.isArray(decor.canals) ? decor.canals : []),
     ...(Array.isArray(decor.junk) ? decor.junk : []),
     ...(Array.isArray(decor.wells) ? decor.wells : [])
@@ -978,7 +981,9 @@ function pickRandomFloorTileInRoom(state, rng, room, options = {}) {
         !isOrganicMovementBlockingTile(tile) &&
         !isInnerWallBlockingTile(tile) &&
         !isAngledWallMovementBlockingTile(tile) &&
-        !tile.meta?.layoutBlocks && !tile.meta?.encounterOnly &&
+        (!tile.meta?.layoutBlocks || state.generation.waterPlan && isSlowWaterTile(state,x,y)) && !tile.meta?.encounterOnly &&
+        (!options.requireWater || isSlowWaterTile(state,x,y)) &&
+        (!options.avoidWater || !isSlowWaterTile(state,x,y)) &&
         (options.allowOccupied || !isFloorOccupied(state, x, y))
       ) {
         candidates.push(tile);
@@ -1357,6 +1362,7 @@ function setTreasureValueGp(entity, valueGp) {
     entity.value = (entity.coinBreakdown.gold * 100 + entity.coinBreakdown.silver * 10 + entity.coinBreakdown.copper) / 100;
     entity.slots = Math.max(0, Math.ceil(Math.max(0, physicalCoins - 100) / 100));
   }
+  syncTreasureGearUnitValue(entity);
 }
 
 function pickBossTreasureShare(rng) {
@@ -3428,6 +3434,8 @@ function createMonsterDetails(rng, monsterTable = []) {
     abilities: monster.abilities || monster.talents || {},
     tags: monster.tags || [],
     carriedGear: monster.gear || monster.carriedGear || [],
+    ...(monster.waterHabitat?{waterHabitat:structuredClone(monster.waterHabitat)}:{}),
+    ...(monster.waterBaseName?{waterBaseName:monster.waterBaseName}:{}),
     treasures: monster.treasures || [],
     magicItems: monster.magicItems || [],
     diplomacy: monster.diplomacy ?? monster.Diplomacy ?? monster["Diplomacy"] ?? "",
@@ -3553,6 +3561,7 @@ function upvalueBossTreasure(treasure) {
   if (treasure.priceless !== true) {
     treasure.value = Math.max(1, Math.ceil(Number(treasure.value ?? 1) * BOSS_TREASURE_MULTIPLIER));
   }
+  syncTreasureGearUnitValue(treasure);
   treasure.bossTreasure = true;
   treasure.bossTreasureValueApplied = true;
   treasure.treasureMultiplier = BOSS_TREASURE_MULTIPLIER;
@@ -3586,12 +3595,18 @@ function ensureBossRooms(state, rng, bossMonsterTable = [], fallbackMonsterTable
   for (const room of rooms) {
     room.bossRoom = true;
     room.danger = "boss";
-    const details = pickBossMonsterDetails(state, rng, bossMonsterTable, fallbackMonsterTable);
+    const details = pickBossMonsterDetails(state, rng, waterEncounterTable(state,room,bossMonsterTable), waterEncounterTable(state,room,fallbackMonsterTable));
     const existingMonster = state.entities.find((entity) => (
       entity.type === ENTITY_TYPES.MONSTER &&
       entity.roomId === room.id &&
       entity.defeated !== true
     ));
+    const placement=details&&waterSpawnPlacement(state,room,details);
+    if(details&&existingMonster&&(placement.requireWater&&!isSlowWaterTile(state,existingMonster.x,existingMonster.y)||placement.avoidWater&&isSlowWaterTile(state,existingMonster.x,existingMonster.y))){
+      const tile=pickRandomFloorTileInRoom(state,rng,room,placement);
+      if(tile)Object.assign(existingMonster,{x:tile.x,y:tile.y});
+      else continue;
+    }
     if (details && existingMonster) {
       Object.assign(existingMonster, details, {
         subtype: "boss",
@@ -3599,7 +3614,7 @@ function ensureBossRooms(state, rng, bossMonsterTable = [], fallbackMonsterTable
         bossRoom: true
       });
     } else if (details) {
-      spawnEntity(state, rng, room, "boss", ENTITY_TYPES.MONSTER, "boss", true, details);
+      spawnEntity(state, rng, room, "boss", ENTITY_TYPES.MONSTER, "boss", true, {...details,placement});
     }
     ensureBossRoomTreasure(state, rng, room, lootCatalog);
   }
@@ -3612,9 +3627,11 @@ function populateRoomEntities(state, rng, monsterTable = [], trapTable = [], loo
       continue;
     }
     const profile = getRoomContentProfile(room);
+    const roomMonsters=waterEncounterTable(state,room,room.crypt?cryptMonsters:monsterTable);
     if(room.isolatedBankKeys?.length && rng.nextFloat()<.45) {
-      const monster=createMonsterDetails(rng,monsterTable.filter(hasRangedMonsterAttack));
-      const point=rng.pick(room.isolatedBankKeys);
+      const monster=createMonsterDetails(rng,roomMonsters.filter(hasRangedMonsterAttack));
+      const placement=monster&&waterSpawnPlacement(state,room,monster);
+      const point=rng.pick(room.isolatedBankKeys.filter(k=>{const [x,y]=k.split(",").map(Number);return (!placement?.requireWater||isSlowWaterTile(state,x,y))&&(!placement?.avoidWater||!isSlowWaterTile(state,x,y));}));
       if(monster&&point&&livingFloorMonsters(state).length<MAX_FLOOR_MONSTERS) {
         const [x,y]=point.split(',').map(Number);
         state.entities.push({id:`monster-${state.entities.length}`,type:ENTITY_TYPES.MONSTER,subtype:'foe',roomId:room.id,
@@ -3626,8 +3643,8 @@ function populateRoomEntities(state, rng, monsterTable = [], trapTable = [], loo
     const monsterChance = secretTreasureRoom ? SECRET_TREASURE_ROOM_MONSTER_CHANCE : profile.monster;
     if (rng.nextFloat() < monsterChance) {
       const monster = secretTreasureRoom
-        ? pickBossMonsterDetails(state, rng, bossMonsterTable, monsterTable)
-        : createMonsterDetails(rng, room.crypt ? cryptMonsters : monsterTable);
+        ? pickBossMonsterDetails(state, rng, waterEncounterTable(state,room,bossMonsterTable), roomMonsters)
+        : createMonsterDetails(rng, roomMonsters);
       if (monster) {
         const spawned = spawnEntity(
           state,
@@ -3637,7 +3654,7 @@ function populateRoomEntities(state, rng, monsterTable = [], trapTable = [], loo
           ENTITY_TYPES.MONSTER,
           secretTreasureRoom ? "boss" : "foe",
           true,
-          secretTreasureRoom ? { ...monster, boss: true, bossRoom: true } : monster
+          { ...monster, ...(secretTreasureRoom ? {boss:true,bossRoom:true}:{}), placement:waterSpawnPlacement(state,room,monster) }
         );
         monsterSpawned = Boolean(spawned);
       }
@@ -5535,6 +5552,7 @@ function createOrganicEntranceMarker(state, room, rng) {
 
 function tryGrowRectGraphRoom(state, queueEntry, rng, roomIndex, hallIndex) {
   const { room, side, depth } = queueEntry;
+  let wealthFailure;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     let size = pickRectGraphRoomSize(rng, depth, queueEntry.architecture || queueEntry.pattern || "processional");
     const rotundaCount = state.rooms.filter((candidate) => candidate.rotunda === true).length;
@@ -5543,7 +5561,7 @@ function tryGrowRectGraphRoom(state, queueEntry, rng, roomIndex, hallIndex) {
     }
     const pattern = queueEntry.architecture || queueEntry.pattern || "processional";
     const reviewed = state.rooms.filter(room=>room.reviewedTemplate).length < 4
-      ? pickReviewedLayout(rng,'room',pattern,state.generation.reviewedLayouts !== false) : null;
+      ? pickReviewedLayout(rng,'room',pattern,state.generation.reviewedLayouts !== false,null,state.generation.dryWaterTemplates) : null;
     if(reviewed)size={width:reviewed.width,height:reviewed.height,rotunda:false};
     const hallLength = pattern === "innerWalls"
       ? rng.nextInt(2, 4)
@@ -5559,7 +5577,7 @@ function tryGrowRectGraphRoom(state, queueEntry, rng, roomIndex, hallIndex) {
       continue;
     }
     let reviewedHall=state.halls.filter(hall=>hall.reviewedTemplate).length<(pattern==='organic'?5:2)
-      ? pickReviewedLayout(rng,'hall',pattern,state.generation.reviewedLayouts!==false,RECT_GRAPH_OPPOSITE[side]):null;
+      ? pickReviewedLayout(rng,'hall',pattern,state.generation.reviewedLayouts!==false,RECT_GRAPH_OPPOSITE[side],state.generation.dryWaterTemplates):null;
     const entryPort=reviewedHall?.ports.find(([s])=>s===RECT_GRAPH_OPPOSITE[side]);
     if(reviewedHall&&!entryPort)reviewedHall=null;
     const inputDirection=RECT_GRAPH_DIRECTIONS[side];
@@ -6670,6 +6688,9 @@ function createOrganicDungeon(seed, level, options = {}) {
   const reachableRooms = entranceRoom ? floodFillReachableRooms(state, entranceRoom.id) : new Set();
   state.generation.connectivityValid = reachableRooms.size === state.rooms.length && validateOrganicPassableConnectivity(state);
 
+  applyDungeonWater(state,new SeededRng(Number(seed)+43157),
+    options.waterProfile || chooseWaterProfile(new SeededRng(Number(seed)+73153),options.waterCategory),
+    {eligible:tile=>isWalkableForValidation(state,tile)});
   populateRoomEntities(state, rng, options.monsterTable || [], options.trapTable || [], options.contentCatalog?.loot || {});
   ensureBossRooms(
     state,
@@ -6691,11 +6712,12 @@ function createRectGraphDungeon(seed, level, options = {}) {
   const rng = new SeededRng(seed);
   const architecturePattern = options.architecturePattern || chooseArchitecturePattern(rng);
   state.generation.reviewedLayouts = options.reviewedLayouts !== false;
+  state.generation.dryWaterTemplates = options.waterProfile?.category === "none";
   state.generation.architecture = {
     pattern: architecturePattern,
     rolePassVersion: 1
   };
-  const entranceLayout=pickReviewedLayout(rng,'entrance',architecturePattern,state.generation.reviewedLayouts);
+  const entranceLayout=pickReviewedLayout(rng,'entrance',architecturePattern,state.generation.reviewedLayouts,null,state.generation.dryWaterTemplates);
   const firstSize = entranceLayout || { width: rng.nextInt(5, 7), height: rng.nextInt(5, 6), rotunda: false };
   const firstRoom = {
     id: "room-0",
@@ -6817,7 +6839,6 @@ function createRectGraphDungeon(seed, level, options = {}) {
     // Reviewed bank/bridge templates replace the old procedural canal composition.
     state.decor.canals = [];
     addRectGraphColumns(state, rng);
-    addRectGraphWater(state, rng, architecturePattern);
     addRotundaWells(state, rng);
   }
   addBuiltSecretDoors(state, rng, architecturePattern);
@@ -6830,6 +6851,9 @@ function createRectGraphDungeon(seed, level, options = {}) {
     validateTileConnectivity(state);
   if (!state.generation.connectivityValid) return state;
 
+  applyDungeonWater(state,new SeededRng(Number(seed)+43157),
+    options.waterProfile || chooseWaterProfile(new SeededRng(Number(seed)+73153),options.waterCategory),
+    {eligible:tile=>isWalkableForValidation(state,tile)});
   populateRoomEntities(state, rng, options.monsterTable || [], options.trapTable || [], options.contentCatalog?.loot || {});
   ensureBossRooms(
     state,
@@ -6847,26 +6871,58 @@ function createRectGraphDungeon(seed, level, options = {}) {
 }
 
 export function generateDungeon(seed = Date.now(), level = 1, options = {}) {
+  options={...options,waterProfile:chooseWaterProfile(new SeededRng(Number(seed)+73153),options.waterCategory)};
   const rng = new SeededRng(seed);
   const architecturePattern = options.architecturePattern || chooseArchitecturePattern(rng);
+  let wealthFailure;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const generationSeed = attempt < 2 ? seed : (Number(seed) + (attempt - 1) * 104729) >>> 0;
     const reviewedLayouts = attempt === 1 ? false : options.reviewedLayouts;
     const state = createRectGraphDungeon(generationSeed, level, { ...options, architecturePattern, reviewedLayouts });
     if (!state.generation.connectivityValid) continue;
-    placeMagicTreasure(state, new SeededRng(Number(generationSeed) + 7291), options.spells || []);
     finishUnderpasses(state, generationSeed, options);
     // Decoration and lower routes can invalidate a previously connected room graph.
     const distances = dungeonTraversalDistances(state);
     if (!validateTileConnectivity(state, distances)) continue;
     const stairs = placeDungeonDownstairs(state, { distances, minArrivalCapacity: options.partySize ?? 16 });
     if (Number(level) < DEEPEST_DUNGEON_LEVEL && !stairs) continue;
+    try { applyStartingWealthPolicy(state, seed, options); }
+    catch(error) { if(error instanceof FloorWealthAllocationError) { wealthFailure = error; continue; } throw error; }
     state.generation.connectivityValid = true;
+    if (wealthFailure) state.generation.wealthAllocationRetryReason = wealthFailure.message;
     if (attempt) state.generation.connectivityRetry = { requestedSeed: seed, generationSeed, attempt };
     if (attempt === 1 && options.reviewedLayouts !== false) state.generation.reviewedLayoutFallback = true;
     return state;
   }
-  throw new Error(`Unable to generate a traversable dungeon with downstairs for seed ${seed} (${architecturePattern}).`);
+  throw new Error(`Unable to generate a traversable dungeon with downstairs for seed ${seed} (${architecturePattern}).${wealthFailure ? " " + wealthFailure.message : ""}`);
+}
+
+function applyStartingWealthPolicy(state, requestedSeed, options) {
+  const rng = new SeededRng(Number(state.seed) + 58123);
+  const targetGp = floorWealthTarget(requestedSeed, state.level);
+  const prepared = prepareStartingWealth(state, rng);
+  // Reserve native equipment/special wealth and an accessible ten-percent share.
+  // Variable table results are repriced only by the final, copper-exact allocation.
+  const initial = state.entities.filter(e => e.type === 'treasure' && !e.collected);
+  // Conservative reservation includes all currently carried wealth. It can reduce
+  // magic selection, but cannot spend a monster's fixed equipment/genuine gold twice.
+  const floorFixed = initial.filter(e => e.generationFixedValue || e.gearItem && printedEquipmentUnitValue(e.gearItem) !== null)
+    .reduce((sum, e) => sum + Number(e.value || 0), 0);
+  placeMagicTreasure(state, rng, options.spells || [], {
+    budgetGp: Math.max(0, targetGp * .9 - prepared.carriedGp - floorFixed - 1), rebalance: false, valueOfMagic: highestMagicSaleValue
+  });
+  const secrets = state.entities.filter(e => e.subtype === 'door' && e.secret === true);
+  const reachable = secrets.length ? dungeonTraversalDistances(state, undefined,
+    {blocked:new Set(secrets.map(e => routeKey({...e,routeId:routeOf(state,e)})))}) : null;
+  const secretGated = entity => {
+    if(!reachable || reachable.has(routeKey({...entity,routeId:routeOf(state,entity)}))) return false;
+    const doors = state.entities.filter(e => e.subtype === 'door' && e.roomId === entity.roomId);
+    return doors.length === 1 && doors[0].secret === true;
+  };
+  const easyPoint = state.tiles.find(tile => (!reachable || reachable.has(routeKey({...tile,routeId:routeOf(state,tile)}))) &&
+    isSafeDungeonArrival(state,tile,{allowWater:true}));
+  if (!easyPoint) throw new FloorWealthAllocationError('No reachable, untrapped location for accessible treasure.');
+  finalizeStartingWealth(state, rng, {targetGp, secretGated, easyPoint});
 }
 
 function finishUnderpasses(state, seed, options) {
@@ -6931,6 +6987,9 @@ function createClassicDungeon(seed, level, options) {
   addBuiltSecretDoors(state, rng, "classic");
   validateSecretDoorApproaches(state);
 
+  applyDungeonWater(state,new SeededRng(Number(seed)+43157),
+    options.waterProfile || chooseWaterProfile(new SeededRng(Number(seed)+73153),options.waterCategory),
+    {eligible:tile=>isWalkableForValidation(state,tile)});
   populateRoomEntities(state, rng, options.monsterTable || [], options.trapTable || [], options.contentCatalog?.loot || {});
   ensureBossRooms(
     state,
@@ -6948,6 +7007,8 @@ function createClassicDungeon(seed, level, options) {
 }
 
 export function generateClassicDungeon(seed = Date.now(), level = 1, options = {}) {
+  options={...options,waterProfile:chooseWaterProfile(new SeededRng(Number(seed)+73153),options.waterCategory)};
+  let wealthFailure;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const generationSeed = attempt ? (Number(seed) + attempt * 104729) >>> 0 : seed;
     const state = createClassicDungeon(generationSeed, level, options);
@@ -6956,10 +7017,13 @@ export function generateClassicDungeon(seed = Date.now(), level = 1, options = {
     if (!state.generation.connectivityValid) continue;
     const stairs = placeDungeonDownstairs(state, { distances, minArrivalCapacity: options.partySize ?? 16 });
     if (Number(level) < DEEPEST_DUNGEON_LEVEL && !stairs) continue;
+    try { applyStartingWealthPolicy(state, seed, options); }
+    catch(error) { if(error instanceof FloorWealthAllocationError) { wealthFailure = error; continue; } throw error; }
+    if (wealthFailure) state.generation.wealthAllocationRetryReason = wealthFailure.message;
     if (attempt) state.generation.connectivityRetry = { requestedSeed: seed, generationSeed, attempt };
     return state;
   }
-  throw new Error(`Unable to generate a traversable classic dungeon with downstairs for seed ${seed}.`);
+  throw new Error(`Unable to generate a traversable classic dungeon with downstairs for seed ${seed}.${wealthFailure ? " " + wealthFailure.message : ""}`);
 }
 
 // Generation treats doors as openable and pit climbs as deliberate physical paths.
@@ -6989,13 +7053,13 @@ export function dungeonEntrancePoint(state) {
   return upstairs || state.player;
 }
 
-export function dungeonTraversalDistances(state, start = dungeonEntrancePoint(state)) {
+export function dungeonTraversalDistances(state, start = dungeonEntrancePoint(state), {blocked = new Set()} = {}) {
   const first = { x: start.x, y: start.y, routeId: routeOf(state, start) };
   const distances = new Map(), queue = [];
   const cells = new Map();
   const canStand = point => {
     const key = routeKey(point);
-    if (!cells.has(key)) cells.set(key, isDungeonTraversalCell(state, point));
+    if (!cells.has(key)) cells.set(key, !blocked.has(key) && isDungeonTraversalCell(state, point));
     return cells.get(key);
   };
   if (!canStand(first)) return distances;
@@ -7020,10 +7084,10 @@ export function dungeonTraversalDistances(state, start = dungeonEntrancePoint(st
   return distances;
 }
 
-export function isSafeDungeonArrival(state, point, { allowWater = false, ignoreOccupants = false } = {}) {
+export function isSafeDungeonArrival(state, point, { allowWater = Boolean(state.generation?.waterPlan), ignoreOccupants = false } = {}) {
   if (!isDungeonTraversalCell(state, point)) return false;
   const tile = getTile(state, point.x, point.y);
-  if ((!allowWater && (tile.meta?.water || tile.meta?.canal)) || tile.meta?.hazard) return false;
+  if ((!allowWater && (tile.meta?.water || tile.meta?.canal || isSlowWaterTile(state,point.x,point.y))) || tile.meta?.hazard) return false;
   if (Object.values(state.decor || {}).some(items => Array.isArray(items) && items.some(item =>
     decorPlacementCoversTile(item, point.x, point.y) && (item.blocksMovement || !allowWater && /water|canal/i.test(item.assetKey || item.asset || ''))))) return false;
   return !(state.entities || []).some(entity => routeOf(state, entity) === routeOf(state, point) &&
@@ -7034,7 +7098,7 @@ export function isSafeDungeonArrival(state, point, { allowWater = false, ignoreO
 }
 
 function reserveDownstairsCell(state, points, distances, minArrivalCapacity) {
-  const clear = points.filter(point => isSafeDungeonArrival(state, point));
+  const clear = points.filter(point => isSafeDungeonArrival(state, point, {allowWater:Boolean(state.generation.waterPlan)}));
   if (clear.length > minArrivalCapacity) return clear[0];
   const clearKeys = new Set(clear.map(routeKey));
   const occupied = points.filter(point => !clearKeys.has(routeKey(point)) && !state.entities.some(entity =>
@@ -7070,7 +7134,7 @@ function reserveDownstairsCell(state, points, distances, minArrivalCapacity) {
     const tile = getTile(state, cell.x, cell.y);
     Object.assign(entity, cell, { roomId: tile.roomId, hallId: tile.hallId });
   });
-  return reserved.every(cell => isSafeDungeonArrival(state, cell)) ? point : null;
+  return reserved.every(cell => isSafeDungeonArrival(state, cell, {allowWater:Boolean(state.generation.waterPlan)})) ? point : null;
 }
 
 export function placeDungeonDownstairs(state, { minArrivalCapacity = 16, distances = null } = {}) {
@@ -7087,7 +7151,7 @@ export function placeDungeonDownstairs(state, { minArrivalCapacity = 16, distanc
   distances ||= dungeonTraversalDistances(state);
   const candidates = state.rooms.filter(room => room.id !== state.generation.entranceRoomId).map(room => {
     const points = state.tiles.filter(tile => tile.roomId === room.id).map(tile => ({ x: tile.x, y: tile.y, routeId: room.routeId || '' }))
-      .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point, { ignoreOccupants: true }));
+      .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point, { ignoreOccupants: true, allowWater:Boolean(state.generation.waterPlan) }));
     const reachable = state.tiles.filter(tile => tile.roomId === room.id).map(tile => distances.get(routeKey({ ...tile, routeId: room.routeId || '' })))
       .filter(Number.isFinite);
     const arrivalCapacity = points.length - 1;
@@ -7108,6 +7172,6 @@ export function placeDungeonDownstairs(state, { minArrivalCapacity = 16, distanc
   state.entities.push(stairs);
   state.generation.downstairs = { entityId: stairs.id, roomId: chosen.room.id, routeId: point.routeId,
     distance: chosen.distance, minArrivalCapacity,
-    arrivalCapacity: chosen.points.filter(cell => isSafeDungeonArrival(state, cell)).length };
+    arrivalCapacity: chosen.points.filter(cell => isSafeDungeonArrival(state, cell, {allowWater:Boolean(state.generation.waterPlan)})).length };
   return stairs;
 }

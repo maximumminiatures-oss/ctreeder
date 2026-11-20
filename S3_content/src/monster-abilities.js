@@ -1,3 +1,6 @@
+import {SEA_MONSTER_ABILITIES,seaAbilityAvailable,applySeaMonsterAbility} from './sea-monster-abilities.js';
+import {quenchImmersedEffects} from './water-rules.js';
+import {elementalSaveOptions} from './elemental-effects.js';
 import { applyBloodDrain, isVampire } from './supernatural-traits.js';
 import { abilityScoreModifier } from './characters.js';
 import { rollCheck } from './interactions.js';
@@ -34,14 +37,14 @@ const names = {
   ]
 };
 const nativeStats = { STR: 'S', DEX: 'D', CON: 'C', WIS: 'W', INT: 'I', CHA: 'Ch' };
-const doesNotAct = new Set(['drinkPain', 'agony', 'magicBolt']);
+const doesNotAct = new Set(['drinkPain', 'agony', 'magicBolt', 'boilWater']);
 const controls = new Set(['possess', 'mindControl', 'enslave', 'soulbind', 'charm', 'hypnotize', 'beguile', 'harpySong']);
-export const monsterAbilityDefinitions = monster => names[String(monster?.name || '').toLowerCase()] || [];
+export const monsterAbilityDefinitions = monster => SEA_MONSTER_ABILITIES[String(monster?.name||'').toLowerCase()] || names[String(monster?.waterBaseName||monster?.name||'').toLowerCase()] || [];
 const nativeModifier = (actor, stat) => actor.stats ? abilityScoreModifier(actor.stats[stat]) : Number(actor[nativeStats[stat]] || 0);
 const fromUndead = creature => creature?.tags?.some(tag => String(tag).toLowerCase() === 'undead') ||
   isVampire(creature) || /^ghost$/i.test(creature?.name || '') || creature?.companion?.kind === 'animate-dead';
 const d = sides => Math.floor(Math.random() * sides) + 1;
-const rollDamage = ([count, sides]) => Array.from({ length: count }, () => d(sides)).reduce((sum, roll) => sum + roll, 0);
+const rollDamage = ([count, sides],random=Math.random) => Array.from({ length: count }, () => Math.floor(random()*sides)+1).reduce((sum, roll) => sum + roll, 0);
 
 export function inflictMonsterCondition(target, key, source, fields = {}) {
   if (isVampire(target) && (['poison', 'toxin'].includes(key) || fromUndead(source))) return false;
@@ -52,9 +55,9 @@ export function inflictMonsterCondition(target, key, source, fields = {}) {
   return true;
 }
 
-export function availableMonsterAbility(monster, entry, target) {
+export function availableMonsterAbility(monster, entry, target, state = null) {
   const [id, , , , , , options = {}] = entry;
-  return !monster.failedMonsterSpells?.includes(id) &&
+  return (!options.sea || state&&seaAbilityAvailable(state,monster,entry)) && !monster.failedMonsterSpells?.includes(id) &&
     !(target.conditions?.[options.condition || id] && !options.damage) &&
     !(Number(monster.I) > 0 && monster.observedNullifiedEffects?.includes(options.condition || id) && !options.damage) &&
     (options.maxLevel == null || Number(target.level || 1) <= options.maxLevel) &&
@@ -62,24 +65,27 @@ export function availableMonsterAbility(monster, entry, target) {
     (!options.audible || !target.conditions?.deaf && !target.conditions?.deafened);
 }
 
-export function castMonsterAbility(state, monster, entry, targets, { harm, check = rollCheck } = {}) {
+export function castMonsterAbility(state, monster, entry, targets, { harm, check = rollCheck, catalog = [], random = Math.random } = {}) {
   const [id, title, , savingStat, dc, duration, options = {}] = entry;
+  if(options.sea&&!seaAbilityAvailable(state,monster,entry))throw Error("That ability has no valid placement or is already active.");
   if (options.spell) {
-    const casting = check(nativeModifier(monster, options.spell));
+    const casting = check(options.castingBonus ?? nativeModifier(monster, options.spell));
     if (casting.roll === 1 || casting.roll !== 20 && casting.total < options.dc) {
       monster.failedMonsterSpells = [...new Set([...(monster.failedMonsterSpells || []), id])];
       return monster.name + ' fails to cast ' + title + '.';
     }
   }
+  if(options.sea)return applySeaMonsterAbility(state,monster,entry,{catalog,random});
   const affected = [];
   for (const target of targets) {
     if (isVampire(target) && fromUndead(monster) || circleBlocksHostileAction(state, monster, target) ||
         controls.has(id) && circleBlocksMentalControl(state, monster, target)) continue;
     const difficulty = id === 'possess' ? check(nativeModifier(monster, 'CHA')).total : dc;
-    const failed = !savingStat || check(nativeModifier(target, savingStat)).total < difficulty;
+    const failed = !savingStat || check(nativeModifier(target, savingStat),elementalSaveOptions(target,options.damageType||title,{state})).total < difficulty;
     if (options.damage && (failed || options.damageOnSave)) {
-      const dealt = harm?.(target, rollDamage(options.damage), { spell: Boolean(options.spell), damageSource: id === 'frozen' ? 'cold' : '' }) || 0;
+      const dealt = harm?.(target, rollDamage(options.damage,random), { spell: Boolean(options.spell), damageSource: options.damageType || (id === 'frozen' ? 'cold' : '') }) || 0;
       if (options.heal) monster.hp = Math.min(Number(monster.maxHp || monster.hp), monster.hp + dealt);
+      if(id==="boilWater"){affected.push(target.name+" for "+dealt+" fire damage");continue;}
     }
     if (id === 'harpySong' && !failed) {
       target.conditions ||= {};
@@ -118,8 +124,9 @@ export function applyMonsterStrikeEffect(state, source, target, attack, { harm, 
   if (/\bparalyze|\bpoison\b/.test(text) && check(nativeModifier(target, 'CON')).total < (/naga/i.test(source.name) ? 15 : 12)) {
     inflictMonsterCondition(target, /poison/.test(text) ? 'poison' : 'paralyzed', source, { rounds: d(4) });
   }
-  if (/\bhellfire\b/.test(text) && check(nativeModifier(target, 'DEX')).total < 18) {
+  if (/\bhellfire\b/.test(text) && check(nativeModifier(target, 'DEX'),elementalSaveOptions(target,'fire',{state})).total < 18) {
     inflictMonsterCondition(target, 'hellfire', source, { magical: true });
+    quenchImmersedEffects(state,target);
   }
   if (/blood drain/.test(text)) return applyBloodDrain(source, target);
   const drain = /life drain/.test(text) ? 'lifeDrain' : /cubi/i.test(source.name) && /\bdrain\b/.test(text) ? 'lifeDrain' : null;
@@ -148,6 +155,7 @@ export function advanceMonsterAfflictions(state, { rounds, milliseconds, harm })
   let changed = false;
   const creatures = [...(state.characters || []), ...(state.entities || [])];
   for (const target of creatures) {
+    changed=quenchImmersedEffects(state,target)||changed;
     for (const [key, effect] of Object.entries(target.conditions || {})) {
       if (!effect?.sourceId || !restorableConditions(target).some(entry => entry.key === key)) continue;
       const source = creatures.find(creature => creature.id === effect.sourceId);

@@ -13,6 +13,14 @@ export function isClosedSecretDoor(door) {
   return (door?.secret === true || door?.isSecret === true) && !isDoorPassable(door);
 }
 
+// Memory sides follow the same boundary and orientation as the displayed door.
+export function doorExplorationSides(door) {
+  const side = door.wallSide || door.hallDirection;
+  const horizontal = (door.secret || door.isSecret) && side
+    ? side === 'north' || side === 'south' : door.orientation === 'horizontal';
+  return horizontal ? ['top', 'bottom'] : ['left', 'right'];
+}
+
 export function doorApproachTiles(door) {
   const inward = { north: [0, 1], south: [0, -1], east: [-1, 0], west: [1, 0] }[door.wallSide || door.hallDirection];
   if (!inward) return null;

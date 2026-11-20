@@ -1,3 +1,4 @@
+import {isOnCeiling,willUseCeiling,modeMovementSquares,isImmersed} from './water-rules.js';
 import { lycanthropeKind } from './supernatural-traits.js';
 import { movementStepCost } from './terrain-movement.js';
 import { isFloatingDisc } from './floating-disc.js';
@@ -8,8 +9,10 @@ import { createCheckRollCard } from './roll-history.js';
 import { hasMobilityFlight } from './conditions.js';
 import { mobilityMovementSquares } from './tier-three-mobility.js';
 
-export function characterMovementBudget(character) {
-  const value = lycanthropeKind(character) === 'werewolf' ? 12 : Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
+export function characterMovementBudget(character,state=null) {
+  let value = lycanthropeKind(character) === 'werewolf' ? 12 : Number(character?.movementSquares ?? character?.movementPerTurn ?? 6);
+  if(isOnCeiling(character))value=modeMovementSquares(character,"climb",value);
+  else if(isImmersed(state,character))value=modeMovementSquares(character,"swim",value);
   const effects = character?.transformationEffects || [];
   const levitating = effects.some(effect => effect.spell === 'levitate') || hasMobilityFlight(character);
   const goatLegs = effects.some(effect => effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('goat-legs'));
@@ -22,17 +25,18 @@ export function characterMovementBudget(character) {
 export function characterOccupant(state, x, y, exceptId, options = {}) {
   const actor = state.characters?.find(character => character.id === exceptId);
   const route = options.routeId ?? (actor ? routeStep(state, actor, { x, y })?.routeId ?? routeOf(state, actor) : routeOf(state, { x, y }));
-  return (state.characters || []).find(character => !isFloatingDisc(character) && !character.illusion && character.id !== exceptId && !character.dead && !character.slain &&
+  return (state.characters || []).find(character => !isFloatingDisc(character) && !character.illusion && character.id !== exceptId && (!actor||isOnCeiling(character)===isOnCeiling(actor)) && !character.dead && !character.slain &&
     routeOf(state, character) === route && Number(character.x) === x && Number(character.y) === y);
 }
 
 export function combatStepBlock(state, character, x, y) {
   const route = routeStep(state, character, { x, y })?.routeId ?? routeOf(state, character);
-  const monster = (state.entities || []).find(entity => entity.type === 'monster' && !entity.defeated && routeOf(state, entity) === route && Number(entity.x) === x && Number(entity.y) === y);
+  const ceiling=willUseCeiling(state,character,character,{x,y});
+  const monster = (state.entities || []).find(entity => isOnCeiling(entity)===ceiling && entity.type === 'monster' && !entity.defeated && routeOf(state, entity) === route && Number(entity.x) === x && Number(entity.y) === y);
   const passesCreatures = lycanthropeKind(character) === 'wererat' || hasMobilityFlight(character) || character.transformationEffects?.some(effect => effect.spell === 'levitate' ||
     effect.spell === 'alter self' && effect.rounds > 0 && effect.features?.includes('spider-legs'));
   if (monster && !passesCreatures) return `${monster.name || 'Monster'} blocks the way.`;
-  const occupant = characterOccupant(state, x, y, character.id);
+  const occupant = (state.characters||[]).find(c=>c.id!==character.id&&!c.dead&&!c.slain&&routeOf(state,c)===route&&Number(c.x)===x&&Number(c.y)===y&&isOnCeiling(c)===ceiling);
   const remaining = state.combat.movementRemaining - movementStepCost(state, Number(character.x), Number(character.y), character);
   if ((occupant || monster) && remaining < movementStepCost(state, x, y, character)) return `${character.name} can't end turn on ${(occupant || monster).name}'s token.`;
   return '';
@@ -124,4 +128,16 @@ export function colorChannels(value) {
 export function mixTokenColor(color, base, amount) {
   const token = colorChannels(color), background = colorChannels(base);
   return `rgb(${token.map((value, i) => Math.round(value * amount + background[i] * (1 - amount))).join(', ')})`;
+}
+
+
+export function movementSpentSoFar(combat){
+  return Math.max(0,Number(combat?.movementSpent)||0,
+    (Number(combat?.movementBudget)||0)-(Number(combat?.movementRemaining)||0));
+}
+export function reconcileMovementBudget(combat,budget,extraSpent=0){
+  const spent=movementSpentSoFar(combat)+Math.max(0,Number(extraSpent)||0);
+  combat.movementSpent=spent;combat.movementBudget=Math.max(0,budget);
+  combat.movementRemaining=Math.max(0,budget-spent);
+  return combat.movementRemaining;
 }

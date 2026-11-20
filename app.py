@@ -284,6 +284,7 @@ def migrate_existing_database() -> None:
             "players_can_import": "BOOLEAN NOT NULL DEFAULT TRUE",
             "primary_assignments_json": "JSON NOT NULL DEFAULT '{}'",
         },
+        "account_autosaves": {"room_json": "JSON"},
         "room_members": {
             "visibility_json": "JSON NOT NULL DEFAULT '{}'",
         }}
@@ -1685,6 +1686,8 @@ def get_random_tables():
 from rooms import register_room_routes
 register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit)
 register_party_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit)
+from autosaves import register_autosave_routes
+register_autosave_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit)
 from account_security import register_account_routes
 register_account_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit)
 

@@ -1,3 +1,4 @@
+import { creatureDarkvisionObservers } from './viewer-perception.js';
 import { isBlind, isSleeping } from './conditions.js';
 import { sameRoute, routeOf } from './underpasses.js';
 import { hasLineOfSightFrom } from './visibility.js';
@@ -30,7 +31,7 @@ export function canSeeWithDarkvision(state, observer, target, { hasLineOfSight =
 }
 
 export function partyDarkvisionReveals(state, target, options = {}) {
-  return darkvisionObservers(state, options).some(observer => canSeeWithDarkvision(state, observer, target, options));
+  return creatureDarkvisionObservers(state,options).some(observer => canSeeWithDarkvision(state, observer, target, options));
 }
 
 export function collectDarkvisionTiles(state, { hasLineOfSight, viewer = null } = {}) {

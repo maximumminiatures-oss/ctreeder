@@ -64,7 +64,8 @@
         "abilities": {
             "**Grab**": "DC 15 STR or held in pincer. DC 15 STR on turn to break free."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Crab, Giant",
@@ -86,7 +87,8 @@
         "abilities": {
             "**Crush**": "DC 15 STR or target takes 1d8 damage."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Demon, Vrock",
@@ -135,7 +137,8 @@
             "**Rubbery**": "Half damage from stabbing weapons.",
             "**Toxin**": "DC 15 CON or paralyzed 1d4 rounds."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Hippopotamus",
@@ -157,7 +160,8 @@
         "abilities": {
             "**Stumpy**": "ADV on STR checks to grab or drag other creatures."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true, "prefersWater": true}
     },
     {
         "Monster Name": "Mimic",
@@ -204,7 +208,8 @@
             "**Grab**": "DC 15 STR or immobilized. Tentacle auto-hits each round. DC 15 STR on turn to break free.",
             "**Ink**": "In place of attacks, ink cloud blinds all in near for 1d4 rounds."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true, "bound": true}
     },
     {
         "Monster Name": "Priest",
@@ -345,7 +350,8 @@
             "**Blood Drain**": "Vampire heals 2d6 HP and target permanently loses 1d4 CON. At 0 CON, target dies and rises as a vampire spawn.",
             "**Vampire**": "Must sleep in a coffin daily or loses 2d6 HP each day that can't be healed until resting in coffin. Takes 3d8 damage each round while in direct sunlight. Cannot be killed unless pierced through heart with a wooden stake while at 0 HP."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"averse": true}
     },
     {
         "Monster Name": "Void Spider",

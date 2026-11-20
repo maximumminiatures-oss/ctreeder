@@ -3,7 +3,7 @@ import { canMoveBetweenTiles } from './interactions.js';
 import { characterOccupant } from './combat-rules.js';
 import { movementStepCost } from './terrain-movement.js';
 import { canDirectlyTarget } from './concealment.js';
-import { isMonsterCurrentlyVisible } from './monster-perception.js';
+import { isMonsterCurrentlyVisible, isCreatureLocationKnown } from './monster-perception.js';
 import { sameRoute, routeOf, routeAt, routeStep, routeKey } from './underpasses.js';
 import { getTile } from './state-schema.js';
 import { isDarkvisionCharacter } from './darkvision.js';
@@ -23,9 +23,9 @@ export function canTargetAtRange(state, character, target, range, { requireLight
     sameRoute(state, character, target) &&
     withinTargetRange(character, target, range) &&
     (!directAttack || mobilityCanDirectlyTarget(target, { melee: Number(range) <= Math.SQRT2 }) &&
-      canDirectlyTarget(target, range, character) && (target.type !== 'monster' || isMonsterCurrentlyVisible(state, target))) &&
+      canDirectlyTarget(target, range, character) && (target.type !== 'monster' || isMonsterCurrentlyVisible(state, target) || isCreatureLocationKnown(state,target,{viewer:character}))) &&
     (!requireLight || isTilePerceived(state, Number(target.x), Number(target.y), target) ||
-      target.type === 'monster' && isMonsterCurrentlyVisible(state, target)) &&
+      target.type === 'monster' && (isMonsterCurrentlyVisible(state, target) || isCreatureLocationKnown(state,target,{viewer:character}))) &&
     hasLineOfSightFrom(state, Number(character.x), Number(character.y), Number(target.x), Number(target.y), { source: character, target }));
 }
 

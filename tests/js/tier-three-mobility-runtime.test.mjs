@@ -35,6 +35,7 @@ function foe(state, x = 22, extra = {}) {
 }
 function combat(state) {
   if (!state.entities.some(entity => entity.id === 'foe')) foe(state);
+  state.entities.find(entity => entity.id === 'foe').knownCharacterSquares = { wizard: { id: 'wizard', x: 2, y: 6, routeId: '', seen: true } };
   state.combat = { active: true, round: 1, turnIndex: 0, movementBudget: 6, movementRemaining: 6, actionUsed: false,
     turnOrder: [...state.characters.map(actor => ({ type: 'character', id: actor.id })), { type: 'monster', id: 'foe' }],
     playerOrderIds: state.characters.map(actor => actor.id), monsterIds: ['foe'] };

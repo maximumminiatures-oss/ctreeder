@@ -17,7 +17,7 @@ function nextStep(state, character, target, canStep, allowed) {
       const x = current.x + dx, y = current.y + dy, next = routeStep(state, current, { x, y });
       if (!next) continue;
       const id = routeKey(next);
-      if (seen.has(id) || distance(start, { x, y }) > 12 || !allowed(x, y, next) || !canStep(current.x, current.y, x, y, current)) continue;
+      if (seen.has(id) || distance(start, { x, y }) > 12 || !allowed(x, y, next) || !canStep(current.x, current.y, x, y, current, character)) continue;
       seen.add(id);
       queue.push({ ...next, first: current.first || [dx, dy] });
     }

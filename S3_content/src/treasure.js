@@ -1,3 +1,4 @@
+import {STARTING_ROOM_SHOP_ITEMS} from './shop-catalog.js';
 const DEFAULT_RULES_DATA = Object.freeze({
   gear: [
     { name: "arrows", costGp: 1, quantityDie: "1d20", stackSize: 20, slots: 1, ammoType: "arrows" },
@@ -275,6 +276,60 @@ function getRulesData(state) {
   return state?.rulesData || state?.shadowdarkRules || DEFAULT_RULES_DATA;
 }
 
+const priceKey=name=>String(name||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const equipmentPrices=new Map(STARTING_ROOM_SHOP_ITEMS.flatMap(item=>[[priceKey(item.name),item],[priceKey(item.id),item]]));
+for(const [alias,id] of [['pole','pole'],['quarterstaff','staff'],['flask','flask-or-bottle'],['bottle','flask-or-bottle']])equipmentPrices.set(priceKey(alias),STARTING_ROOM_SHOP_ITEMS.find(item=>item.id===id));
+export function printedEquipmentUnitValue(item){
+  if(!item||item.magic||item.magical||item.treasureItem)return null;
+  const tags=Array.isArray(item.tags)?item.tags:String(item.tags||'').split(',');
+  if(tags.some(tag=>/^magic(?:al| items?| gear| treasure)?$/i.test(String(tag).trim())))return null;
+  const name=String(item.fireDamage?.originalName||item.name||'').replace(/\s+x\d+$/i,'');
+  const config=equipmentPrices.get(priceKey(item.silver&&!/^silver\b/i.test(name)?'Silver '+name:name));
+  if(!config)return null;
+  return config.costCopper/100/(config.quantity||1)*(item.fireDamage?.response==='charred'?.5:1);
+}
+export function applyPrintedEquipmentValue(entity){
+  if(!entity?.gearItem||entity.subtype==='dropped-equipment'||!['gear','weapon'].includes(entity.kind))return false;
+  const unit=printedEquipmentUnitValue(entity.gearItem);if(unit===null)return false;
+  const units=Math.max(1,Number(entity.gearItem.totalUnits??entity.gearItem.quantity??1)||1);
+  entity.value=unit*units;entity.gearItem.value=unit;return true;
+}
+// Generation-only repricing of a fresh coin pouch retains its denomination.
+export function setTreasurePileValue(entity,valueGp){
+  entity.value=Math.max(0,Math.round((Number(valueGp)||0)*100)/100);
+  if(entity.coinBreakdown){
+    const key=Number(entity.coinBreakdown.gold)>0?'gold':Number(entity.coinBreakdown.silver)>0?'silver':'copper';
+    const unit=key==='gold'?100:key==='silver'?10:1;
+    const coins=Math.max(1,Math.round(entity.value*100/unit));
+    entity.coinBreakdown={gold:0,silver:0,copper:0,[key]:coins};entity.value=coins*unit/100;
+    entity.description=`Coins: ${entity.coinBreakdown.gold} gp, ${entity.coinBreakdown.silver} sp, ${entity.coinBreakdown.copper} cp.`;
+    entity.slots=Math.max(0,Math.ceil((coins-100)/100));
+  }
+  syncTreasureGearUnitValue(entity);
+}
+export function rebalancePrintedTreasure(state,targetGp){
+  const treasures=(state.entities||[]).filter(e=>e.type==='treasure'&&!e.collected);
+  const fixed=new Set(treasures.filter(e=>e.gearItem?.magic||applyPrintedEquipmentValue(e)));
+  const reserved=treasures.filter(e=>fixed.has(e)).reduce((n,e)=>n+Number(e.value||0),0);
+  const mutable=treasures.filter(e=>!fixed.has(e)),available=Math.max(0,targetGp-reserved);
+  const previous=mutable.reduce((n,e)=>n+Number(e.value||0),0);let assigned=0;
+  for(const [i,e] of mutable.entries()){
+    const next=i===mutable.length-1?available-assigned:available*(previous?Number(e.value||0)/previous:1/mutable.length);
+    setTreasurePileValue(e,Math.max(.01,next));assigned+=e.value;
+  }
+  state.generation ||= {};state.generation.treasureTargetGp=targetGp;
+  state.generation.treasureActualGp=treasures.reduce((n,e)=>n+Number(e.value||0),0);
+  return Math.max(0,targetGp-state.generation.treasureActualGp);
+}
+
+// A floor treasure value prices the complete pile; ordinary inventory values price one unit.
+export function syncTreasureGearUnitValue(entity){
+  const item=entity?.gearItem;
+  if(!item||item.magic)return;
+  const units=Math.max(1,Number(item.totalUnits??item.quantity??1)||1);
+  item.value=Math.max(0,Number(entity.value)||0)/units;
+}
+
 function buildEquipmentTreasure(state, rng, tableName) {
   const rules = getRulesData(state);
   const table = Array.isArray(rules?.[tableName]) && rules[tableName].length
@@ -285,10 +340,11 @@ function buildEquipmentTreasure(state, rng, tableName) {
   const quantity = isSingleTorch ? 1 : rollQuantity(rng, item.quantityDie);
   const displayName = quantity > 1 ? `${item.name} x${quantity}` : item.name;
   const slots = Math.max(1, Number(item.slots ?? 1) || 1);
+  const value=roundTreasureValue((Number(item.costGp)||0)*(quantity>1&&item.stackSize?quantity/item.stackSize:1));
   return {
     kind: tableName === "weapons" ? "weapon" : "gear",
     name: displayName,
-    value: roundTreasureValue((Number(item.costGp) || 0) * (quantity > 1 && item.stackSize ? quantity / item.stackSize : 1)),
+    value,
     slots,
     bonusSlots: 0,
     priceless: false,
@@ -300,7 +356,7 @@ function buildEquipmentTreasure(state, rng, tableName) {
       quantity,
       totalUnits: quantity,
       slots,
-      value: Number(item.costGp) || 0,
+      value: value / quantity,
       lit: item.lit === true
     }
   };
@@ -379,6 +435,11 @@ export function treasureArmorBases(rules) {
     const names = TREASURE_TYPES.find(type => type.key === kind)?.nouns || [baseName];
     return names.map(name => ({ ...base, name, ...(ac ? { ac } : {}), type: kind === 'shield' ? 'shield' : 'armor', treasureKind: kind }));
   });
+}
+
+export function createTableTreasureDetails(state, rng) {
+  const category = weightedPick(rng, TREASURE_TYPES.filter(entry => !entry.equipmentTable), entry => entry.weight);
+  return buildTypedTreasure(state, rng, category);
 }
 
 export function createTreasureDetails(state, rng) {

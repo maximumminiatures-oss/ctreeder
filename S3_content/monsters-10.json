@@ -141,7 +141,8 @@
             "**Desiccated**": "Can be damaged by fire. Takes x2 damage from it.",
             "**Necrosis**": "DC 15 CON or drop to 0 HP. Healing spells are DC 15 to cast on target while at 0 HP due to this effect."
         },
-        "diplomacy": "Y"
+        "diplomacy": "Y",
+        "waterHabitat": {"averse": true}
     },
     {
         "Monster Name": "Remorhaz",
@@ -216,7 +217,8 @@
             "**Shapechange**": "In place of attacks, turn into a bat, wolf, or back into regular form.",
             "**Vampire**": "Must sleep in a coffin daily or loses 2d6 HP each day that can't be healed until resting in coffin. Takes 3d8 damage each round while in direct sunlight. Cannot be killed unless pierced through heart with a wooden stake while at 0 HP."
         },
-        "diplomacy": "Y"
+        "diplomacy": "Y",
+        "waterHabitat": {"averse": true}
     },
     {
         "Monster Name": "Brachiosaurus",
@@ -237,7 +239,8 @@
             "dinosaur"
         ],
         "abilities": {},
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Dragon, Forest",
@@ -282,7 +285,8 @@
         "abilities": {
             "**Smog Breath**": "Fills a near-sized cube extending from dragon. DC 15 CON or 2d10 damage and blinded for 1 round."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Giant, Storm",
@@ -305,7 +309,8 @@
             "**Stormblood**": "Electricity immune.",
             "**Lightning Bolt**": "3/day, 5' wide line extending far from giant. All creatures in line DC 15 DEX or 5d10 damage. DISADV on check if in water."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Purple Worm",
@@ -577,7 +582,8 @@
             "**Steam Breath**": "Fills a double near-sized cube extending from dragon. DC 15 DEX or 4d12 damage.",
             "**Water Spout**": "Fills a near-sized cube within far. DC 15 STR or creatures inside flung 2d100 feet in a random direction."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Dragon, Fire",
@@ -627,7 +633,8 @@
             "**Lightning Bolt**": "Straight line (5' wide) extending far from kraken. DC 15 DEX or 6d6 damage.",
             "**Storm**": "Seas become violently turbulent in 1 mile radius around kraken. Lasts 2d4 rounds. Seaborne vessels have a 1:6 chance of capsizing each round."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true, "bound": true}
     },
     {
         "Monster Name": "The Ten-Eyed Oracle",

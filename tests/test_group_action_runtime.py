@@ -121,6 +121,10 @@ def test_unanimous_descent_uses_real_generated_floor_and_preserves_party(clients
     done = post(host, f"/api/rooms/{room['id']}/group-action", {"action": "descend", "vote_id": vote, "accept": True})
     assert done.status_code == 200, done.json
     view, previous = done.json, before["state_json"]
+    automatic=host.get("/api/autosave").json
+    assert automatic["multiplayer"] is True
+    assert automatic["state_json"]["level"] == 2
+    assert "1" in automatic["state_json"]["dungeonFloors"]
     next_floor = view["state_json"]
     assert view["group_action"]["status"] == "completed"
     assert next_floor["level"] == 2 and next_floor["seed"] != previous["seed"]
@@ -150,6 +154,7 @@ def test_unanimous_descent_uses_real_generated_floor_and_preserves_party(clients
     assert replay.status_code == 200
     assert replay.json["state_json"]["seed"] == next_floor["seed"]
     assert replay.json["state_json"]["level"] == 2
+    assert host.get("/api/autosave").json["revision"] == automatic["revision"]
 
 
 def test_real_descent_rejects_a_straggler_and_general_command_bypass(clients, generated_descent):

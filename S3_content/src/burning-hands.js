@@ -28,7 +28,7 @@ export function applyBurningHands(state, caster, { center = caster, diceCount = 
   for (const character of state.characters || []) {
     if (isFloatingDisc(character) || (!includeCaster && character.id === caster.id) || character.dead || character.slain || !reaches(character) || circleBlocksHostileAction(state, caster, character)) continue;
     const before = Number(character.hp);
-    setCharacterHp(character, before - damage, { sourceId: caster.id, damageSource: 'fire', areaEffect: true });
+    setCharacterHp(character, before - damage, { state, sourceId: caster.id, damageSource: 'fire', areaEffect: true });
     hits.push({ id: character.id, name: character.name, type: 'character', damage: before - character.hp });
   }
   for (const entity of state.entities || []) {
@@ -36,7 +36,7 @@ export function applyBurningHands(state, caster, { center = caster, diceCount = 
     const treasureDamage = applyFireToTreasure(entity);
     if (treasureDamage) damagedTreasure.push(treasureDamage);
     if (entity.type === 'monster' && !entity.defeated && !entity.leftPeacefully && Number(entity.hp) > 0 && !circleBlocksHostileAction(state, caster, entity)) {
-      const applied = elementalDamage(entity, damage, { damageType: 'fire', areaEffect: true }).total;
+      const applied = elementalDamage(entity, damage, { damageType: 'fire', areaEffect: true }, state).total;
       entity.hp = Math.max(0, Number(entity.hp) - applied);
       if (applied > 0) wakeCreature(entity);
       hits.push({ id: entity.id, name: entity.name, type: 'monster', damage: applied, defeated: entity.hp <= 0 });

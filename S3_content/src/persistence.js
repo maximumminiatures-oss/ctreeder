@@ -1,3 +1,6 @@
+import {applyPrintedEquipmentValue} from './treasure.js';
+import {repairGeneratedWaterArtwork} from './water-art.js';
+import { serializeExplorationMemory, hydrateExplorationMemory, migrateExplorationHistory, EXPLORATION_LIGHT_VERSION } from './exploration-memory.js';
 import { apiFetch } from "./api.js";
 import { normalizeCharacterState } from "./characters.js";
 import { normalizeUnderpassPositions } from './underpasses.js';
@@ -66,7 +69,8 @@ function normalizeRunMeta(raw = {}) {
     name: typeof raw.name === "string" ? raw.name.slice(0, MAX_SAVE_NAME_LENGTH) : "",
     dirty: raw.dirty === true,
     lastSavedAt: raw.lastSavedAt ?? null,
-    hasUserActivity: raw.hasUserActivity === true
+    hasUserActivity: raw.hasUserActivity === true,
+    autosaveSteps: Number.isSafeInteger(raw.autosaveSteps) && raw.autosaveSteps >= 0 ? raw.autosaveSteps % 100 : 0
   };
 }
 
@@ -112,6 +116,7 @@ function normalizeCombat(raw = {}) {
     sideFirst: raw.sideFirst === "monsters" ? "monsters" : "characters",
     movementRemaining: Math.max(0, Number.parseInt(raw.movementRemaining ?? 0, 10) || 0),
     movementBudget: Math.max(0, Number.parseInt(raw.movementBudget ?? 6, 10) || 0),
+    movementSpent: Math.max(0,Number(raw.movementSpent)||0,(Number(raw.movementBudget??6)||0)-(Number(raw.movementRemaining)||0)),
     lastUnoccupiedPosition: raw.lastUnoccupiedPosition || null,
     actionUsed: raw.actionUsed === true,
     initiative: Array.isArray(raw.initiative) ? raw.initiative : [],
@@ -176,6 +181,7 @@ export function serializeDungeonState(state) {
   const copy = clonePlain({
     ...state,
     visibility: {
+      explorationMemory: serializeExplorationMemory(state.visibility?.explorationMemory,state),
       lightGeometryVersion: state.visibility?.lightGeometryVersion,
       visibleNow: Array.from(state.visibility?.visibleNow || []),
       routeVisible: Object.fromEntries(Object.entries(state.visibility?.routeVisible || {}).map(([id, cells]) => [id, [...cells]])),
@@ -207,6 +213,7 @@ export function hydrateDungeonState(raw) {
   if (!raw || typeof raw !== "object") {
     throw new Error("Saved run did not include a usable dungeon state.");
   }
+  const explorationMemory = hydrateExplorationMemory(raw.visibility?.explorationMemory,raw,raw.visibility);
   const visibleNow = asSet(raw.visibility?.visibleNow);
   const exploredEver = asSet(raw.visibility?.exploredEver);
   const routeDarkvisionExplored = Object.fromEntries(Object.entries(raw.visibility?.routeDarkvisionExplored || {})
@@ -222,6 +229,7 @@ export function hydrateDungeonState(raw) {
     ...raw,
     visibility: {
       lightGeometryVersion,
+      explorationMemory,
       visibleNow: Array.from(visibleNow),
       routeVisible: raw.visibility?.routeVisible || {},
       routeExplored: raw.visibility?.routeExplored || {},
@@ -233,6 +241,9 @@ export function hydrateDungeonState(raw) {
       closedDoorExploredSides: serializeDoorSideMap(closedDoorExploredSides)
     }
   });
+  repairGeneratedWaterArtwork(state);
+  // Repair remaining ordinary floor equipment without replenishing sold loot.
+  for(const entity of state.entities||[])if(!entity.collected)applyPrintedEquipmentValue(entity);
   state.run = normalizeRunMeta(state.run);
   state.timers = normalizeTimers(state.timers);
   state.wanderingMonsters = normalizeWandering(state.wanderingMonsters);
@@ -249,6 +260,7 @@ export function hydrateDungeonState(raw) {
   state.combat = normalizeCombat(state.combat);
   state.visibility = {
     lightGeometryVersion,
+    explorationMemory,
     visibleNow,
     routeVisible: Object.fromEntries(Object.entries(state.visibility?.routeVisible || {}).map(([id, cells]) => [id, asSet(cells)])),
     routeExplored: Object.fromEntries(Object.entries(state.visibility?.routeExplored || {}).map(([id, cells]) => [id, asSet(cells)])),
@@ -282,6 +294,7 @@ export function hydrateDungeonState(raw) {
   normalizeCharacterState(state);
   normalizeUnderpassPositions(state);
   state.inventory = normalizeInventory(state.inventory);
+  if(lightGeometryVersion === EXPLORATION_LIGHT_VERSION) migrateExplorationHistory(state);
   return state;
 }
 
@@ -305,22 +318,37 @@ function isStaticS3WebsiteHost() {
   return window.location.hostname.endsWith(".s3-website-us-west-2.amazonaws.com");
 }
 
+export async function saveAutosave(snapshot) {
+  return parseJsonResponse(await apiFetch('/api/autosave',{method:'PUT',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({state_json:snapshot})}));
+}
+export async function restoreAutosaveRoom() {
+  return parseJsonResponse(await apiFetch('/api/autosave/restore-room',{method:'POST',body:JSON.stringify({})}));
+}
+async function readAutosave() {
+  const response=await apiFetch('/api/autosave?metadata=1',{credentials:'same-origin'});
+  if(response.status===404)return null;
+  return parseJsonResponse(response);
+}
+
 export async function listRuns() {
   const response = await apiFetch(`/api/runs?limit=${MAX_SAVED_RUNS}`, {
     credentials: "same-origin"
   });
   const data = await parseJsonResponse(response);
-  return Array.isArray(data.results) ? data.results.slice(0, MAX_SAVED_RUNS) : [];
+  const manual=Array.isArray(data.results) ? data.results.slice(0, MAX_SAVED_RUNS) : [];
+  const automatic=await readAutosave().catch(()=>null);
+  return automatic ? [{...automatic,state_json:undefined,name:'Autosave'},...manual] : manual;
 }
 
 export async function loadRun(runId) {
-  const response = await apiFetch(`/api/runs/${runId}`, {
+  const response = await apiFetch(runId === 'autosave' ? '/api/autosave' : `/api/runs/${runId}`, {
     credentials: "same-origin"
   });
   const data = await parseJsonResponse(response);
   const state = hydrateDungeonState(data.state_json);
-  state.run.id = data.id;
-  state.run.revision = data.revision;
+  state.run.id = data.id === 'autosave' ? null : data.id;
+  state.run.revision = data.id === 'autosave' ? null : data.revision;
   state.run.lastSavedAt = data.updated_at || data.created_at || null;
   return {
     ...data,

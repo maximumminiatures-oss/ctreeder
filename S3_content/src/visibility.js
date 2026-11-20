@@ -1,5 +1,6 @@
+import { EXPLORATION_LIGHT_VERSION as LIGHT_GEOMETRY_VERSION, migrateExplorationHistory, rememberLightPolygons, rememberExploredWall } from './exploration-memory.js';
 import { TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
-import { isDoorPassable } from './door-geometry.js';
+import { doorExplorationSides, doorBoundaryCenter, isDoorPassable } from './door-geometry.js';
 import { collectLightSources, computeLightPolygon, getClosedDoorSegment, isPointInPolygon, isPortcullisDoor, isTileTouchedByLightPolygon, organicTileBlocksLine, withLightPolygonCache } from "./light-geometry.js";
 import { tileKey } from "./state-schema.js";
 import { reviewedBlocksLine } from "./reviewed-layouts.js";
@@ -15,7 +16,6 @@ import { darkvisionCells } from './darkvision.js';
 import { gaseousSenseCells } from './tier-three-mobility.js';
 import { isGaseousForm } from './conditions.js';
 
-const LIGHT_GEOMETRY_VERSION = 13;
 
 function isWithinRadius(x1, y1, x2, y2, radius) {
   return Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2)) <= radius;
@@ -190,8 +190,7 @@ function isBlockingDecorTile(tile) {
     isAngledWallMovementBlockingTile(tile);
 }
 
-function revealTouchedBlockingDecor(state) {
-  const visible = state.visibility.visibleNow;
+function revealTouchedBlockingDecor(state, visible = state.visibility.visibleNow, remember = true) {
   const newlyVisible = [];
   for (const tile of state.tiles || []) {
     if (!tile || tile.type !== TILE_TYPES.FLOOR || getOrganicTileData(tile) || !isBlockingDecorTile(tile)) {
@@ -213,45 +212,43 @@ function revealTouchedBlockingDecor(state) {
   }
   for (const key of newlyVisible) {
     visible.add(key);
-    state.visibility.exploredEver.add(key);
+    if(remember)state.visibility.exploredEver.add(key);
   }
 }
 
 function getDoorSideSamplePoint(door, side) {
-  if (side === "left") {
-    return [door.x + 0.25, door.y + 0.5];
-  }
-  if (side === "right") {
-    return [door.x + 0.75, door.y + 0.5];
-  }
-  if (side === "top") {
-    return [door.x + 0.5, door.y + 0.25];
-  }
-  return [door.x + 0.5, door.y + 0.75];
+  const center = door.secret || door.isSecret
+    ? doorBoundaryCenter(door) : { x: (door.x + .5) * TILE_SIZE_PX, y: (door.y + .5) * TILE_SIZE_PX };
+  const offsets = { left: [-.25, 0], right: [.25, 0], top: [0, -.25], bottom: [0, .25] };
+  const [dx, dy] = offsets[side];
+  return [center.x / TILE_SIZE_PX + dx, center.y / TILE_SIZE_PX + dy];
 }
 
-function revealLitClosedDoorSides(state, lightPolygons) {
+function revealLitClosedDoorSides(state, lightPolygons, { remember = true, visible = true } = {}) {
   for (const door of state.entities || []) {
     if (door.subtype !== "door" || isDoorPassable(door) || isPortcullisDoor(door)) {
       continue;
     }
-    if (door.secret === true) {
+    if (door.secret === true && !door.secretFound && !door.revealed) {
       continue;
     }
-    const sides = door.orientation === "horizontal" ? ["top", "bottom"] : ["left", "right"];
+    const sides = doorExplorationSides(door);
     for (const side of sides) {
       const [sampleX, sampleY] = getDoorSideSamplePoint(door, side);
       const point = [sampleX * TILE_SIZE_PX, sampleY * TILE_SIZE_PX];
       const lit = !isLightSuppressedAt(state, sampleX - 0.5, sampleY - 0.5) && lightPolygons.some(({ source, polygon }) => sameRoute(state, source, door) && isPointInPolygon(point, polygon));
       if (lit) {
-        addDoorSide(state.visibility.closedDoorVisibleSides, door, side);
-        addDoorSide(state.visibility.closedDoorExploredSides, door, side);
-        const key = tileKey(door.x, door.y);
-        state.visibility.visibleNow.add(key);
-        state.visibility.exploredEver.add(key);
-        const route = routeOf(state, door);
-        (state.visibility.routeVisible[route] ||= new Set()).add(key);
-        (state.visibility.routeExplored[route] ||= new Set()).add(key);
+        const key = tileKey(door.x, door.y), route = routeOf(state, door);
+        if(visible){
+          addDoorSide(state.visibility.closedDoorVisibleSides, door, side);
+          state.visibility.visibleNow.add(key);
+          (state.visibility.routeVisible[route] ||= new Set()).add(key);
+        }
+        if(remember){
+          addDoorSide(state.visibility.closedDoorExploredSides, door, side);
+          state.visibility.exploredEver.add(key);
+          (state.visibility.routeExplored[route] ||= new Set()).add(key);
+        }
       }
     }
   }
@@ -393,45 +390,6 @@ function revealDarkvision(state) {
   }
 }
 
-function cloneLightPolygon(polygon) {
-  return Array.isArray(polygon)
-    ? polygon
-      .filter((point) => Array.isArray(point) && point.length >= 2)
-      .map((point) => [Number(point[0]), Number(point[1])])
-      .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
-    : [];
-}
-
-function normalizeLightPolygons(polygons) {
-  return Array.isArray(polygons)
-    ? polygons.map(cloneLightPolygon).filter((polygon) => polygon.length >= 3)
-    : [];
-}
-
-function getLightPolygonKey(polygon) {
-  const pointsKey = polygon
-    .filter((_, index) => index % 6 === 0)
-    .map((point) => `${Math.round(point[0])},${Math.round(point[1])}`)
-    .join("|");
-  return `${polygon.length}:${pointsKey}`;
-}
-
-function appendExploredLightPolygon(state, polygon) {
-  const normalized = cloneLightPolygon(polygon);
-  if (normalized.length < 3) {
-    return;
-  }
-  state.visibility.exploredLightPolygonKeys = state.visibility.exploredLightPolygonKeys instanceof Set
-    ? state.visibility.exploredLightPolygonKeys
-    : new Set(state.visibility.exploredLightPolygons.map(getLightPolygonKey));
-  const key = getLightPolygonKey(normalized);
-  if (state.visibility.exploredLightPolygonKeys.has(key)) {
-    return;
-  }
-  state.visibility.exploredLightPolygonKeys.add(key);
-  state.visibility.exploredLightPolygons.push(normalized);
-}
-
 function migrateVisibilityGeometry(state) {
   if (!state.visibility) {
     return;
@@ -439,6 +397,7 @@ function migrateVisibilityGeometry(state) {
   if (state.visibility.lightGeometryVersion === LIGHT_GEOMETRY_VERSION) {
     return;
   }
+  delete state.visibility.explorationMemory;
   state.visibility.visibleNow = new Set();
   state.visibility.exploredBeforeNow = new Set();
   state.visibility.exploredLightPolygons = [];
@@ -480,22 +439,6 @@ function rememberOccupiedRooms(state) {
   return visitedRoomIds;
 }
 
-function rememberAdjacentInnerWallInteriors(state, lightSources) {
-  const exploredInnerWallInteriors = ensureExploredInnerWallInteriors(state);
-  for (const tile of state.tiles || []) {
-    if (!getInnerWallTileData(tile)?.blocksMovement) {
-      continue;
-    }
-    const adjacentToLight = (lightSources || []).some((source) => {
-      const dx = Math.abs(Number(source.x) - Number(tile.x));
-      const dy = Math.abs(Number(source.y) - Number(tile.y));
-      return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
-    });
-    if (adjacentToLight) {
-      exploredInnerWallInteriors.add(tileKey(tile.x, tile.y));
-    }
-  }
-}
 
 export function recomputeVisibility(state) {
   return withLightPolygonCache(state, () => updateVisibility(state));
@@ -504,42 +447,42 @@ export function recomputeVisibility(state) {
 function updateVisibility(state) {
   migrateVisibilityGeometry(state);
   ensureExploredInnerWallInteriors(state);
-  const previouslyVisible = new Set(state.visibility.visibleNow || []);
   const exploredBeforeNow = new Set(state.visibility.exploredEver || []);
-  const exploredLightPolygons = normalizeLightPolygons(state.visibility.exploredLightPolygons);
+  migrateExplorationHistory(state);
   const visitedRoomIds = rememberOccupiedRooms(state);
-  for (const key of previouslyVisible) {
-    exploredBeforeNow.add(key);
-    state.visibility.exploredEver.add(key);
-  }
   state.visibility.exploredBeforeNow = exploredBeforeNow;
-  state.visibility.exploredLightPolygons = exploredLightPolygons;
-  // Polygon coordinates are immutable; only the history list grows below.
-  state.visibility.exploredLightPolygonsBeforeNow = exploredLightPolygons.slice();
-  state.visibility.exploredLightPolygonKeys = new Set(exploredLightPolygons.map(getLightPolygonKey));
   state.visibility.visibleNow.clear();
   state.visibility.routeVisible = {};
   state.visibility.routeExplored ||= {};
   state.visibility.closedDoorExploredSides = cloneDoorSideMap(state.visibility.closedDoorExploredSides);
   state.visibility.closedDoorVisibleSides = new Map();
   const lightSources = collectLightSources(state);
-  if (!lightSources.length) {
+  const gridSources = collectLightSources(state,{logical:true});
+  if (!lightSources.length && !gridSources.length) {
     revealDarkvision(state);
     return [];
   }
-  rememberAdjacentInnerWallInteriors(state, lightSources);
   const lightPolygons = lightSources.map((source) => ({
     source,
     polygon: computeLightPolygon(state, source)
   }));
-  const suppressed = suppressionZones(state).length > 0;
-  if (!suppressed) for (const { polygon } of lightPolygons) appendExploredLightPolygon(state, polygon);
+  // Current light follows visual positions. Permanent terrain memory uses only
+  // actual world positions, including stationary lights seen by logical viewers.
+  const sameSources = gridSources.length===lightSources.length && gridSources.every((source,i)=>{
+    const visual=lightSources[i];return source.x===visual.x && source.y===visual.y &&
+      source.radius===visual.radius && source.routeId===visual.routeId;
+  });
+  const gridPolygons = sameSources ? lightPolygons : gridSources.map(source=>({source,polygon:computeLightPolygon(state,source)}));
+  const gridVisible = sameSources ? state.visibility.visibleNow : new Set();
+  const zones=suppressionZones(state);
+  const suppressed = zones.length > 0;
+  const sourceRanges=sameSources?lightSources:[...lightSources,...gridSources];
 
   for (const tile of state.tiles) {
     if (tile?.meta?.neverExplore === true || tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID) {
       continue;
     }
-    if (!lightSources.some((source) => (
+    if (!sourceRanges.some((source) => (
       Math.abs(tile.x - source.x) <= Number(source.radius) + 1 &&
       Math.abs(tile.y - source.y) <= Number(source.radius) + 1
     ))) {
@@ -558,12 +501,22 @@ function updateVisibility(state) {
       }
       lit = true;
       (state.visibility.routeVisible[route] ||= new Set()).add(tileKey(tile.x, tile.y));
-      (state.visibility.routeExplored[route] ||= new Set()).add(tileKey(tile.x, tile.y));
+      if(sameSources)(state.visibility.routeExplored[route] ||= new Set()).add(tileKey(tile.x,tile.y));
     }
     if (lit) {
       const key = tileKey(tile.x, tile.y);
       state.visibility.visibleNow.add(key);
-      state.visibility.exploredEver.add(key);
+    }
+    let remembered = sameSources && lit;
+    for(const {source,polygon} of sameSources?[]:gridPolygons){
+      const route=routeOf(state,source);
+      if(suppressed && isLightSuppressedAt(state,tile.x,tile.y,{...tile,routeId:route}))continue;
+      if(!routeExistsAt(state,tile.x,tile.y,route)||!isTileTouchedByLightPolygon(tile,polygon))continue;
+      remembered=true;
+      (state.visibility.routeExplored[route] ||= new Set()).add(tileKey(tile.x,tile.y));
+    }
+    if(remembered){
+      const key=tileKey(tile.x,tile.y);gridVisible.add(key);state.visibility.exploredEver.add(key);
       if (tile.roomId && visitedRoomIds.has(tile.roomId)) {
         const room = state.rooms.find((candidate) => candidate.id === tile.roomId);
         if (room) {
@@ -574,15 +527,22 @@ function updateVisibility(state) {
     }
   }
 
-  revealTouchedBlockingDecor(state);
-  revealLitClosedDoorSides(state, lightPolygons);
+  revealTouchedBlockingDecor(state,state.visibility.visibleNow,sameSources);
+  revealLitClosedDoorSides(state, lightPolygons,{remember:sameSources});
+  if(!sameSources){
+    revealTouchedBlockingDecor(state,gridVisible,true);
+    revealLitClosedDoorSides(state,gridPolygons,{visible:false});
+  }
   if (suppressed) {
     for (const key of [...state.visibility.visibleNow]) {
       const [x, y] = key.split(',').map(Number);
       if (state.underpasses?.length ? !Object.values(state.visibility.routeVisible).some(cells => cells.has(key)) : isLightSuppressedAt(state, x, y)) state.visibility.visibleNow.delete(key);
-      else appendExploredLightPolygon(state, [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]].map(point => point.map(value => value * TILE_SIZE_PX)));
     }
   }
+  rememberLightPolygons(state, gridPolygons, { eligibilityKey:JSON.stringify(zones), allowed: (tile,source) =>
+    !isLightSuppressedAt(state,tile.x,tile.y,{...tile,routeId:routeOf(state,source)}) });
+  for (const tile of state.tiles || []) if (getInnerWallTileData(tile)?.blocksMovement &&
+      gridVisible.has(tileKey(tile.x,tile.y))) rememberExploredWall(state,tile,routeOf(state,tile));
   revealDarkvision(state);
   return lightPolygons;
 }

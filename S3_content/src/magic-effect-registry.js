@@ -1,3 +1,6 @@
+import {clearConjuredRemains} from './conjured-creatures.js';
+import {dropFromCeiling} from './ceiling-movement.js';
+import {isOnCeiling,canClimbCeiling} from './water-rules.js';
 import { activeAreaSpells, syncAreaSpellConditions } from './area-spells.js';
 import { cleanupWizardTierTwoFocus } from './wizard-tier-two-focus.js';
 import { cleanupPriestTierTwoFocus } from './priest-tier-two.js';
@@ -86,7 +89,8 @@ function detachFocusTarget(state, caster, focus, target, options) {
   syncRaw(target, 'conditions');
 }
 
-function dismissSummon(state, target) {
+export function dismissSummon(state, target) {
+  clearConjuredRemains(state,target);
   for (const property of ['characters', 'entities']) {
     if (Array.isArray(state[property])) state[property] = state[property].filter(actor => actor !== target);
   }
@@ -254,6 +258,7 @@ function catalog(state) {
             if (spell === 'alter self') {
               if (effect.originalAncestry != null) { holder.ancestry = effect.originalAncestry; syncRaw(holder, 'ancestry'); }
               if (holder.invisibility?.source === 'alter-self-gills') erase(holder, 'invisibility');
+              if(isOnCeiling(holder)&&!canClimbCeiling(holder))dropFromCeiling(state,holder,options);
             }
             if (property === 'potionEffects' && effect.type === 'giant-strength' && effect.originalStrength != null) {
               holder.stats.STR = effect.originalStrength; syncRaw(holder, 'stats');

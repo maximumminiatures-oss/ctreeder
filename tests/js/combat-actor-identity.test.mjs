@@ -1,3 +1,5 @@
+import * as seaAbilities from '../../S3_content/src/sea-monster-abilities.js';
+import {monsterAttackDamageSource} from '../../S3_content/src/monster-attacks.js';
 import test from 'node:test';
 import { lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage } from '../../S3_content/src/supernatural-traits.js';
 import { applyMonsterStrikeEffect } from '../../S3_content/src/monster-abilities.js';
@@ -17,11 +19,11 @@ test('animated monster attacks rebind normalized actors before Luck capture and 
     const monster = { ...oldMonster, type: 'monster' }, target = { ...oldTarget };
     const state = { entities: [monster], characters: [target], combat: { surpriseRound: false } };
     let captured = false;
-    const context = vm.createContext({ state, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, applyMonsterStrikeEffect, isLiveMonster: actor => actor.hp > 0, isIllusionCreature: actor => actor?.illusion?.kind === 'creature',
+    const context = createRuntimeContext({ state, lycanthropeKind, silverItem, recordLycanthropeDamage, supernaturalAttackCanDamage, applyMonsterStrikeEffect, isLiveMonster: actor => actor.hp > 0, isIllusionCreature: actor => actor?.illusion?.kind === 'creature',
       circleBlocksHostileAction, circleBlocksMentalControl, isGaseousForm,
       isCharacterTargetableByMonster: actor => actor.hp > 0, sameRoute: () => true,
       transformationMovementRules: () => ({}), blocksMindControl: () => false,
-      hasWizardEffect: () => false, isStealthed: () => false, canCharacterSeeMonster: () => true,
+      hasWizardEffect: () => false, isStealthed: () => false, canCharacterSeeMonster: () => true, canMonsterSeeCharacter: () => true,
       protectionDisadvantage: () => false, isInvisible: () => false, transformationAttackDisadvantage: () => false,
       conditionAttackMode: () => ({}), getMonsterDistanceToCharacter: () => 1,
       rollCheck: () => ({ roll: hit ? 20 : 1, total: hit ? 20 : 1 }),
@@ -41,3 +43,5 @@ test('animated monster attacks rebind normalized actors before Luck capture and 
     assert.equal(monster.ambushAttack, null); assert.equal(oldMonster.ambushAttack, true);
   }
 });
+
+const createRuntimeContext=(globals,...options)=>vm.createContext({...seaAbilities,monsterAttackDamageSource,...globals},...options);

@@ -116,7 +116,7 @@ export function dungeonArrivalPositions(state, count) {
   const entranceId = state.generation.entranceRoomId;
   const distances = dungeonTraversalDistances(state);
   return state.tiles.filter(tile => tile.roomId === entranceId).map(tile => ({ x: tile.x, y: tile.y, routeId: '' }))
-    .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point))
+    .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point, {allowWater:Boolean(state.generation.waterPlan)}))
     .sort((a, b) => distances.get(routeKey(a)) - distances.get(routeKey(b)) || a.y - b.y || a.x - b.x)
     .slice(0, count).map(point => ({ ...point, roomId: entranceId }));
 }
@@ -159,12 +159,20 @@ function clearOldFloorReferences(record, partyIds, travellingIllusions) {
 // Call only after UI/shared-room consensus. The caller owns authorization and replacing
 // its state reference; this function is atomic and never mutates the current floor.
 export function buildNextLevelState(current, { seed = Number(current.seed) + 1, generationOptions = {},
-  now = Date.now(), generate = generateDungeon, maxAttempts = 16, direction = 'down' } = {}) {
+  now = Date.now(), generate = generateDungeon, maxAttempts = 16, direction = 'down', regenerateOnAscent = false } = {}) {
   const status = direction === 'up' ? dungeonAscentStatus(current) : dungeonDescentStatus(current);
   if (!status.ok) throw new Error(status.message);
   if (current.characters.length > 16) throw new Error('A party can contain at most 16 members.');
   let next, positions;
-  const saved = current.dungeonFloors?.[status.nextLevel];
+  const priorFloor = current.dungeonFloors?.[status.nextLevel];
+  const saved = direction === 'up' && regenerateOnAscent ? null : priorFloor;
+  if (!saved && priorFloor && direction === 'up') {
+    seed = priorFloor.generation?.connectivityRetry?.requestedSeed ?? priorFloor.seed;
+    generationOptions = {...generationOptions,
+      ...(priorFloor.generation?.architecture?.pattern ? {architecturePattern:priorFloor.generation.architecture.pattern} : {}),
+      ...(priorFloor.generation?.reviewedLayouts !== undefined ? {reviewedLayouts:priorFloor.generation.reviewedLayouts} : {}),
+      ...(priorFloor.generation?.waterPlan?.category ? {waterCategory:priorFloor.generation.waterPlan.category} : {})};
+  }
   if (saved) {
     next = restoreDungeonFloor(saved);
     const stairs = direction === 'up' ? downstairsIn(next) : upstairsIn(next);
@@ -245,7 +253,7 @@ function returningArrivalPositions(state, count, stairs) {
   if (!stairs) return [];
   const distances = dungeonTraversalDistances(state, stairs.doorKind === 'stairs-up' ? dungeonEntrancePoint(state) : stairs);
   return state.tiles.map(tile => ({ x: tile.x, y: tile.y, routeId: '', roomId: tile.roomId }))
-    .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point))
+    .filter(point => distances.has(routeKey(point)) && isSafeDungeonArrival(state, point, {allowWater:Boolean(state.generation.waterPlan)}))
     .sort((a, b) => Number(b.roomId === stairs.roomId) - Number(a.roomId === stairs.roomId) ||
       distances.get(routeKey(a)) - distances.get(routeKey(b)) || a.y - b.y || a.x - b.x)
     .slice(0, count);

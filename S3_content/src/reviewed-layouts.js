@@ -44,17 +44,21 @@ export function poseLayout(layout, turn=0, flipX=false) {
     centers:(layout.centers||[]).map(point=>layoutPoint(pose,point)),
     shadowPaths:(layout.shadowPaths||[]).map(path=>({...path,points:path.points.map(point=>layoutPoint(pose,point))})) };
 }
-export function pickReviewedLayout(rng, kind, pattern, enabled=true, entrySide=null) {
+export function layoutContainsWater(layout) {
+  return layout.placements.some(tile => /^(?:water|canal)-/i.test(String(tile.asset).split(/[\\\\/]/).pop()));
+}
+export function pickReviewedLayout(rng, kind, pattern, enabled=true, entrySide=null, dryOnly=false) {
   if(!enabled) return null;
   if(pattern==='organic') {
     if(kind!=='hall' || rng.nextFloat()>.6) return null;
-    const choices=ORGANIC_HALL_LAYOUTS.flatMap(layout=>Array.from({length:8},(_,i)=>poseLayout(layout,i%4,i>=4)))
+    const choices=ORGANIC_HALL_LAYOUTS.filter(layout=>!dryOnly||!layoutContainsWater(layout)).flatMap(layout=>Array.from({length:8},(_,i)=>poseLayout(layout,i%4,i>=4)))
       .filter(layout=>!entrySide || layout.ports.some(([side])=>side===entrySide));
     return choices.length ? rng.pick(choices) : null;
   }
-  if(kind==='room' && rng.nextFloat()<.025) return poseLayout(REVIEWED_LAYOUTS.find(t=>t.isolatedBank),rng.nextInt(0,3));
+  if(kind==='room' && !dryOnly && rng.nextFloat()<.025) return poseLayout(REVIEWED_LAYOUTS.find(t=>t.isolatedBank),rng.nextInt(0,3));
   if(rng.nextFloat()>(kind==='entrance'?.15:kind==='hall'?.12:.22)) return null;
-  const choices=REVIEWED_LAYOUTS.filter(t=>t.kind===kind&&!t.isolatedBank);
+  const choices=REVIEWED_LAYOUTS.filter(t=>t.kind===kind&&!t.isolatedBank&&(!dryOnly||!layoutContainsWater(t)));
+  if(!choices.length)return null;
   return poseLayout(rng.pick(choices),rng.nextInt(0,3),rng.nextFloat()<.5);
 }
 function annotationSegments(tile, property) {

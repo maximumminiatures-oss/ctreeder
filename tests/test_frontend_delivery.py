@@ -44,6 +44,10 @@ class Releases(unittest.TestCase):
   self.out.mkdir();(self.out/'unrelated.txt').write_text('retain')
   with self.assertRaisesRegex(ValueError,'dedicated'):m.build_release(self.src,self.out)
   self.assertEqual((self.out/'unrelated.txt').read_text(),'retain')
+ def test_vendor_license_notices_remain_with_public_modules(self):
+  self.put('src/vendor/clip.js','export const x=1;');self.put('src/vendor/clip.LICENSE.txt','MIT notice');self.put('src/vendor/tslib.APACHE-2.0.txt','Apache license')
+  release=m.build_release(self.src,self.out);manifest=m.verify_release(self.out,release['release'])
+  self.assertIn('src/vendor/clip.LICENSE.txt',manifest['files']);self.assertIn('src/vendor/tslib.APACHE-2.0.txt',manifest['files'])
  def test_absolute_static_escape_rejected(self):
   self.put('src/main.js',"const url='/site/data/rules.json';")
   with self.assertRaisesRegex(ValueError,'bypasses'):m.build_release(self.src,self.out)

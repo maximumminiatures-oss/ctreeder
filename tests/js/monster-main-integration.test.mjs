@@ -1,10 +1,11 @@
+import { hydrateExplorationMemory, serializeExplorationMemory } from '../../S3_content/src/exploration-memory.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { buildMonsterCompanion } from '../../S3_content/src/companions.js';
 import { recomputeVisibility } from '../../S3_content/src/visibility.js';
-import { isMonsterCurrentlyVisible } from '../../S3_content/src/monster-perception.js';
+import { isMonsterCurrentlyVisible, isCreatureLocationKnown } from '../../S3_content/src/monster-perception.js';
 import { canTargetAtRange } from '../../S3_content/src/targeting.js';
 import { sameRoute, makeUnderpass } from '../../S3_content/src/underpasses.js';
 import { createEmptyDungeonState } from '../../S3_content/src/state-schema.js';
@@ -19,7 +20,8 @@ const helpers=[helper('getVisibleMonsterAtTile','getAlertingMonstersFromAttack')
   helper('canTargetMagicMissile','targetingTurnKey'),helper('createSharedViewerVisibility','attachSharedViewerScope'),
   helper('serializeSharedViewerVisibility','rememberSharedMotionId')].join('\n');
 function runtime(state) {
-  const context={state,Set,Map,Object,Array,sameRoute,isMonsterCurrentlyVisible,canTargetAtRange,RANGE_LIMITS:{far:12},
+  const context={state,Set,Map,Object,Array,hydrateExplorationMemory,serializeExplorationMemory,sameRoute,isMonsterCurrentlyVisible,isCreatureLocationKnown,
+    getActiveCharacter:world=>world.characters.find(member=>member.id===world.activeCharacterId)||world.characters[0],canTargetAtRange,RANGE_LIMITS:{far:12},
     isCharacterAbleToAct:actor=>Number(actor?.hp)>0,hasCharacterMapPosition:actor=>Number.isFinite(actor?.x)&&Number.isFinite(actor?.y),
     isLiveMonster:monster=>monster?.type==='monster'&&!monster.defeated&&!monster.leftPeacefully&&Number(monster.hp)>0,
     getLiveMonsters:()=>context.state.entities.filter(context.isLiveMonster)};

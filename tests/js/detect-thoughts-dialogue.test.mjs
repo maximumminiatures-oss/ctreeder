@@ -85,3 +85,12 @@ test('useful thoughts retain natural articles and proper names', () => {
     assert.equal(result.dialogs[0].text, `You peer into the mind of ${expected} and learn some interesting stuff.`);
   }
 });
+
+test('party character names retain their exact capitalization in flavor and useful thoughts',()=>{
+ const {state,caster}=scene();const target={id:'named-member',name:'Ad McReeder',className:'Fighter',hp:10};
+ state.characters.push(target);
+ assert.equal(monsterThought(state,target,{rng:()=>0}),'The Ad McReeder is thinking about when it hated my personality.');
+ const result=resolveFocusedSpell(state,caster,{targetId:target.id,canTarget:()=>true,random:()=>.9});
+ assert.match(result.dialogs[0].text,/mind of Ad McReeder /);
+ assert.equal(target.name,'Ad McReeder');
+});

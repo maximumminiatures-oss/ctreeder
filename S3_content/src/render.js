@@ -1,8 +1,11 @@
+import { blindDungeonView } from './viewer-perception.js';
+import { drawFog, clipToFloorTiles, addShadowPolygonPath } from './fog-renderer.js';
+export { drawDarkvisionFog } from './fog-renderer.js';
 import { DOOR_STATES, ENTITY_TYPES, TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
 import { loadLocalJson } from './data-loader.js';
 import { collectLightSources, computeLightPolygon, withLightPolygonCache, getDoorTiles } from "./light-geometry.js";
 import { tileKey } from "./state-schema.js";
-import { getOrganicTileData, isOrganicMovementBlockingTile, isOrganicPillarTile } from "./organic-tiles.js";
+import { getOrganicTileData, isOrganicMovementBlockingTile } from "./organic-tiles.js";
 import { getInnerWallTileData } from "./inner-walls.js";
 import {
   getAngledWallTileData,
@@ -15,12 +18,12 @@ import { visualTilePoint } from "./tile-positions.js";
 import { getReviewedTileRule, STATUE_ASSET_KEYS } from "./reviewed-tile-rules.js";
 import { doorRotationAngle, isBrokenDoor, isDoorPassable, isClosedSecretDoor, secretFoundMarkerRect } from './door-geometry.js';
 import { canMoveBetweenTiles } from './interactions.js';
-import { hasWizardEffect, suppressionZones } from './wizard-mishaps.js';
+import { hasWizardEffect } from './wizard-mishaps.js';
 import { shredZones } from './arcane-effects.js';
 import { rangeRadius, canTargetAtRange } from './targeting.js';
 import { isSlowWaterTile, movementOverlayRadius } from './terrain-movement.js';
 import { protectionAuras } from './faith-spells.js';
-import { isInvisible } from './concealment.js';
+import { isInvisible, isStealthed } from './concealment.js';
 import { isIncorporeal } from './conditions.js';
 import { FLOATING_DISC_COLOR, isFloatingDisc } from './floating-disc.js';
 import { pitIsOpen, pitArt, PIT_ASSET_KEYS } from './pits.js';
@@ -29,7 +32,7 @@ import { mirrorImagePaintTokens } from './transformation-spells.js';
 import { areaSpellVisuals } from './area-spells.js';
 import { SPELL_TEMPLATE_ART, spellTemplateFits, ongoingSpellTemplates, burningHandsArtPreview } from './spell-template-art.js';
 import { drawSpellArtImage } from './spell-art-transform.js';
-import { isMonsterCurrentlyVisible, isFeatureCurrentlyVisible, isMonsterTileIlluminated } from './monster-perception.js';
+import { isMonsterCurrentlyVisible, isFeatureCurrentlyVisible, isMonsterTileIlluminated, isCreatureLocationKnown } from './monster-perception.js';
 import { partyDarkvisionReveals } from './darkvision.js';
 import { concealedAnimatedArmor, animatedArmorDisguiseAsset } from './companions.js';
 import { isTilePerceived } from './visibility.js';
@@ -172,10 +175,6 @@ const JUNK_KEYS = Object.freeze([
 ]);
 const WELL_KEYS = Object.freeze(["well-1x1", "well-3x3", "well-3x3-2"]);
 const ROUND_CORNERS_ENABLED = true;
-const EXPLORED_FOG_ALPHA = 0.45;
-const UNEXPLORED_FOG_ALPHA = 1;
-const PILLAR_SHADOW_SIZE_PX = TILE_SIZE_PX / 3;
-const PILLAR_SHADOW_INSET_PX = (TILE_SIZE_PX - PILLAR_SHADOW_SIZE_PX) / 2;
 const STAIR_DOWN_KEYS = Object.freeze(["d-stair-1", "d-stair-2", "d-stair-3", "d-stair-4"]);
 const STAIR_UP_KEYS = Object.freeze(["u-stair-n", "u-stair-e", "u-stair-s", "u-stair-w"]);
 const FLOOR_TRAP_KEYS = Object.freeze(["floor-trap1"]);
@@ -226,7 +225,6 @@ const objectFrames = new WeakMap();
 const imageLoads = new Map();
 const imageLoadQueue = [];
 let activeImageLoads = 0;
-
 let artworkProgress = () => {};
 const artworkStates = new Map();
 function reportArtwork(src,status) {
@@ -341,7 +339,7 @@ export async function preloadRendererAssets({ onProgress = () => {}, onRequiredR
   artworkProgress = onProgress;
   const images = Promise.all(
     Object.entries(ASSET_PATHS).map(async ([key, src]) => [key, await loadImage(src)])
-  ).then(Object.fromEntries).then(images => { rendererAssets.images = images; rendererAssets.ready = true; onRequiredReady(); return images; });
+  ).then(Object.fromEntries).then(images=>{rendererAssets.images=images;rendererAssets.version=(rendererAssets.version||0)+1;rendererAssets.ready=true;onRequiredReady();return images;});
   const doors = loadAssetImageMap(NEW_DOOR_KEYS);
   const decor = resolveAssetGroups({
     pillars: Promise.all(PILLAR_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),
@@ -380,6 +378,7 @@ export async function preloadRendererAssets({ onProgress = () => {}, onRequiredR
     })
   });
   Object.assign(rendererAssets, await resolveAssetGroups({ images, doors, decor }));
+  rendererAssets.version = (rendererAssets.version || 0) + 1;
   rendererAssets.ready = true;
 }
 
@@ -1029,7 +1028,7 @@ function getWaterImageAndRotation(tile, state) {
       offsetXPx: nudgeX,
       offsetYPx: nudgeY,
       flipX,
-      flipY: flipY || hashString(`${seedValue}:flip`) % 2 === 0,
+      flipY,
       snappedFlat: true,
       direction,
       ...getImageTileSize(image)
@@ -1065,6 +1064,8 @@ function drawWaterDecor(state, ctx) {
       snappedFlat,
       direction
     } = getWaterImageAndRotation(tile, state);
+    const clipped=Array.isArray(tile.clipRects);
+    if(clipped){ctx.save();ctx.beginPath();for(const r of tile.clipRects)ctx.rect(r.x*TILE_SIZE_PX,r.y*TILE_SIZE_PX,r.w*TILE_SIZE_PX,r.h*TILE_SIZE_PX);ctx.clip();}
     if (snappedFlat) {
       drawSnappedWaterFlatTile(
         ctx,
@@ -1078,6 +1079,7 @@ function drawWaterDecor(state, ctx) {
         flipX,
         flipY
       );
+      if(clipped)ctx.restore();
       continue;
     }
     drawTileImage(
@@ -1093,6 +1095,7 @@ function drawWaterDecor(state, ctx) {
       flipX,
       flipY
     );
+    if(clipped)ctx.restore();
   }
 }
 
@@ -1953,7 +1956,7 @@ function drawEntity(entity, ctx, state) {
 
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  if (entity.type === ENTITY_TYPES.MONSTER && isInvisible(entity)) {
+  if (entity.type === ENTITY_TYPES.MONSTER && (isStealthed(entity) || isCreatureLocationKnown(state,entity) && !isMonsterCurrentlyVisible(state,entity))) {
     ctx.strokeStyle=ctx.fillStyle;ctx.lineWidth=3;ctx.stroke();
   } else ctx.fill();
 }
@@ -1973,6 +1976,7 @@ export function visibleDungeonEntities(state, { darkness = false } = {}) {
   return (state.entities || []).filter(entity => {
     if (pitIsOpen(entity) || entity.subtype === 'illusion' || entity.subtype === 'arcane-shred' || entity.closed && entity.subtype === 'arcane-gate' ||
       entity.visible === false || entity.collected) return false;
+    if (entity.type === ENTITY_TYPES.MONSTER && isCreatureLocationKnown(state,entity))return true;
     if (entity.type === ENTITY_TYPES.MONSTER) return isMonsterCurrentlyVisible(state, entity) &&
       (!darkness || partyDarkvisionReveals(state, entity) || (state.characters || []).some(observer =>
         (!(state.viewerCharacterIds instanceof Set) || state.viewerCharacterIds.has(observer.id)) && canSenseWithGaseousForm(state, observer, entity)) || isMonsterTileIlluminated(state, entity));
@@ -2118,7 +2122,7 @@ function drawCharacterDot(character, ctx, isActive, state) {
   }
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  if (isInvisible(character)) {
+  if (isStealthed(character)) {
     ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 6;
     ctx.beginPath(); ctx.arc(cx, cy, radius - 1.5, 0, Math.PI * 2); ctx.stroke();
   }
@@ -2133,7 +2137,7 @@ function drawCharacterDot(character, ctx, isActive, state) {
     ctx.stroke();
     ctx.restore();
   }
-  if (character.guarding && !isInvisible(character)) {
+  if (character.guarding && !isStealthed(character)) {
     ctx.strokeStyle = "#000000";
     ctx.lineWidth = 5;
     ctx.stroke();
@@ -2144,7 +2148,7 @@ function drawCharacterDot(character, ctx, isActive, state) {
     ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.stroke();
   }
-  if (character.stealthed === true && !isInvisible(character)) {
+  if (character.stealthed === true && !isStealthed(character)) {
     const image = rendererAssets.decor.stealth;
     const size = TILE_SIZE_PX * 0.74;
     if (image) {
@@ -2199,7 +2203,7 @@ export function drawMirrorImages(state, ctx, character) {
     ctx.globalAlpha *= token.opacity * (token.routeId ? UNDERPASS_OPACITY : 1);
     ctx.fillStyle = token.colorValue || '#174a9c';
     ctx.beginPath();
-    if (isInvisible(character)) {
+    if (isStealthed(character)) {
       ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 6;
       ctx.arc(cx, cy, TILE_SIZE_PX * .27 - 1.5, 0, Math.PI * 2); ctx.stroke();
     } else { ctx.arc(cx, cy, TILE_SIZE_PX * .27, 0, Math.PI * 2); ctx.fill(); }
@@ -2208,6 +2212,7 @@ export function drawMirrorImages(state, ctx, character) {
 }
 
 function drawCharacters(state, ctx, { darkness = false } = {}) {
+  if(blindDungeonView(state))return;
   const characters = (state.characters || []).filter((character) => (
     character.dead !== true &&
     character.slain !== true &&
@@ -2225,528 +2230,14 @@ function drawCharacters(state, ctx, { darkness = false } = {}) {
   for (const character of characters) {
     if (character.illusion?.kind === 'creature' &&
         !illusionCellVisible(state, character, Math.round(character.visualX ?? character.x), Math.round(character.visualY ?? character.y), darkness)) continue;
-    if (state.underpasses?.length && state.viewerCharacterIds instanceof Set && !state.viewerCharacterIds.has(character.id) &&
-        !isTilePerceived(state, character.x, character.y, character)) continue;
+    if (state.viewerCharacterIds instanceof Set && !state.viewerCharacterIds.has(character.id) &&
+        !isMonsterCurrentlyVisible(state,character) && !isCreatureLocationKnown(state,character)) continue;
     drawMirrorImages(state, ctx, character);
     drawCharacterDot(character, ctx, character.id === state.activeCharacterId, state);
   }
 }
 
 
-
-function drawFog(state, ctx, widthPx, heightPx, forceBlackout) {
-  if (forceBlackout && !state.visibility.darkvisionNow?.size) {
-    for (const tile of state.tiles) {
-      const key = tileKey(tile.x, tile.y);
-      const px = tile.x * TILE_SIZE_PX;
-      const py = tile.y * TILE_SIZE_PX;
-      ctx.fillStyle = state.visibility.exploredEver.has(key)
-        ? "rgba(0, 0, 0, 0.82)"
-        : "rgba(0, 0, 0, 1)";
-      ctx.fillRect(px, py, TILE_SIZE_PX, TILE_SIZE_PX);
-    }
-    return;
-  }
-
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, widthPx, heightPx);
-  drawExploredFog(state, ctx);
-  drawAngledShadowWedges(state, ctx);
-  drawVisibleBlockingDecorFogCutouts(state, ctx);
-  drawClosedDoorFogBisectors(state, ctx);
-  for (const zone of suppressionZones(state)) {
-    const [cx, cy] = visualTilePoint(state, zone.x, zone.y).map(value => value * TILE_SIZE_PX);
-    ctx.save();
-    if (state.underpasses?.length) clipToFloorTiles(ctx, state, tile => routeExistsAt(state, tile.x, tile.y, zone.routeId) &&
-      !Object.entries(state.visibility.routeVisible || {}).some(([id, cells]) => id !== zone.routeId && cells.has(tileKey(tile.x, tile.y))));
-    ctx.beginPath();
-    ctx.arc(cx, cy, (zone.radius + 0.5) * TILE_SIZE_PX, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, widthPx, heightPx);
-    drawExploredFog(state, ctx);
-    ctx.restore();
-  }
-}
-
-function wasExploredBeforeCurrentLight(state, x, y) {
-  const explored = state.visibility.exploredBeforeNow instanceof Set
-    ? state.visibility.exploredBeforeNow
-    : state.visibility.exploredEver;
-  return explored.has(tileKey(x, y));
-}
-
-function addShadowPolygonPath(ctx, points) {
-  if (!points.length) {
-    return;
-  }
-  ctx.beginPath();
-  ctx.moveTo(points[0][0], points[0][1]);
-  for (let index = 1; index < points.length; index += 1) {
-    ctx.lineTo(points[index][0], points[index][1]);
-  }
-  ctx.closePath();
-}
-
-function drawShadowPolygon(ctx, points) {
-  if (!points.length) {
-    return;
-  }
-  addShadowPolygonPath(ctx, points);
-  ctx.fill();
-}
-
-function clipToFloorTiles(ctx, state, predicate) {
-  ctx.beginPath();
-  for (const tile of state.tiles || []) {
-    if (!predicate(tile) || tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID) {
-      continue;
-    }
-    ctx.rect(tile.x * TILE_SIZE_PX, tile.y * TILE_SIZE_PX, TILE_SIZE_PX, TILE_SIZE_PX);
-  }
-  addRotundaClipPaths(ctx, state, predicate);
-  ctx.clip();
-}
-
-function hasRotundaClipTile(state, room, predicate) {
-  for (let y = Number(room.y); y < Number(room.y + room.height); y += 1) {
-    for (let x = Number(room.x); x < Number(room.x + room.width); x += 1) {
-      const tile = getTileAt(state, x, y);
-      if (tile && predicate(tile) && tile.type !== TILE_TYPES.WALL && tile.type !== TILE_TYPES.VOID) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-function addRotundaFiveClipPath(ctx, room, footprint) {
-  const openings = new Set(getRoomOpenings(room).map((opening) => String(opening || "")[0]));
-  const rects = [
-    [footprint.x + 1, footprint.y + 1, 3, 3]
-  ];
-  if (openings.has("n")) rects.push([footprint.x + 2, footprint.y, 1, 1]);
-  if (openings.has("s")) rects.push([footprint.x + 2, footprint.y + 4, 1, 1]);
-  if (openings.has("w")) rects.push([footprint.x, footprint.y + 2, 1, 1]);
-  if (openings.has("e")) rects.push([footprint.x + 4, footprint.y + 2, 1, 1]);
-  for (const [x, y, width, height] of rects) {
-    ctx.rect(
-      x * TILE_SIZE_PX,
-      y * TILE_SIZE_PX,
-      width * TILE_SIZE_PX,
-      height * TILE_SIZE_PX
-    );
-  }
-}
-
-function addRotundaClipPaths(ctx, state, predicate) {
-  for (const room of state.rooms || []) {
-    if (room.rotunda !== true || !hasRotundaClipTile(state, room, predicate)) {
-      continue;
-    }
-    const footprint = getRotundaArtFootprint(room);
-    if (footprint.size === 5) {
-      addRotundaFiveClipPath(ctx, room, footprint);
-      continue;
-    }
-    const centerX = (footprint.x + footprint.drawSize / 2) * TILE_SIZE_PX;
-    const centerY = (footprint.y + footprint.drawSize / 2) * TILE_SIZE_PX;
-    const radius = (footprint.size / 2) * TILE_SIZE_PX;
-    ctx.moveTo(centerX + radius, centerY);
-    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  }
-}
-
-function drawCutoutPolygon(ctx, points) {
-  drawShadowPolygon(ctx, points);
-}
-
-function drawFogRect(ctx, x, y, width, height, alpha) {
-  ctx.save();
-  ctx.globalCompositeOperation = "destination-out";
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(x, y, width, height);
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-  ctx.fillRect(x, y, width, height);
-  ctx.restore();
-}
-
-function clearFogRect(ctx, x, y, width, height) {
-  ctx.save();
-  ctx.globalCompositeOperation = "destination-out";
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(x, y, width, height);
-  ctx.restore();
-}
-
-function drawFogPolygon(ctx, points, alpha) {
-  if (!Array.isArray(points) || points.length < 3) {
-    return;
-  }
-  ctx.save();
-  ctx.globalCompositeOperation = "destination-out";
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#000000";
-  drawShadowPolygon(ctx, points);
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-  drawShadowPolygon(ctx, points);
-  ctx.restore();
-}
-
-function isBlockingDecorFogTile(tile) {
-  // Organic floor visibility follows the contour, never the whole movement-blocking cell.
-  if (tile?.meta?.neverExplore === true || getOrganicTileData(tile)) {
-    return false;
-  }
-  const innerWall = getInnerWallTileData(tile);
-  if (innerWall?.blocksMovement === true) {
-    return false;
-  }
-  return isAngledWallLightBlockingTile(tile) ||
-    isAngledWallMovementBlockingTile(tile);
-}
-
-function isInnerWallAdjacentToLiveLightSource(tile, lightSources) {
-  if (!getInnerWallTileData(tile)?.blocksMovement) {
-    return false;
-  }
-  return (lightSources || []).some((source) => {
-    const dx = Math.abs(Number(source.x) - Number(tile.x));
-    const dy = Math.abs(Number(source.y) - Number(tile.y));
-    return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
-  });
-}
-
-function drawVisibleBlockingDecorFogCutouts(state, ctx) {
-  for (const tile of state.tiles || []) {
-    if (!isBlockingDecorFogTile(tile) || !state.visibility.visibleNow.has(tileKey(tile.x, tile.y))) {
-      continue;
-    }
-    clearFogRect(
-      ctx,
-      tile.x * TILE_SIZE_PX,
-      tile.y * TILE_SIZE_PX,
-      TILE_SIZE_PX,
-      TILE_SIZE_PX
-    );
-  }
-}
-
-function drawAdjacentInnerWallFogCutouts(state, ctx, lightSources) {
-  for (const tile of state.tiles || []) {
-    if (!isInnerWallAdjacentToLiveLightSource(tile, lightSources)) {
-      continue;
-    }
-    clearFogRect(
-      ctx,
-      tile.x * TILE_SIZE_PX,
-      tile.y * TILE_SIZE_PX,
-      TILE_SIZE_PX,
-      TILE_SIZE_PX
-    );
-  }
-}
-
-function getExploredInnerWallInteriors(state) {
-  if (state.visibility.exploredInnerWallInteriors instanceof Set) {
-    return state.visibility.exploredInnerWallInteriors;
-  }
-  if (Array.isArray(state.visibility.exploredInnerWallInteriors)) {
-    return new Set(state.visibility.exploredInnerWallInteriors);
-  }
-  return new Set();
-}
-
-function getVisitedRoomIds(state) {
-  if (state.visibility.visitedRoomIds instanceof Set) {
-    return state.visibility.visitedRoomIds;
-  }
-  if (Array.isArray(state.visibility.visitedRoomIds)) {
-    return new Set(state.visibility.visitedRoomIds);
-  }
-  return new Set();
-}
-
-function isClosedDoorFogTile(state, tile) {
-  return (state.entities || []).some((entity) => (
-    entity.subtype === "door" &&
-    !isDoorPassable(entity) &&
-    entity.x === tile.x &&
-    entity.y === tile.y
-  ));
-}
-
-function canUseCoarseExploredTileFog(state, visitedRoomIds, tile) {
-  if (getInnerWallTileData(tile)?.blocksMovement === true || isOrganicMovementBlockingTile(tile)) {
-    return false;
-  }
-  if (isClosedDoorFogTile(state, tile)) {
-    return false;
-  }
-  if (!tile.roomId) {
-    return true;
-  }
-  return visitedRoomIds.has(tile.roomId);
-}
-
-function drawExploredTileFog(state, ctx) {
-  const visitedRoomIds = getVisitedRoomIds(state);
-  for (const tile of state.tiles || []) {
-    const key = tileKey(tile.x, tile.y);
-    if (
-      !wasExploredBeforeCurrentLight(state, tile.x, tile.y) ||
-      state.visibility.visibleNow.has(key) ||
-      !canUseCoarseExploredTileFog(state, visitedRoomIds, tile)
-    ) {
-      continue;
-    }
-    const px = tile.x * TILE_SIZE_PX;
-    const py = tile.y * TILE_SIZE_PX;
-    drawFogRect(ctx, px, py, TILE_SIZE_PX, TILE_SIZE_PX, EXPLORED_FOG_ALPHA);
-  }
-}
-
-function drawExploredLightPolygonFog(state, ctx) {
-  const polygons = Array.isArray(state.visibility.exploredLightPolygonsBeforeNow)
-    ? state.visibility.exploredLightPolygonsBeforeNow
-    : state.visibility.exploredLightPolygons;
-  if (!Array.isArray(polygons) || !polygons.length) {
-    return;
-  }
-  ctx.save();
-  clipToFloorTiles(ctx, state, () => true);
-  for (const polygon of polygons) {
-    drawFogPolygon(ctx, polygon, EXPLORED_FOG_ALPHA);
-  }
-  ctx.restore();
-}
-
-function getColumnShadowRect(column) {
-  if (!Number.isFinite(Number(column?.x)) || !Number.isFinite(Number(column?.y))) {
-    return null;
-  }
-  const placement = String(column.placement || "center");
-  const drawX = placement === "vertex" ? Number(column.x) - 0.5 : Number(column.x);
-  const drawY = placement === "vertex" ? Number(column.y) - 0.5 : Number(column.y);
-  const left = drawX * TILE_SIZE_PX + PILLAR_SHADOW_INSET_PX;
-  const top = drawY * TILE_SIZE_PX + PILLAR_SHADOW_INSET_PX;
-  return {
-    left,
-    top,
-    right: left + PILLAR_SHADOW_SIZE_PX,
-    bottom: top + PILLAR_SHADOW_SIZE_PX
-  };
-}
-
-function getColumnShadowPolygon(source, column, radiusPx) {
-  const rect = getColumnShadowRect(column);
-  if (!rect) {
-    return null;
-  }
-  const sourcePoint = [
-    (Number(source.x) + 0.5) * TILE_SIZE_PX,
-    (Number(source.y) + 0.5) * TILE_SIZE_PX
-  ];
-  if (
-    sourcePoint[0] >= rect.left &&
-    sourcePoint[0] <= rect.right &&
-    sourcePoint[1] >= rect.top &&
-    sourcePoint[1] <= rect.bottom
-  ) {
-    return null;
-  }
-  const center = [
-    (rect.left + rect.right) / 2,
-    (rect.top + rect.bottom) / 2
-  ];
-  if (Math.hypot(center[0] - sourcePoint[0], center[1] - sourcePoint[1]) > radiusPx + PILLAR_SHADOW_SIZE_PX) {
-    return null;
-  }
-  const corners = [
-    [rect.left, rect.top],
-    [rect.right, rect.top],
-    [rect.right, rect.bottom],
-    [rect.left, rect.bottom]
-  ].map((point) => ({
-    point,
-    angle: Math.atan2(point[1] - sourcePoint[1], point[0] - sourcePoint[0])
-  })).sort((a, b) => a.angle - b.angle);
-  let largestGap = -Infinity;
-  let gapIndex = 0;
-  for (let index = 0; index < corners.length; index += 1) {
-    const current = corners[index].angle;
-    const next = corners[(index + 1) % corners.length].angle + (index === corners.length - 1 ? Math.PI * 2 : 0);
-    const gap = next - current;
-    if (gap > largestGap) {
-      largestGap = gap;
-      gapIndex = index;
-    }
-  }
-  const start = corners[(gapIndex + 1) % corners.length];
-  const end = corners[gapIndex];
-  const startAngle = start.angle + (start.angle < end.angle ? Math.PI * 2 : 0);
-  const endAngle = end.angle;
-  const farStart = [
-    sourcePoint[0] + Math.cos(startAngle) * radiusPx,
-    sourcePoint[1] + Math.sin(startAngle) * radiusPx
-  ];
-  const farEnd = [
-    sourcePoint[0] + Math.cos(endAngle) * radiusPx,
-    sourcePoint[1] + Math.sin(endAngle) * radiusPx
-  ];
-  return [start.point, farStart, farEnd, end.point];
-}
-
-function drawCurrentPillarShadowFog(state, ctx) {
-  const legacyOrganicPillars = (state.tiles || []).filter((tile) => (
-    isOrganicPillarTile(tile) && !getReviewedTileRule(getOrganicTileData(tile)?.asset)
-  ));
-  const columns = [...(state.decor?.columns || []), ...legacyOrganicPillars];
-  if (!columns.length) {
-    return;
-  }
-  const lightSources = collectLightSources(state);
-  if (!lightSources.length) {
-    return;
-  }
-  for (const source of lightSources) {
-    const radiusPx = (Math.max(1, Number(source.radius) || 6) + 0.5) * TILE_SIZE_PX;
-    const unblockedByPillarsPolygon = computeLightPolygon(state, source, { ignorePillars: true });
-    if (unblockedByPillarsPolygon.length < 3) {
-      continue;
-    }
-    ctx.save();
-    clipToFloorTiles(ctx, state, () => true);
-    addShadowPolygonPath(ctx, unblockedByPillarsPolygon);
-    ctx.clip();
-    for (const column of columns) {
-      const shadow = getColumnShadowPolygon(source, column, radiusPx);
-      if (shadow?.length >= 3) {
-        drawFogPolygon(ctx, shadow, EXPLORED_FOG_ALPHA);
-      }
-    }
-    ctx.restore();
-  }
-}
-
-function drawExploredInnerWallInteriorFog(state, ctx) {
-  const exploredInnerWallInteriors = getExploredInnerWallInteriors(state);
-  if (!exploredInnerWallInteriors.size) {
-    return;
-  }
-  for (const tile of state.tiles || []) {
-    if (!getInnerWallTileData(tile)?.blocksMovement) {
-      continue;
-    }
-    if (!exploredInnerWallInteriors.has(tileKey(tile.x, tile.y))) {
-      continue;
-    }
-    drawFogRect(
-      ctx,
-      tile.x * TILE_SIZE_PX,
-      tile.y * TILE_SIZE_PX,
-      TILE_SIZE_PX,
-      TILE_SIZE_PX,
-      EXPLORED_FOG_ALPHA
-    );
-  }
-}
-
-function drawExploredFog(state, ctx) {
-  drawExploredTileFog(state, ctx);
-  drawExploredLightPolygonFog(state, ctx);
-  drawCurrentPillarShadowFog(state, ctx);
-  drawExploredInnerWallInteriorFog(state, ctx);
-  drawDarkvisionFog(state, ctx);
-}
-
-export function drawDarkvisionFog(state, ctx) {
-  const drawn = new Set();
-  for (const [route, cells] of Object.entries(state.visibility.routeDarkvisionExplored || {})) {
-    for (const key of cells instanceof Set || Array.isArray(cells) ? cells : []) {
-      if (drawn.has(key)) continue;
-      const [x, y] = key.split(',').map(Number), tile = getTileAt(state, x, y);
-      if (!tile || tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID || tile.meta?.neverExplore ||
-        !routeExistsAt(state, x, y, route)) continue;
-      drawn.add(key);
-      drawFogRect(ctx, x * TILE_SIZE_PX, y * TILE_SIZE_PX, TILE_SIZE_PX, TILE_SIZE_PX, EXPLORED_FOG_ALPHA);
-    }
-  }
-}
-
-function drawAngledShadowWedges(state, ctx) {
-  const width = Number(state.map?.width || 0);
-  const height = Number(state.map?.height || 0);
-  if (width < 2 || height < 2) {
-    return;
-  }
-  const lightSources = collectLightSources(state);
-  const secretThresholds = new Set((state.entities || []).filter(isClosedSecretDoor).map(door => tileKey(door.x, door.y)));
-  ctx.save();
-  ctx.globalCompositeOperation = "destination-out";
-  ctx.fillStyle = "#000000";
-  ctx.globalAlpha = 1;
-  for (const source of lightSources) {
-    const polygon = computeLightPolygon(state, source);
-    if (polygon.length < 3) {
-      continue;
-    }
-    ctx.save();
-    clipToFloorTiles(ctx, state, (tile) => (
-      !secretThresholds.has(tileKey(tile.x, tile.y)) ||
-      state.visibility.visibleNow.has(tileKey(tile.x, tile.y))
-    ));
-    drawCutoutPolygon(ctx, polygon);
-    ctx.restore();
-  }
-  ctx.restore();
-  drawAdjacentInnerWallFogCutouts(state, ctx, lightSources);
-}
-
-function drawClosedDoorFogBisectors(state, ctx) {
-  const applyDoorHalfFog = (x, y, width, height, current, explored) => {
-    if (current) {
-      clearFogRect(ctx, x, y, width, height);
-    } else if (explored) {
-      drawFogRect(ctx, x, y, width, height, EXPLORED_FOG_ALPHA);
-    } else {
-      drawFogRect(ctx, x, y, width, height, UNEXPLORED_FOG_ALPHA);
-    }
-  };
-
-  for (const door of state.entities || []) {
-    // Ordinary doors use the exact reviewed light polygon, never rectangular half-tile fog.
-    if (door.subtype !== "door" || !isClosedSecretDoor(door)) {
-      continue;
-    }
-    if (door.secret === true && door.secretFound !== true && door.revealed !== true) {
-      continue;
-    }
-    const visibleSides = state.visibility.closedDoorVisibleSides?.get?.(door.id) || new Set();
-    const exploredSides = state.visibility.closedDoorExploredSides?.get?.(door.id) || new Set();
-    if (!visibleSides.size && !exploredSides.size) {
-      continue;
-    }
-    const px = door.x * TILE_SIZE_PX;
-    const py = door.y * TILE_SIZE_PX;
-    const half = TILE_SIZE_PX / 2;
-    if (door.orientation !== "horizontal") {
-      const leftVisible = visibleSides.has("left");
-      const rightVisible = visibleSides.has("right");
-      applyDoorHalfFog(px, py, half, TILE_SIZE_PX, leftVisible, exploredSides.has("left"));
-      applyDoorHalfFog(px + half, py, half, TILE_SIZE_PX, rightVisible, exploredSides.has("right"));
-      continue;
-    }
-    const topVisible = visibleSides.has("top");
-    const bottomVisible = visibleSides.has("bottom");
-    applyDoorHalfFog(px, py, TILE_SIZE_PX, half, topVisible, exploredSides.has("top"));
-    applyDoorHalfFog(px, py + half, TILE_SIZE_PX, half, bottomVisible, exploredSides.has("bottom"));
-  }
-}
 
 function drawCombatMovement(state, ctx, targeting = null) {
   const combat = state.combat;
@@ -2952,7 +2443,7 @@ function drawDungeonFrame(state, layers, options) {
     const previousTerrain = terrainFrames.get(topologyCtx);
     // Generated terrain stays fixed while tokens, doors, and fog use dynamic layers.
     if (!previousTerrain || previousTerrain.secretWallKey !== secretWallKey || previousTerrain.tiles !== state.tiles || previousTerrain.decor !== state.decor ||
-        previousTerrain.rooms !== state.rooms || previousTerrain.ready !== rendererAssets.ready ||
+        previousTerrain.rooms !== state.rooms || previousTerrain.ready !== rendererAssets.ready || previousTerrain.assetVersion !== rendererAssets.version ||
         previousTerrain.entities !== state.entities || previousTerrain.seed !== state.seed ||
         previousTerrain.generation !== state.generation || previousTerrain.underpasses !== state.underpasses ||
         previousTerrain.width !== widthPx || previousTerrain.height !== heightPx) {
@@ -2961,7 +2452,7 @@ function drawDungeonFrame(state, layers, options) {
       drawHandDrawnTopology(state, topologyCtx);
       terrainFrames.set(topologyCtx, { secretWallKey, tiles: state.tiles, decor: state.decor, rooms: state.rooms,
         entities: state.entities, seed: state.seed, generation: state.generation, underpasses: state.underpasses,
-        ready: rendererAssets.ready, width: widthPx, height: heightPx });
+        ready: rendererAssets.ready, assetVersion: rendererAssets.version, width: widthPx, height: heightPx });
     }
   }
   if (objectsCtx) {
@@ -2971,26 +2462,33 @@ function drawDungeonFrame(state, layers, options) {
     const spellKey = spellTemplates.map(visual => `${visual.id}:${visual.spell}:${visual.routeId}:${JSON.stringify(visual.rect)}:${JSON.stringify(visual.artTransform)}:${visual.opacity}:${spellTemplateKnownCells(state, visual)}`).join('|');
     const illusionKey = artwork.map(({ source, rect, cells }) =>
       `${source.id}:${source.illusion.id}:${source.illusion.kind}:${JSON.stringify(source.illusion.artTransform)}:${source.visualRouteId ?? routeOf(state, source)}:${rect.x},${rect.y}:${cells.map(cell => tileKey(cell.x, cell.y)).join(';')}`).join('|');
-    const monsterKey = visibleEntities.map(entity => `${entity.id}:${entity.x},${entity.y}:${entity.disguiseRevealed ? 1 : 0}`).join('|');
+    const monsterKey = visibleEntities.map(entity => [entity.id,entity.x,entity.y,entity.disguiseRevealed?1:0,
+      isStealthed(entity)?1:0,isCreatureLocationKnown(state,entity)?1:0].join(':')).join('|');
     const doorKey = visibleEntities.filter(entity => entity.subtype === 'door')
       .map(entity => entity.id + ':' + getDoorVisualKind(state, entity)).join('|');
+    const visualKey = JSON.stringify(visibleEntities);
     const previousObjects = objectFrames.get(objectsCtx);
-    if (options.motionOnly !== true || !previousObjects || previousObjects.monsterKey !== monsterKey || previousObjects.doorKey !== doorKey ||
-        previousObjects.entities !== state.entities || previousObjects.blackout !== Boolean(options.forceBlackout) || previousObjects.illusionKey !== illusionKey || previousObjects.spellKey !== spellKey) {
+    if (!previousObjects || previousObjects.visualKey !== visualKey || previousObjects.assetVersion !== rendererAssets.version || previousObjects.monsterKey !== monsterKey || previousObjects.doorKey !== doorKey ||
+        previousObjects.blackout !== Boolean(options.forceBlackout) || previousObjects.illusionKey !== illusionKey || previousObjects.spellKey !== spellKey) {
       objectsCtx.clearRect(0, 0, widthPx, heightPx);
       objectsCtx.__doorNow = now;
       drawObjects(state, objectsCtx, { darkness: options.forceBlackout === true, visibleEntities, illusionArtwork: artwork, spellTemplates });
-      objectFrames.set(objectsCtx, { monsterKey, doorKey, illusionKey, spellKey, entities: state.entities, blackout: Boolean(options.forceBlackout) });
+      objectFrames.set(objectsCtx, { visualKey, assetVersion: rendererAssets.version, monsterKey, doorKey, illusionKey, spellKey, entities: state.entities, blackout: Boolean(options.forceBlackout) });
     }
   }
+  fogCtx.save();
+  if (options.viewBounds) {
+    const {x,y,width,height}=options.viewBounds;
+    fogCtx.beginPath();fogCtx.rect(x,y,width,height);fogCtx.clip();
+  }
   fogCtx.clearRect(0, 0, widthPx, heightPx);
-  drawFog(state, fogCtx, widthPx, heightPx, options.forceBlackout === true);
+  drawFog(state, fogCtx, widthPx, heightPx, options.forceBlackout === true, options.viewBounds);
   const previewCaster = (state.characters || []).find(character => character.id === options.targeting?.characterId);
   const burningPreview = options.targeting?.spellKey === 'burning hands' ? burningHandsArtPreview(state, previewCaster) : null;
   drawAreaSpellOverlays(state, fogCtx, { areaPreview: options.areaPreview || burningPreview,
     previewCasterId: previewCaster?.id, now: options.areaNow ?? Date.now() });
   if (!options.forceBlackout || options.targeting) drawCombatMovement(state, fogCtx, options.targeting);
-  drawProtectionAuras(state,fogCtx);
+  if(!blindDungeonView(state))drawProtectionAuras(state,fogCtx);
   drawRestScene(state, fogCtx, options);
   fogCtx.save(); fogCtx.fillStyle = '#000';
   for (const shred of shredZones(state)) {
@@ -3004,4 +2502,5 @@ function drawDungeonFrame(state, layers, options) {
   fogCtx.restore();
   drawCharacters(state, fogCtx, { darkness: options.forceBlackout === true });
   if (options.discoveryPulse) drawDiscoveryPulse(state, fogCtx, options.discoveryPulse);
+  fogCtx.restore();
 }

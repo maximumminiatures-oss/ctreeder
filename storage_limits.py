@@ -3,6 +3,7 @@ from sqlalchemy import String, cast, func
 from sqlmodel import select
 from room_models import GameRoom, SaveCheckpoint
 from party_persistence import SavedParty
+from autosave_models import AccountAutosave
 
 MAX_ACCOUNT_BYTES = 64 * 1024 * 1024
 STORAGE_FULL = ({"error": "storage_limit", "message": "Account storage is full, including retained save history and recently deleted games."}, 409)
@@ -12,6 +13,8 @@ def storage_available(db, user_id, SavedRun, SavedCharacter):
     db.flush()
     total = 0
     sources = (
+        (AccountAutosave.state_json, AccountAutosave.user_id == user_id),
+        (AccountAutosave.room_json, AccountAutosave.user_id == user_id),
         (SavedRun.state_json, SavedRun.user_id == user_id),
         (SavedCharacter.character_json, SavedCharacter.user_id == user_id),
         (SavedParty.party_json, SavedParty.user_id == user_id),

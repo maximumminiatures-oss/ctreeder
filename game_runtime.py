@@ -88,6 +88,8 @@ class GameRuntime:
                 raise ValueError(result.get("message") or "Invalid game action.")
             if floors is not None and isinstance(result.get("state_json"), dict):
                 result["state_json"]["dungeonFloors"] = floors
+                if isinstance(result.get("autosave_state_json"), dict):
+                    result["autosave_state_json"]["dungeonFloors"] = floors
             return result
         except (OSError, queue.Empty, json.JSONDecodeError) as exc:
             self.close()

@@ -110,7 +110,8 @@
             "animal"
         ],
         "abilities": {},
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Doppelganger",
@@ -326,7 +327,8 @@
             "**Camouflage**": "Hard to see in cave terrain or rocks.",
             "**Grab**": "Target is immobilized. DC 15 Strength check on turn to break free."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Griffon",
@@ -451,7 +453,8 @@
         "abilities": {
             "**Split**": "If cut or chopped, split into two smaller oozes (divide remaining HP between both). Can split up to four times."
         },
-        "diplomacy": "N"
+        "diplomacy": "N",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Orc, Chieftain",
@@ -568,7 +571,8 @@
         "abilities": {
             "**Song**": "Enemies who can hear within double near DC 15 CHA or paralyzed 1d4 rounds. Immune for 1 day if passed check."
         },
-        "diplomacy": "Y"
+        "diplomacy": "Y",
+        "waterHabitat": {"eligible": true}
     },
     {
         "Monster Name": "Snake, Swarm",

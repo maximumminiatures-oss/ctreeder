@@ -275,8 +275,8 @@ export function igniteWebsAt(state, point, { random = Math.random, now = Date.no
     for (const creature of creatures(state).filter(creature => contains(zone, pointOf(state, creature)))) {
       const roll = Math.floor(random() * 6) + 1, before = Number(creature.hp);
       if (applyDamage) applyDamage(creature, roll, { sourceId: zone.casterId, damageType: 'fire', areaId: zone.id });
-      else if ((state.characters || []).includes(creature)) setCharacterHp(creature, before - roll, { sourceId: zone.casterId, damageSource: 'fire', areaEffect: true });
-      else { creature.hp = Math.max(0, before - elementalDamage(creature, roll, { damageType: 'fire', areaEffect: true }).total); if (creature.hp < before) wakeCreature(creature, state); }
+      else if ((state.characters || []).includes(creature)) setCharacterHp(creature, before - roll, { state, sourceId: zone.casterId, damageSource: 'fire', areaEffect: true });
+      else { creature.hp = Math.max(0, before - elementalDamage(creature, roll, { damageType: 'fire', areaEffect: true }, state).total); if (creature.hp < before) wakeCreature(creature, state); }
       hits.push({ id: creature.id, areaId: zone.id, roll, damage: before - Number(creature.hp), defeated: creature.hp <= 0 });
       if (creature.hp <= 0) onDefeat?.(creature, zone);
     }

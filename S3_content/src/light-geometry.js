@@ -1,7 +1,8 @@
+import {reuseExactLightPolygon} from './light-polygon-cache.js';
 import { DOOR_STATES, TILE_SIZE_PX, TILE_TYPES } from "./constants.js";
 import { doorLightSegments, isClosedSecretDoor, doorBoundaryCenter } from './door-geometry.js';
 import { getOrganicBlockedSides, getOrganicTileData, isOrganicMovementBlockingTile, isOrganicPillarTile } from "./organic-tiles.js";
-import { getInnerWallConnectedSides, getInnerWallTileData } from "./inner-walls.js";
+import { getInnerWallTileData, getInnerWallOpaqueBounds } from "./inner-walls.js";
 import { isAngledWallLightBlockingTile, isAngledWallMovementBlockingTile } from "./angled-walls.js";
 import { reviewedTileLightSegments, isStatueAsset } from "./reviewed-tile-rules.js";
 import { visualTilePoint } from "./tile-positions.js";
@@ -13,7 +14,6 @@ import { isTilePhysicallyIlluminated } from './darkvision.js';
 
 const ANGLE_EPSILON = 0.00008;
 const RADIUS_RAY_COUNT = 96;
-const INNER_WALL_EDGE_INSET_PX = 5;
 const PILLAR_SHADOW_SIZE_PX = TILE_SIZE_PX / 3;
 const PILLAR_SHADOW_INSET_PX = (TILE_SIZE_PX - PILLAR_SHADOW_SIZE_PX) / 2;
 const polygonBounds = new WeakMap();
@@ -146,40 +146,39 @@ function addLightSource(sources, seen, x, y, radius, routeId = '') {
   sources.push(source);
 }
 
-function lightReachesViewer(state, source, viewers) {
-  if (!viewers.length) {
-    return false;
-  }
-  const polygon = computeLightPolygon(state, source);
-  return viewers.some((character) => sameRoute(state, character, source) && isPointInPolygon(visualTilePoint(state,character.visualX ?? character.x,character.visualY ?? character.y)
-    .map(value=>value*TILE_SIZE_PX),polygon));
+function lightReachesViewer(state, source, viewers, logical = false) {
+  const from = visualTilePoint(state, source.x, source.y).map(value => value * TILE_SIZE_PX);
+  return viewers.some(character => {
+    if (!sameRoute(state, character, source)) return false;
+    const to = visualTilePoint(state, logical ? character.x : character.visualX ?? character.x, logical ? character.y : character.visualY ?? character.y)
+      .map(value => value * TILE_SIZE_PX);
+    const distance = Math.hypot(to[0] - from[0], to[1] - from[1]);
+    if (distance < .001) return true;
+    const angle = Math.atan2(to[1] - from[1], to[0] - from[0]);
+    return !collectBlockingSegments(state, source, from, distance).some(segment => {
+      const hit = raySegmentIntersection(from, angle, segment, distance);
+      return hit && hit.distance > .001 && hit.distance < distance - .001;
+    });
+  });
 }
 
-export function collectLightSources(state) {
+// Physical light queries must not depend on which player currently sees the source.
+export function collectLightSources(state, { physical = false, logical = false } = {}) {
   const sources = [];
   const seen = new Set();
   const viewerIds = state.viewerCharacterIds instanceof Set ? state.viewerCharacterIds : null;
   const observers = (state.characters || []).filter(character => (!viewerIds || viewerIds.has(character.id)) && !character.dead && !character.slain && !character.conditions?.blind && !isSleeping(character, state));
-  if ((state.characters || []).length && !observers.length) return [];
-  const viewers = viewerIds
-    ? (state.characters || []).filter((character) => (
-      viewerIds.has(character.id) &&
-      character.dead !== true &&
-      character.slain !== true &&
-      !character.conditions?.blind &&
-      !isSleeping(character, state) &&
-      Number.isFinite(Number(character.x)) &&
-      Number.isFinite(Number(character.y))
-    ))
-    : [];
+  if (!physical && (state.characters || []).length && !observers.length) return [];
+  const viewers = observers.length ? observers :
+    !(state.characters || []).length && state.player ? [state.player] : [];
   for (const character of state.characters || []) {
     if (Number(character?.lightRadius) > 0) {
       const source = {
-        x: Number(character.visualX ?? character.x),
-        y: Number(character.visualY ?? character.y),
-        radius: Number(character.lightRadius), routeId: character.visualRouteId ?? routeOf(state, character)
+        x: Number(logical ? character.x : character.visualX ?? character.x),
+        y: Number(logical ? character.y : character.visualY ?? character.y),
+        radius: Number(character.lightRadius), routeId: logical ? routeOf(state, character) : character.visualRouteId ?? routeOf(state, character)
       };
-      if (viewerIds && !viewerIds.has(character.id) && !lightReachesViewer(state, source, viewers)) {
+      if (!physical && viewerIds && !viewerIds.has(character.id) && !lightReachesViewer(state, source, viewers, logical)) {
         continue;
       }
       addLightSource(
@@ -202,7 +201,7 @@ export function collectLightSources(state) {
       Number(entity.lightRadius) > 0
     ) {
       const source = { x: entity.x, y: entity.y, radius: entity.lightRadius, routeId: routeOf(state, entity) };
-      if (viewerIds && !lightReachesViewer(state, source, viewers)) {
+      if (!physical && !lightReachesViewer(state, source, viewers, logical)) {
         continue;
       }
       addLightSource(sources, seen, entity.x, entity.y, entity.lightRadius, source.routeId);
@@ -217,17 +216,17 @@ export function collectLightSources(state) {
     }
     for (const spellSource of spellSources) {
       const holder = holders.get(spellSource.sourceId);
-      const source = { ...spellSource, x: Number(holder?.visualX ?? spellSource.x), y: Number(holder?.visualY ?? spellSource.y),
-        routeId: holder?.visualRouteId ?? spellSource.routeId };
-      const owned = viewerIds && (state.characters || []).includes(holder) && viewerIds.has(holder.id);
-      if (viewerIds && !owned && !lightReachesViewer(state, source, viewers)) continue;
+      const source = { ...spellSource, x: Number(logical ? holder?.x ?? spellSource.x : holder?.visualX ?? spellSource.x), y: Number(logical ? holder?.y ?? spellSource.y : holder?.visualY ?? spellSource.y),
+        routeId: logical ? holder ? routeOf(state,holder) : spellSource.routeId : holder?.visualRouteId ?? spellSource.routeId };
+      const owned = (state.characters || []).includes(holder) && (!viewerIds || viewerIds.has(holder.id));
+      if (!physical && !owned && !lightReachesViewer(state, source, viewers, logical)) continue;
       if (sources.some(existing => existing.routeId === source.routeId && existing.x === source.x && existing.y === source.y && existing.radius >= source.radius)) continue;
       addLightSource(sources, seen, source.x, source.y, source.radius, source.routeId);
     }
   }
   if (state.rest?.suppliesPaid && ['sleeping', 'interrupted', 'voting'].includes(state.rest.phase)) {
     const source = { x: state.rest.x, y: state.rest.y, radius: 6, routeId: routeOf(state, state.rest) };
-    if (!viewerIds || lightReachesViewer(state, source, viewers)) addLightSource(sources, seen, source.x, source.y, source.radius, source.routeId);
+    if (physical || lightReachesViewer(state, source, viewers, logical)) addLightSource(sources, seen, source.x, source.y, source.radius, source.routeId);
   }
   const visible = sources.filter(source => !isLightSuppressedAt(state, source.x, source.y, source));
   const transition = state.lightTransition;
@@ -260,11 +259,9 @@ function innerWallBlockingSegments(tile) {
   if (!innerWall?.blocksMovement) {
     return [];
   }
-  const connectedSides = new Set(getInnerWallConnectedSides(innerWall));
-  const left = tile.x * TILE_SIZE_PX + (connectedSides.has("west") ? 0 : INNER_WALL_EDGE_INSET_PX);
-  const top = tile.y * TILE_SIZE_PX + (connectedSides.has("north") ? 0 : INNER_WALL_EDGE_INSET_PX);
-  const right = (tile.x + 1) * TILE_SIZE_PX - (connectedSides.has("east") ? 0 : INNER_WALL_EDGE_INSET_PX);
-  const bottom = (tile.y + 1) * TILE_SIZE_PX - (connectedSides.has("south") ? 0 : INNER_WALL_EDGE_INSET_PX);
+  const bounds=getInnerWallOpaqueBounds(tile,TILE_SIZE_PX);
+  const left=bounds.left*TILE_SIZE_PX,top=bounds.top*TILE_SIZE_PX;
+  const right=bounds.right*TILE_SIZE_PX,bottom=bounds.bottom*TILE_SIZE_PX;
   return [
     [[left, top], [right, top]],
     [[right, top], [right, bottom]],
@@ -465,24 +462,28 @@ function raySegmentIntersection(origin, angle, segment, radiusPx) {
   };
 }
 
+// Segment geometry depends on the source, rather than on each individual ray.
+function prepareRaySegments(origin, segments) {
+  return segments.map(([a, b]) => {
+    const segX = b[0] - a[0], segY = b[1] - a[1];
+    const toX = a[0] - origin[0], toY = a[1] - origin[1];
+    return {segX, segY, toX, toY, numerator: cross(toX, toY, segX, segY)};
+  });
+}
+
 function castRay(origin, angle, radiusPx, segments) {
+  const rayX = Math.cos(angle), rayY = Math.sin(angle);
   let closest = null;
-  for (const segment of segments) {
-    const hit = raySegmentIntersection(origin, angle, segment, radiusPx);
-    if (!hit) {
-      continue;
-    }
-    if (!closest || hit.distance < closest.distance) {
-      closest = hit;
-    }
+  for (const {segX, segY, toX, toY, numerator} of segments) {
+    const denom = cross(rayX, rayY, segX, segY);
+    if (Math.abs(denom) < 0.000001) continue;
+    const rayDistance = numerator / denom;
+    const segmentDistance = cross(toX, toY, rayX, rayY) / denom;
+    if (rayDistance < 0 || rayDistance > radiusPx || segmentDistance < -0.0001 || segmentDistance > 1.0001) continue;
+    if (closest === null || rayDistance < closest) closest = rayDistance;
   }
-  if (closest) {
-    return closest.point;
-  }
-  return [
-    origin[0] + Math.cos(angle) * radiusPx,
-    origin[1] + Math.sin(angle) * radiusPx
-  ];
+  const distance = closest === null ? radiusPx : closest;
+  return [origin[0] + rayX * distance, origin[1] + rayY * distance];
 }
 
 function collectRayAngles(sourcePoint, radiusPx, segments) {
@@ -530,18 +531,20 @@ export function withLightPolygonCache(state, draw, knownPolygons = []) {
 export function computeLightPolygon(state, source, options = {}) {
   const cache = lightPolygonPasses.get(state);
   const key = lightPolygonKey(source, options);
-  if (cache?.has(key)) return cache.get(key);
+  if (options.cache !== false && cache?.has(key)) return cache.get(key);
   const sourcePoint = visualTilePoint(state,source.x,source.y).map(value=>value*TILE_SIZE_PX);
   const radiusPx = (Math.max(1, Number(source.radius) || 6) + 0.5) * TILE_SIZE_PX;
   const segments = collectBlockingSegments(state, source, sourcePoint, radiusPx, options);
-  const polygon = computeLightPolygonFromSegments(sourcePoint, radiusPx, segments);
-  cache?.set(key, polygon);
+  const calculate=()=>computeLightPolygonFromSegments(sourcePoint,radiusPx,segments);
+  const polygon=options.cache===false?calculate():reuseExactLightPolygon(state,sourcePoint,radiusPx,segments,calculate);
+  if(options.cache!==false)cache?.set(key, polygon);
   return polygon;
 }
 
 export function computeLightPolygonFromSegments(sourcePoint, radiusPx, segments) {
   const angles = collectRayAngles(sourcePoint, radiusPx, segments);
-  return angles.map((angle) => castRay(sourcePoint, angle, radiusPx, segments));
+  const prepared = prepareRaySegments(sourcePoint, segments);
+  return angles.map((angle) => castRay(sourcePoint, angle, radiusPx, prepared));
 }
 
 export function isPointInPolygon(point, polygon) {
@@ -604,7 +607,7 @@ export function isTileIlluminated(state, x, y, point = { x, y }) {
   const tile = getTileAt(state, x, y);
   if (!tile || tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID || isLightSuppressedAt(state, x, y, point)) return false;
   return isTilePhysicallyIlluminated(state, { ...tile, routeId: routeOf(state, point) }, {
-    sources: collectLightSources(state), tileSize: TILE_SIZE_PX,
+    sources: collectLightSources(state, { physical: true }), tileSize: TILE_SIZE_PX,
     polygonFor: source => computeLightPolygon(state, source)
   });
 }

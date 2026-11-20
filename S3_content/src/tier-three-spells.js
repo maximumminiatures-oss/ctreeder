@@ -123,8 +123,8 @@ export function tierThreePresentation(state, caster) {
 function damageCreature(state, creature, amount, sourceId, damageType) {
   const before = Number(creature.hp);
   state.lastDamageSourceId = sourceId;
-  if ((state.characters || []).includes(creature)) setCharacterHp(creature, before - amount, { sourceId, damageSource: damageType, areaEffect: true });
-  else creature.hp = Math.max(0, before - elementalDamage(creature, amount, { damageType, areaEffect: true }).total);
+  if ((state.characters || []).includes(creature)) setCharacterHp(creature, before - amount, { state, sourceId, damageSource: damageType, areaEffect: true });
+  else creature.hp = Math.max(0, before - elementalDamage(creature, amount, { damageType, areaEffect: true }, state).total);
   if (Number(creature.hp) < before) wakeCreature(creature, state);
   return { id: creature.id, name: creature.name, type: (state.characters || []).includes(creature) ? 'character' : 'monster',
     damage: before - Number(creature.hp), defeated: Number(creature.hp) <= 0 };

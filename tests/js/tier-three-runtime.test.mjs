@@ -110,7 +110,7 @@ test('Fireball scrolls dispatch into the same Tier 3 placement flow without requ
 });
 
 test('casting consumes the combat action, but movement and reselecting a ready blast do not recast it', async () => {
-  const state = scene(); state.entities.push(foe('foe', 20, 9));
+  const state = scene(); state.entities.push(foe('foe', 12, 9));
   state.combat = { active: true, round: 1, turnIndex: 0, movementRemaining: 6, actionUsed: false,
     turnOrder: [{ type: 'character', id: 'wizard' }, { type: 'monster', id: 'foe' }],
     playerOrderIds: ['wizard'], monsterIds: ['foe'] };

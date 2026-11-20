@@ -29,8 +29,8 @@ function scene({ combat = true } = {}) {
     rooms: [{ id: 'room', x: 0, y: 0, width: 7, height: 7 }],
     visibility: { exploredEver: Array.from({ length: 49 }, (_, i) => `${i % 7},${Math.floor(i / 7)}`) },
     entities: [{ id: 'stairs', type: 'stairs', subtype: 'up', x: 2, y: 2, roomId: 'room' },
-      { id: 'foe', type: 'monster', name: 'Foe', hp: 100, maxHp: 100, ac: 12, x: 5, y: 2,
-        roomId: 'room', hostile: combat, attitude: combat ? 'combat' : 'neutral', attitudeChecked: true,
+      { id: 'foe', type: 'monster', name: 'Foe', hp: 100, maxHp: 100, ac: 12, x: 5, y: 5,
+        roomId: 'room', knownCharacterSquares: {actor:{id:'actor',x:2,y:2,routeId:''}}, hostile: combat, attitude: combat ? 'combat' : 'neutral', attitudeChecked: true,
         visible: true, attack: '1 claw +0 (1d4)' }],
     characters: [
       { id: 'actor', name: 'Actor', className: 'Thief', ancestry: 'Human', level: 1,

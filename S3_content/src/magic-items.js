@@ -1,3 +1,4 @@
+import {rebalancePrintedTreasure} from './treasure.js';
 import { abilityScoreModifier, setCharacterHp } from './characters.js';
 import { rollDamageExpression } from './damage.js';
 import { makeInvisible } from './concealment.js';
@@ -65,6 +66,15 @@ export function magicSaleValue(item) {
     : full;
 }
 
+// Generation values the best sale still available: an unidentified item can be
+// sold now or identified first. Already identified items cannot be unidentified.
+export function highestMagicSaleValue(item) {
+  const current = magicSaleValue(item);
+  if (current === null || item.magic.identified) return current;
+  const identified = magicSaleValue({...item,magic:{...item.magic,identified:true}});
+  return Math.max(current,identified ?? 0);
+}
+
 export function magicTreasureCatalog(rules, spells = [], level = 1) {
   const catalog = [];
   for (const bonus of [1, 2, 3]) {
@@ -80,21 +90,23 @@ export function magicTreasureCatalog(rules, spells = [], level = 1) {
 }
 
 // Replace treasure only after ordinary budget balancing; magic prices never rescale.
-export function placeMagicTreasure(state, rng, spells = []) {
-  const treasures = (state.entities || []).filter(entity => entity.type === 'treasure' && !entity.collected && !entity.gearItem?.magic);
-  if (!treasures.length || !state.rulesData) return;
-  const budget = treasures.reduce((sum, item) => sum + Number(item.value || 0), 0);
+export function placeMagicTreasure(state, rng, spells = [], options = {}) {
+  const treasures = (state.entities || []).filter(entity => entity.type === 'treasure' && !entity.collected && !entity.gearItem?.magic && !entity.generationFixedValue);
+  const budget = options.budgetGp ?? treasures.reduce((sum, item) => sum + Number(item.value || 0), 0);
+  if (!treasures.length || !state.rulesData) {if(options.rebalance !== false)rebalancePrintedTreasure(state,state.generation?.treasureTargetGp ?? budget);return;}
   const count = Math.max(0, Math.round(treasures.length * .2));
   const catalog = magicTreasureCatalog(state.rulesData, spells, state.level);
+  const valueOf = options.valueOfMagic || (item => item.value);
+  const healing = magicPotion('healing-1'), healingValue = valueOf(healing);
   const candidates = [...treasures];
   let spent = 0, placed = 0;
   for (let index = 0; index < count && candidates.length; index++) {
     const available = budget - spent - (treasures.length - index - 1) * .01;
     let item;
-    if (rng.nextFloat() < .15 && available >= 50) item = magicPotion('healing-1');
+    if (rng.nextFloat() < .15 && available >= healingValue) item = healing;
     else {
-      const eligible = catalog.filter(entry => entry.item.value <= available);
-      if (!eligible.length) { if (available >= 50) item = magicPotion('healing-1'); else break; }
+      const eligible = catalog.filter(entry => valueOf(entry.item) <= available);
+      if (!eligible.length) { if (available >= healingValue) item = healing; else break; }
       else {
         const total = eligible.reduce((sum, entry) => sum + entry.weight, 0);
         let roll = rng.nextFloat() * total;
@@ -105,25 +117,10 @@ export function placeMagicTreasure(state, rng, spells = []) {
     const entity = candidates.splice(candidateIndex, 1)[0];
     Object.assign(entity, { name: item.name, value: item.value, slots: item.slots, kind: 'magic', subtype: 'magic',
       coinBreakdown: null, gearItem: clone(item), tags: ['Magic'], priceless: false, description: item.description || '' });
-    spent += item.value; placed++;
+    spent += valueOf(item); placed++;
   }
-  const remaining = treasures.filter(entity => !entity.gearItem?.magic);
-  const current = remaining.reduce((sum, item) => sum + Number(item.value || 0), 0);
-  let assigned = spent;
-  for (const [index, entity] of remaining.entries()) {
-    const value = index === remaining.length - 1 ? budget - assigned : (budget - spent) * (Number(entity.value || 0) / current);
-    entity.value = Math.max(.01, Math.round(value * 100) / 100);
-    assigned += entity.value;
-    if (entity.coinBreakdown) {
-      const copper = Math.round(entity.value * 100);
-      entity.coinBreakdown = { gold: Math.floor(copper / 100), silver: Math.floor(copper % 100 / 10), copper: copper % 10 };
-      const coins = Object.values(entity.coinBreakdown).reduce((sum, amount) => sum + amount, 0);
-      entity.slots = Math.max(0, Math.ceil((coins - 100) / 100));
-    }
-    if (entity.gearItem) entity.gearItem.value = entity.value;
-  }
+  if(options.rebalance !== false)rebalancePrintedTreasure(state,state.generation?.treasureTargetGp ?? budget);
   state.generation.magicTreasureCount = placed;
-  state.generation.treasureActualGp = treasures.reduce((sum, item) => sum + item.value, 0);
 }
 
 export const giantStrengthActive = character => (character?.potionEffects || []).some(effect => effect.type === 'giant-strength' && effect.rounds > 0);

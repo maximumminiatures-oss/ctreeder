@@ -20,6 +20,25 @@ site. Read `docs/DIGITALOCEAN_DEPLOYMENT.md` before production work.
   legacy AWS deployment scripts for ctreeder.com.
 - Preserve unrelated working-tree changes. A Git push alone does not deploy.
 
+## Rules clarification - mandatory for every agent
+
+The user is the authority on Shadowdark interpretation and ShadowSpawner's
+intended gameplay. When a rulebook passage, user instruction, interaction between
+rules, or intended behavior is unclear, ask the user a specific clarifying
+question before implementing the dependent behavior. Do not guess, infer a
+convenient rule, or optimize gameplay for efficiency. Continue only independent
+work while awaiting the answer. Apply this requirement to delegated agents too.
+
+Performance optimizations may improve computation, rendering, transport, and
+loading, but must preserve the world's rules, physical quantities, costs,
+constraints, and intentional inconvenience. Never silently exchange physical
+coin denominations for equal monetary value. The user's reported example is
+700 copper coins occupying six gear slots, not automatically becoming seven
+gold coins. Clarify any unresolved coin-payment/exchange or capacity edge cases
+before changing those mechanics. A green test suite does not authorize a rule
+interpretation; ambiguous expected results must be confirmed with the user.
+
+
 ## UI conventions
 
 Do not use the `JBlack` display font for new interface text unless requested.
@@ -296,14 +315,139 @@ floor/pit illusions. Travel preparation and rendering failures must restore the
 previous state, clocks, rule tables, history and view rather than half-commit.
 
 
-## Reviewed delivery hotfix (November 20, 2026)
-Read docs/FRONTEND_DELIVERY.md before deployment. Native nginx uses root plus
-try_files for the exact /site/ entry, not a trailing-slash file alias. Retain all
-immutable releases and artwork groups for old tabs; never prune automatically.
-Never publish unused-assets or Clip Studio sources. The release uses the supplied
-648x432 floor and observable artwork retry. Keep private-visibility.js and
-private_visibility.py protocol limits synchronized. Gzip is lossless transport;
-never round/discard contours or alter visibility rules to fit a payload.
-Legacy clients remain supported; compressed responses require an explicit header.
-The larger local gameplay batch remains unpublished. Do not replace it with this
-hotfix checkout or reset/stash it as part of deployment.
+## Local unused-asset archive - never publish
+The user requested unused assets and Clip Studio masters be kept at
+C:\SD_game\ShadowSpawner\unused-assets (outside this Git checkout).
+Never add, copy, upload, or deploy that folder during future pushes/releases.
+docs/runtime-assets-inventory.json records original paths, hashes, references,
+and archive locations. Keep dynamic asset families and authored gameplay data
+intact. Restore an individual archived image only when implementing an explicit
+feature that uses it, updating the inventory and validating its actual loader.
+Do not place the archive inside S3_content or a deployment/build context.
+
+## Water and shared autosave contracts (November 19, 2026)
+
+Water habitat lists are user-authored in `S3_content/data/water-habitats.json`.
+Regenerate its browser copy with `node scripts/build-water-habitats.mjs`; never
+infer flooded-level eligibility from swim speed alone. Authored water may exceed
+its target; only completely flooded high-water rooms restrict encounters.
+Ceiling movement is committed only on successful movement from a wall. Queries
+must stay read-only. Free drops and expiry use the same landing/shunt rules.
+Keep movement already spent independent of a changing movement budget.
+Physical and elemental damage components must remain separate: Fire Dragon rend
+is physical, Fire Elemental touch is fire. Water never extinguishes held torches.
+Conjured creatures start without loot. Their bodies expire; real acquired items
+remain. Animate Dead's pre-existing physical corpse inventory is not conjured.
+Shared autosaves count only successful host-commanded steps. Restore creates a
+new room and remaps ownership/private exploration; never rewind or leave the
+source room as a side effect. Room metadata is server-authored, not client input.
+
+Water artwork uses the original explicit water-c/water-nn/water-nw asset IDs and
+native edge offsets. Grow center regions before assigning edges/corners; omit
+shore edges against basic walls. Generated paint rectangles cannot overlap other
+water or authored water art. Legacy artwork repair must not change the saved
+water mask or exploration. During water animation, pass freshly computed light
+polygons to rendering in the same frame; never reuse them across changed visual
+positions. Preserve proper party names in Detect Thoughts, with ordinary monster
+labels remaining lowercase.
+
+Exact light geometry may be reused across visibility passes only when the numeric
+origin, radius and ordered blocking segments are identical. The memo is bounded
+per world (32 entries; 512 KiB estimated storage), independent of permanent fog.
+Never cache viewer permission, creature visibility, stealth, exploration updates,
+or encounter checks as a substitute for recomputing them after each actual move.
+Use computeLightPolygon(...,{cache:false}) as the exact comparison path for any
+changes to blockers. Keep source, door, pillar, wall, route and eviction tests.
+
+
+Generated ordinary equipment treasure stores a whole-pile GP value on the floor,
+and a per-unit value in gear. Keep these synchronized whenever generation or
+magic allocation changes a pile price. Repair legacy generated bundles on pickup;
+never reprice dropped equipment from its floor entity value or reprice magic.
+Do not alter quantity, physical coins, floor budget or sale XP as part of a value
+bookkeeping fix. Keep the pickup/save/drop/repick/sale conservation regression.
+Character-card fingerprints exclude movement coordinates in both the current
+character and its normalized raw mirror; keep room/route context and all sheet
+mechanics in the fingerprint. Exploration-completion caches key exact required
+geometry and immutable partial coverage. Bounds may reject completion, never
+certify it: matching extents still require exact polygon difference, including
+small interior holes. Preserve the former ray arithmetic as an exact test oracle.
+
+The vendored polygon clipper has finite predecessor/successor traversal guards.
+Consumed-neighbor cycles were reproduced from a real organic-map merge and
+otherwise hang synchronously forever. Keep the 44-vertex cycle fixture and its
+bounded-child regression. A failed merge must retain exact original pieces;
+never erase fog memory, round boundaries or claim full coverage on failure.
+
+Exact-piece compaction indexes immutable polygons and reuses their orientation
+and structural signatures. Never mutate rings in place: replace partial shapes.
+This avoids reserializing all old contour coordinates on every water frame.
+
+A 512-point compaction-budget experiment was rejected: it sped up movement but
+quadrupled retained fog data at 100 moves, worsening save/transport stability.
+Do not restore that tradeoff without resolving permanent exploration semantics
+and validating payload size. Normal exact compaction is still attempted; only
+actual geometry failures retain exact pieces.
+
+The clipper also indexes coincident-endpoint consumption candidates for degree
+16 and above, retaining original outer/inner candidate order and conditions.
+`consume()` does not mutate endpoint event-list identities. Keep the dense-fan
+and shared-corner golden cases; changing event ordering can change geometry.
+
+
+## Confirmed exploration and treasure policies (November 19, 2026)
+Permanent exploration uses actual world/grid positions, including logical viewers
+for unattended lights. Cosmetic movement positions affect current light only.
+Never promote visual-only visible cells or door sides into permanent memory.
+Organic completion excludes opaque artwork just like inner walls. Native alpha=0
+contours are generated by scripts/build-organic-exploration.py (Pillow + Node),
+with artwork-edge and declared walkable-center reachability. Rebuild data when
+organic images change; preserve exact mask, pose and tiny-unseen-gap tests.
+Starting floor wealth includes all recoverable monster equipment, special gold,
+and generated caches. Minimum is 4000 GP times level, expected mean 4400 GP times
+level, maximum 6000 GP times level. At least 80% of GP value comes from named
+treasure-table results, coins or magic. Approximately 90% of GP value is challenged
+by a real carried inventory, trap, search concealment, or verified secret-only room.
+Table-result values may rescale; ordinary equipment keeps printed prices and magic
+prices remain fixed. Preserve physical coin denominations and quantities on transfer.
+Generated monster rewards exist at generation and transfer through stealing/charm/
+death, never regenerate on death. Runtime wandering rewards and old saves are separate.
+Never refill spent floors or rerun the generation allocator when loading a save.
+
+Confirmed magic valuation (November 20): starting-wealth budgets count the highest
+possible sale value. An unidentified 80 GP potion that can sell for 100 GP counts
+as 100 GP; a more valuable item may be identified first. Already identified items
+use their current sale value. Use highestMagicSaleValue for both allocation and
+audit; preserve item prices, identification, quantities and existing sale mechanics.
+
+
+## Versioned delivery (November 20, 2026)
+Read docs/FRONTEND_DELIVERY.md before publishing frontend changes. Build from a
+stable reviewed checkout, verify all snapshot hashes, smoke the direct release
+URL, then activate. .frontend-build is generated and excluded from Git/Docker.
+Never prune old releases/art groups automatically or overwrite immutable URLs.
+Do not publish unused-assets or private state. Keep API/session caching private.
+Delivery changes must not alter rules, physical currency or JSON game data.
+The production delivery-only rollout wrapped the existing 4330375 game; it did
+not publish the large local gameplay batch. Do not confuse those source states.
+
+Nginx delivery regression: exact `/site/` uses root + try_files, not a file alias
+on a trailing-slash URI. The latter passed nginx -t but produced HTTP 500 from
+index.htmlindex.html concatenation. Validate the exact entry on a loopback canary
+and public browser smoke; testing only a direct frozen snapshot is insufficient.
+
+## Lossless private exploration hotfix (November 20, 2026)
+private-visibility.js/private_visibility.py compress only private room I/O. Keep
+wire/decoded limits synchronized (1 MiB / 5 MiB) and retain all schema/complexity
+checks. Never round, discard or simplify exploration to fit transport. Legacy
+clients remain raw; encoded responses require explicit negotiation. Preserve
+private write ordering, floor guards, canonical persistence and guest isolation.
+The narrow publication checkout is in the audit artifacts release-source worktree;
+the broad gameplay workspace is intentionally not reset/stashed/replaced. Its
+local main branch may remain behind the published hotfix while changes are dirty.
+
+## Complete publication authorized after the hotfix
+The user subsequently requested all pending work be pushed and published. The
+full release includes the formerly local gameplay, renderer, water, autosave
+and treasure changes. Earlier narrow-release notes describe dd030e4 and its
+predecessor only. Private files and the unused-asset archive remain excluded.

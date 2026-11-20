@@ -640,7 +640,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  199
+                         "page":  199,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "boar",
@@ -959,7 +960,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  201
+                         "page":  201,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "cloaker",
@@ -1067,7 +1069,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  202
+                         "page":  202,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "crocodile",
@@ -1093,7 +1096,8 @@
                          "source":  [
                                         "quickstarter"
                                     ],
-                         "page":  203
+                         "page":  203,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "cultist",
@@ -1201,7 +1205,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  203
+                         "page":  203,
+                         "waterHabitat": {"eligible": true, "prefersWater": true}
                      },
                      {
                          "slug":  "demon-balor",
@@ -1539,7 +1544,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  208
+                         "page":  208,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "dinosaur-plesiosaurus",
@@ -1566,7 +1572,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  208
+                         "page":  208,
+                         "waterHabitat": {"eligible": true, "prefersWater": true}
                      },
                      {
                          "slug":  "dinosaur-pterodactyl",
@@ -1867,7 +1874,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  211
+                         "page":  211,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "dragon-swamp",
@@ -1893,7 +1901,8 @@
                          "source":  [
                                         "quickstarter"
                                     ],
-                         "page":  211
+                         "page":  211,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "drow",
@@ -2228,7 +2237,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  215
+                         "page":  215,
+                         "waterHabitat": {"eligible": true, "prefersWater": true}
                      },
                      {
                          "slug":  "elephant",
@@ -2359,7 +2369,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  216
+                         "page":  216,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "gargoyle",
@@ -2414,7 +2425,8 @@
                          "source":  [
                                         "quickstarter"
                                     ],
-                         "page":  217
+                         "page":  217,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "ghast",
@@ -2684,7 +2696,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  219
+                         "page":  219,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "gibbering-mouther",
@@ -2984,7 +2997,8 @@
                          "source":  [
                                         "quickstarter"
                                     ],
-                         "page":  222
+                         "page":  222,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "gorgon",
@@ -3065,7 +3079,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  223
+                         "page":  223,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "grick",
@@ -3093,7 +3108,8 @@
                          "source":  [
                                         "quickstarter"
                                     ],
-                         "page":  223
+                         "page":  223,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "griffon",
@@ -3228,7 +3244,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  225
+                         "page":  225,
+                         "waterHabitat": {"eligible": true, "prefersWater": true}
                      },
                      {
                          "slug":  "hag-weald",
@@ -3363,7 +3380,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  226
+                         "page":  226,
+                         "waterHabitat": {"eligible": true, "prefersWater": true}
                      },
                      {
                          "slug":  "hobgoblin",
@@ -3443,7 +3461,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  227
+                         "page":  227,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "invisible-stalker",
@@ -3498,7 +3517,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  228
+                         "page":  228,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "knight",
@@ -3611,7 +3631,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  229
+                         "page":  229,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "leech-giant",
@@ -3638,7 +3659,8 @@
                          "source":  [
                                         "quickstarter"
                                     ],
-                         "page":  229
+                         "page":  229,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "leprechaun",
@@ -3756,7 +3778,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  231
+                         "page":  231,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "mage",
@@ -3839,7 +3862,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  232
+                         "page":  232,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "manticore",
@@ -3948,7 +3972,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  232
+                         "page":  232,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "mimic",
@@ -4090,7 +4115,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  236
+                         "page":  236,
+                         "waterHabitat": {"averse": true}
                      },
                      {
                          "slug":  "mushroomfolk",
@@ -4258,7 +4284,8 @@
                          "source":  [
                                         "quickstarter"
                                     ],
-                         "page":  239
+                         "page":  239,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "octopus-giant",
@@ -4285,7 +4312,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  239
+                         "page":  239,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "ogre",
@@ -4448,7 +4476,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  241
+                         "page":  241,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "outsider-rime-walker",
@@ -4694,7 +4723,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  243
+                         "page":  243,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "pirate",
@@ -4720,7 +4750,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  243
+                         "page":  243,
+                         "waterHabitat": {"eligible": true, "prefersWater": true}
                      },
                      {
                          "slug":  "priest",
@@ -5161,7 +5192,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  249
+                         "page":  249,
+                         "waterHabitat": {"eligible": true, "bound": true, "prefersWater": true}
                      },
                      {
                          "slug":  "salamander",
@@ -5241,7 +5273,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  249
+                         "page":  249,
+                         "waterHabitat": {"averse": true}
                      },
                      {
                          "slug":  "scorpion",
@@ -5376,7 +5409,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  251
+                         "page":  251,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "shark-megalodon",
@@ -5403,7 +5437,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  251
+                         "page":  251,
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "siren",
@@ -5430,7 +5465,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  251
+                         "page":  251,
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "skeleton",
@@ -6641,7 +6677,8 @@
                          "source":  [
                                         "srd5e"
                                     ],
-                         "page":  ""
+                         "page":  "",
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "srd5e-monster-couatl",
@@ -8305,7 +8342,8 @@
                          "source":  [
                                         "srd5e"
                                     ],
-                         "page":  ""
+                         "page":  "",
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "srd5e-monster-grimlock",
@@ -8773,7 +8811,8 @@
                          "source":  [
                                         "srd5e"
                                     ],
-                         "page":  ""
+                         "page":  "",
+                         "waterHabitat": {"eligible": true}
                      },
                      {
                          "slug":  "srd5e-monster-ifriti",
@@ -9371,7 +9410,8 @@
                          "source":  [
                                         "srd5e"
                                     ],
-                         "page":  ""
+                         "page":  "",
+                         "waterHabitat": {"eligible": true, "bound": true}
                      },
                      {
                          "slug":  "srd5e-monster-kreischer",
@@ -11945,7 +11985,8 @@
                          "source":  [
                                         "srd5e"
                                     ],
-                         "page":  ""
+                         "page":  "",
+                         "waterHabitat": {"eligible": true, "bound": true, "prefersWater": true}
                      },
                      {
                          "slug":  "srd5e-monster-salamander",
@@ -14288,7 +14329,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  260
+                         "page":  260,
+                         "waterHabitat": {"averse": true}
                      },
                      {
                          "slug":  "vampire-spawn",
@@ -14317,7 +14359,8 @@
                          "source":  [
                                         "core"
                                     ],
-                         "page":  261
+                         "page":  261,
+                         "waterHabitat": {"averse": true}
                      },
                      {
                          "slug":  "violet-fungus",

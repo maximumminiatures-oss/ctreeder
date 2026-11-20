@@ -59,16 +59,16 @@ test('authoritative stealth entry respects solid geometry and the circular six-s
   assert.equal(actor(outsideCircle).stealthed, true);
 });
 
-test('authoritative movement breaks ordinary stealth at three squares and persists that result after hydration', async () => {
+test('authoritative movement retains stealth within three squares when an attack remains reachable', async () => {
   const state = scene(4); state.characters[0].stealthed = true;
   let result = await command(state, { type: 'normalize' });
   assert.equal(actor(result).stealthed, true);
   result = await command(result, { type: 'move', dx: 1, dy: 0 });
   assert.equal(actor(result).x, 4);
-  assert.equal(actor(result).stealthed, false);
-  assert.equal(actor(result).raw.stealthed, false);
+  assert.equal(actor(result).stealthed, true);
+  assert.equal(actor(result).raw.stealthed, true);
   result = await command(result, { type: 'normalize' });
-  assert.equal(actor(result).stealthed, false);
+  assert.equal(actor(result).stealthed, true);
 });
 
 test('authoritative stealth auto-succeeds against deaf-only observers even with a natural-one random source', async () => {
@@ -81,11 +81,11 @@ test('authoritative stealth auto-succeeds against deaf-only observers even with 
   }
 });
 
-test('authoritative proximity removes ordinary stealth without ending the separate invisibility effect', async () => {
+test('a reachable attack at proximity preserves ordinary stealth and its separate invisibility effect', async () => {
   const state = scene(4);
   Object.assign(state.characters[0], { stealthed: true, invisibility: { rounds: 3, source: 'spell', breakOnOffense: true } });
   const result = await command(state, { type: 'move', dx: 1, dy: 0 });
-  assert.equal(actor(result).stealthed, false);
+  assert.equal(actor(result).stealthed, true);
   assert.equal(actor(result).invisibility.rounds, 3);
   assert.equal(actor(result).invisibility.source, 'spell');
 });
