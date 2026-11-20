@@ -294,3 +294,16 @@ target/area IDs must never bind to reused IDs on another floor. Keep carried
 party effects and creature-illusion Focus links intact without transporting fixed
 floor/pit illusions. Travel preparation and rendering failures must restore the
 previous state, clocks, rule tables, history and view rather than half-commit.
+
+
+## Reviewed delivery hotfix (November 20, 2026)
+Read docs/FRONTEND_DELIVERY.md before deployment. Native nginx uses root plus
+try_files for the exact /site/ entry, not a trailing-slash file alias. Retain all
+immutable releases and artwork groups for old tabs; never prune automatically.
+Never publish unused-assets or Clip Studio sources. The release uses the supplied
+648x432 floor and observable artwork retry. Keep private-visibility.js and
+private_visibility.py protocol limits synchronized. Gzip is lossless transport;
+never round/discard contours or alter visibility rules to fit a payload.
+Legacy clients remain supported; compressed responses require an explicit header.
+The larger local gameplay batch remains unpublished. Do not replace it with this
+hotfix checkout or reset/stash it as part of deployment.

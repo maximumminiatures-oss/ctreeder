@@ -16448,15 +16448,43 @@ function startClock() {
   }, 1000);
 }
 
+let artworkLoading = false;
+let artworkReady = false;
+async function loadDungeonArtwork() {
+  if (artworkLoading) return false;
+  artworkLoading=true;
+  const root=document.getElementById('artwork-loading'),text=document.getElementById('artwork-loading-text'),retry=document.getElementById('artwork-retry');
+  if(retry)retry.hidden=true;
+  if(root)root.hidden=false;
+  let acceptingProgress=true;
+  try {
+    let progress;
+    await preloadRendererAssets({onProgress:value=>{
+      progress=value;if(acceptingProgress && text)text.textContent='Loading dungeon artwork: '+value.loaded+' loaded'+(value.failed?', '+value.failed+' unavailable':'')+'.';
+    },onRequiredReady:()=>{if(state)render();}});
+    if(text)text.textContent=progress?.failed?'Dungeon artwork loaded; '+progress.failed+' optional images unavailable.':'Dungeon artwork ready.';
+    if(retry)retry.hidden=!progress?.failed;
+    if(root)root.hidden=!progress?.failed;
+    artworkReady=true;
+    if(state){render();if(ui.statusText.textContent.startsWith('Dungeon artwork is incomplete.'))setStatus('Dungeon artwork ready.');}
+    return true;
+  } catch(error) {
+    acceptingProgress=false;
+    artworkReady=false;
+    if(text)text.textContent='Dungeon artwork could not finish loading. Retry when your connection is ready.';
+    if(retry)retry.hidden=false;
+    console.warn('Dungeon artwork load failed.',error);
+    return false;
+  } finally {artworkLoading=false;}
+}
+
 async function initialize() {
   void getAccountSession().then((session) => {
     accountSession = session;
     renderMultiplayerUi();
   }).catch(() => {});
-  const assetsReady = preloadRendererAssets().then(() => true).catch((error) => {
-    console.warn("Dungeon artwork failed to load; keeping the map black.", error);
-    return false;
-  });
+  document.getElementById('artwork-retry')?.addEventListener('click', () => { void loadDungeonArtwork(); });
+  const assetsReady = loadDungeonArtwork();
   hookInputEvents();
   hookMapViewportInteractions();
   ui.seedInput.value = `${createRandomDungeonSeed()}`;
@@ -16472,7 +16500,7 @@ async function initialize() {
   startClock();
   const [artworkLoaded] = await Promise.all([assetsReady, generateAndRender()]);
   render();
-  if (!artworkLoaded) setStatus("Dungeon artwork could not load. Reload the page to retry.");
+  if (!artworkLoaded && !artworkReady) setStatus("Dungeon artwork is incomplete. Use Retry Artwork to try again.");
   restoreRoomFromUrlIfPresent();
 }
 

@@ -66,7 +66,7 @@ test('the complete local catalog yields the documented guardian list without cha
   assert.equal(pool.filter(entry => /marilith/.test(entry.name)).length, 1);
   assert.equal(catalog.monsters.find(monster => monster.slug === 'the-tarrasque').name, 'The Tarrasque');
   const report = await readFile(new URL('../../docs/ORPHAN_GUARDIANS.md', import.meta.url), 'utf8');
-  const rows = report.split('\n').filter(line => /^\| [a-z]/.test(line));
+  const rows = report.split(/\r?\n/).filter(line => /^\| [a-z]/.test(line));
   assert.equal(rows.length, pool.length);
   for (const entry of pool) assert.ok(rows.includes(`| ${entry.name} | +${entry.intelligence} | ${entry.sourceName} |`), entry.name);
 });

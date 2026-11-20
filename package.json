@@ -6,7 +6,8 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "test": "node --test tests/js/*.test.mjs"
+    "test": "node --test tests/js/*.test.mjs",
+    "build:site": "python scripts/build_versioned_site.py --activate"
   },
   "dependencies": {
     "jsdom": "30.0.1"

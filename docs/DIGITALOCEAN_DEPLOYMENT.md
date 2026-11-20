@@ -48,8 +48,11 @@ importer receives no database secrets and exposes no host port.
    docker compose -p sd-dungeon-generator -f docker-compose.yml -f docker-compose.digitalocean.yml config --quiet
    ```
 
-6. Portfolio and game-static updates are served directly from the checkout and
-   need no app restart. For Python/runtime changes, replace only the app:
+6. Portfolio updates need no app restart. For game-static updates, build and
+   verify a frozen release, smoke its direct URL, then activate it as described
+   in FRONTEND_DELIVERY.md. Do not replace retained immutable releases. The
+   public entry now serves `.frontend-build/index.html`, not the raw checkout.
+   For Python/runtime changes, replace only the app:
 
    ```sh
    docker compose -p sd-dungeon-generator -f docker-compose.yml -f docker-compose.digitalocean.yml build app

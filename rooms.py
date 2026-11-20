@@ -1,3 +1,5 @@
+from private_visibility import pack_private_visibility, unpack_private_visibility, ENCODING as FOG_ENCODING, HEADER as FOG_HEADER
+import math
 """Host-owned dungeons, guest participation and authoritative game commands."""
 
 from copy import deepcopy
@@ -126,10 +128,65 @@ def primary_assignments(room, members):
     return result
 
 
+def validate_exploration_memory(memory, state):
+    """Validate private tile geometry without mixing another member's exploration."""
+    if memory is None:
+        return None
+    if not isinstance(memory, dict) or memory.get("version") != 1 or not isinstance(memory.get("routes"), dict):
+        raise ValueError("Invalid player exploration memory.")
+    route_ids = {"", *(route["id"] for route in state.get("underpasses", []))}
+    route_ids.add("@legacy")  # Existing terrain memory only; never current vision.
+    width, height = state["map"]["width"], state["map"]["height"]
+    routes = {}
+    for route_id, route in memory["routes"].items():
+        if route_id not in route_ids or not isinstance(route, dict):
+            raise ValueError("Invalid player exploration route.")
+        complete, partial = route.get("complete", {}), route.get("partial", {})
+        if not isinstance(complete, dict) or not isinstance(partial, dict) or len(complete) + len(partial) > width * height:
+            raise ValueError("Invalid player exploration tiles.")
+        for key in [*complete, *partial]:
+            try:
+                x_text, y_text = key.split(",")
+                x, y = int(x_text), int(y_text)
+            except (AttributeError, TypeError, ValueError):
+                raise ValueError("Invalid player exploration tile.") from None
+            if key != f"{x},{y}" or not 0 <= x < width or not 0 <= y < height:
+                raise ValueError("Invalid player exploration tile.")
+            if key in complete:
+                if complete[key] is not True or key in partial:
+                    raise ValueError("Invalid completed exploration tile.")
+                continue
+            shape = partial[key]
+            if not isinstance(shape, list) or not shape:
+                raise ValueError("Invalid partial exploration geometry.")
+            for polygon in shape:
+                if not isinstance(polygon, list) or not polygon:
+                    raise ValueError("Invalid partial exploration geometry.")
+                for ring in polygon:
+                    if not isinstance(ring, list) or len(ring) < 4:
+                        raise ValueError("Invalid partial exploration geometry.")
+                    for point in ring:
+                        if (not isinstance(point, list) or len(point) != 2 or
+                            any(type(v) not in (int, float) or not math.isfinite(v) for v in point) or
+                            not x <= point[0] <= x + 1 or not y <= point[1] <= y + 1):
+                            raise ValueError("Invalid partial exploration point.")
+                    if ring[0] != ring[-1]:
+                        raise ValueError("Invalid partial exploration ring.")
+        summaries = {}
+        for field in ("rooms", "halls"):
+            entries = route.get(field, {})
+            ids = {region["id"] for region in state.get(field, [])}
+            if not isinstance(entries, dict) or any(key not in ids or flag is not True for key, flag in entries.items()):
+                raise ValueError("Invalid completed exploration region.")
+            summaries[field] = entries if memory.get("compactRegions") is True else {}
+        routes[route_id] = {"complete": complete, "partial": partial, **summaries}
+    return {"version": 1, "routes": routes, **({"compactRegions": True} if memory.get("compactRegions") is True else {})}
+
+
 def validate_viewer_visibility(value, state):
     if value in (None, {}):
         return {}
-    validate_json(value, max_bytes=1024 * 1024)
+    value, _ = unpack_private_visibility(value)
     width = int(state.get("map", {}).get("width", 0))
     height = int(state.get("map", {}).get("height", 0))
 
@@ -170,7 +227,9 @@ def validate_viewer_visibility(value, state):
         if not isinstance(routes, dict) or any(route_id not in route_ids for route_id in routes):
             raise ValueError("Invalid player visibility route.")
         route_visibility[field] = {route_id: coordinates(field, cells) for route_id, cells in routes.items()}
+    memory = validate_exploration_memory(value.get("explorationMemory"), state)
     return {
+        **({"explorationMemory": memory} if memory is not None else {}),
         "exploredEver": coordinates("exploredEver"),
         **route_visibility,
         "visitedRoomIds": list(dict.fromkeys(visited)),
@@ -187,6 +246,9 @@ def update_viewer_visibility(member, value, state):
             return
     memories = (member.visibility_json or {}).get("_floors", {})
     current = validate_viewer_visibility(value, state)
+    # Older tabs cannot report precise fog; their coarse heartbeat must not erase it.
+    if "explorationMemory" not in current and "explorationMemory" in (member.visibility_json or {}):
+        current["explorationMemory"] = member.visibility_json["explorationMemory"]
     member.visibility_json = {**current, **({"_floors": memories} if memories else {})}
 
 
@@ -224,7 +286,11 @@ def room_view(db, room, member, *, include_state=True):
         active_state = {key: value for key, value in room.state_json.items() if key != "dungeonFloors"}
         view["state_json"] = {**player_feedback_state(active_state, set(view["owned_character_ids"])),
                               "groupAction": view["group_action"]}
-        view["viewer_visibility"] = {key: value for key, value in (member.visibility_json or {}).items() if key != "_floors"}
+        if isinstance(view["state_json"].get("visibility"), dict):
+            view["state_json"]["visibility"] = {key: value for key, value in view["state_json"]["visibility"].items()
+                if key not in {"explorationMemory", "exploredLightPolygons", "exploredLightPolygonKeys"}}
+        private = {key: value for key, value in (member.visibility_json or {}).items() if key != "_floors"}
+        view["viewer_visibility"] = pack_private_visibility(private) if request.headers.get(FOG_HEADER) == FOG_ENCODING else private
     return view
 
 
@@ -409,8 +475,11 @@ def register_room_routes(app, engine, User, SavedRun, SavedCharacter, rate_limit
             room = GameRoom(host_user_id=current_user.id, name=name.strip(), state_json=normalized, **normalized_options)
             db.add(room)
             db.flush()
+            initial_visibility = dict(normalized.get("visibility", {}))
+            if "explorationMemory" in state.get("visibility", {}):
+                initial_visibility["explorationMemory"] = state["visibility"]["explorationMemory"]
             host = RoomMember(room_id=room.id, user_id=current_user.id, display_name=(current_user.display_name or current_user.username)[:80], role="host",
-                visibility_json=validate_viewer_visibility(normalized.get("visibility", {}), normalized))
+                visibility_json=validate_viewer_visibility(pack_private_visibility(initial_visibility), normalized))
             db.add(host)
             db.flush()
             room.ownership_json = {character["id"]: host.id for character in normalized["characters"]}

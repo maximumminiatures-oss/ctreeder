@@ -46,7 +46,7 @@ const HATCH_LENGTH_PX = 15;
 const ORGANIC_ALPHA_THRESHOLD = 16;
 const ORGANIC_CORNER_ZONE_PX = 6;
 const ASSET_PATHS = Object.freeze({
-  floor: "./assets/room_grid_backgroung.jpg"
+  floor: "./assets/room_grid_background-small.jpg"
 });
 const ROTUNDA_VARIANTS = Object.freeze({
   7: Object.freeze([
@@ -227,14 +227,24 @@ const imageLoads = new Map();
 const imageLoadQueue = [];
 let activeImageLoads = 0;
 
+let artworkProgress = () => {};
+const artworkStates = new Map();
+function reportArtwork(src,status) {
+  artworkStates.set(src,status);
+  const values=[...artworkStates.values()];
+  artworkProgress({total:values.length,loaded:values.filter(v=>v==='loaded').length,failed:values.filter(v=>v==='failed').length});
+}
+
 function loadImage(src) {
   if (imageLoads.has(src)) return imageLoads.get(src);
+  reportArtwork(src, 'pending');
   const pending = new Promise((resolve, reject) => {
     imageLoadQueue.push(() => loadImageNow(src).then(resolve, reject));
     drainImageLoadQueue();
   });
-  imageLoads.set(src, pending);
-  return pending;
+  const cached=pending.catch(error=>{imageLoads.delete(src);throw error;});
+  imageLoads.set(src, cached);
+  return cached;
 }
 
 function drainImageLoadQueue() {
@@ -253,10 +263,11 @@ function loadImageNow(src) {
     const deadline = setTimeout(() => {
       image.onload = image.onerror = null;
       image.src = "";
+      reportArtwork(src, 'failed');
       reject(new Error(`Renderer asset timed out: ${src}`));
-    }, 15000);
-    image.onload = () => { clearTimeout(deadline); resolve(image); };
-    image.onerror = () => { clearTimeout(deadline); reject(new Error(`Unable to load renderer asset: ${src}`)); };
+    }, 45000);
+    image.onload = () => { clearTimeout(deadline); reportArtwork(src, 'loaded'); resolve(image); };
+    image.onerror = () => { clearTimeout(deadline); reportArtwork(src, 'failed'); reject(new Error(`Unable to load renderer asset: ${src}`)); };
     image.src = src;
   });
 }
@@ -326,10 +337,11 @@ async function loadAngledWallImageMap() {
   return Object.fromEntries(entries.filter(([, image]) => image));
 }
 
-export async function preloadRendererAssets() {
+export async function preloadRendererAssets({ onProgress = () => {}, onRequiredReady = () => {} } = {}) {
+  artworkProgress = onProgress;
   const images = Promise.all(
     Object.entries(ASSET_PATHS).map(async ([key, src]) => [key, await loadImage(src)])
-  ).then(Object.fromEntries);
+  ).then(Object.fromEntries).then(images => { rendererAssets.images = images; rendererAssets.ready = true; onRequiredReady(); return images; });
   const doors = loadAssetImageMap(NEW_DOOR_KEYS);
   const decor = resolveAssetGroups({
     pillars: Promise.all(PILLAR_KEYS.map((key) => loadOptionalImage(`./assets/${key}.png`))),

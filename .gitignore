@@ -32,3 +32,13 @@ backups/
 private/
 *.pem
 *.key
+
+# Local archive is never a release artifact.
+unused-assets/
+**/unused-assets/
+
+# Generated immutable frontend releases; build from public source, never commit.
+.frontend-build/
+
+# Authored art masters are not runtime/deployment assets.
+**/*.clip
